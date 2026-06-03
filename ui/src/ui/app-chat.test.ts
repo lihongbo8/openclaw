@@ -1372,6 +1372,41 @@ describe("handleSendChat", () => {
     expect(host.chatMessage).toBe("keep typing");
   });
 
+  it("clears the submitted prompt when the composer only differs by surrounding whitespace", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "chat.send") {
+        return { status: "started" };
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      chatMessage: "send this  ",
+    });
+    let draft = "send this";
+    let reads = 0;
+    Object.defineProperty(host, "chatMessage", {
+      configurable: true,
+      get() {
+        reads += 1;
+        return reads === 1 ? "send this  " : draft;
+      },
+      set(value: string) {
+        draft = value;
+      },
+    });
+
+    await handleSendChat(host);
+
+    const payload = findRequestPayload(
+      request as unknown as MockCallSource,
+      "chat.send",
+      "chat send payload",
+    );
+    expect(payload.message).toBe("send this");
+    expect(host.chatMessage).toBe("");
+  });
+
   it("preserves attachment payloads for edited drafts after a delayed send", async () => {
     const switchUpdate = createDeferred<boolean>();
     const request = vi.fn(async (method: string) => {

@@ -44,7 +44,9 @@ cloudBaseUrl:
 - 开发者没有被要求填写 execution token、Gateway、RoleResult、AuditSummary、entitlement、审计上传、结算协议或云端 API。
 - 输入、输出、规则、验收标准、包结构、协议映射、验证材料和上传标准由开发者模式资料包生成。
 - `role_package/` 可下载或导出，并至少包含 `manifest.json`、`listing.md`、`README.md`、adapter/wrapper、validation/smoke 材料。
+- `role_package/manifest.json` 是公开包清单，只能包含 `manifestVersion`、`rolePackageId`、`version`、`name`、`entrypoint`、`permissions` 和 `files` 等公开包字段；`entrypoint` 必须是 `role_package/` 内的相对路径，不能包含 `roleListingId` 或任何云端执行事实。
 - 包内不包含 raw execution token、cloud bearer、provider key、secret 字段、本地绝对路径、使用者模式私有历史、订单/钱包/审核/结算状态。
+- 开发者模式确认业务规格后必须走 `dijie_role_builder` 的 `confirm_brief=true` + `package_only=true` 路径生成公开包；这一阶段发生在创建商品和购买执行之前，不能要求或传入 execution token、entitlement、订单、钱包、device、workspace、Gateway、审计或结算字段。
 
 ## 云端联动预备
 
@@ -73,6 +75,7 @@ billingBeneficiaryRef:
 云端预备检查：
 
 - vendor 创建页可以填写授权价和岗位 Token 输入/输出单价。
+- vendor 创建页可以选择 OpenClaw 导出的 `role_package/` 目录；云端必须先通过 `/vendor/dijie/role-packages` 做公开包清单和安全扫描，再回填 `packageId`、`packageVersion` 和 `role_package/manifest.json`。
 - admin 审核页只展示公开 listing metadata、授权价和岗位 Token 单价。
 - `metadata.dijieRole` 不保存 prompt、chat history、modeStage、workspace、execution、entitlement、order、wallet、provider secret 或本地路径。
 - 缺少 `roleTokenPricing`、缺少开发者/结算归属、缺少 `modelProxyUsage` 都必须失败关闭，不能假成功。
@@ -81,8 +84,8 @@ billingBeneficiaryRef:
 
 1. 开发者进入 OpenClaw 主对话的开发者模式，只描述业务逻辑。
 2. 主系统生成并确认业务规格，内部沉淀 `RoleBuildBrief`。
-3. 主系统生成 `role_package/`，本地 scanner 通过。
-4. 开发者上传岗位包到 developer center，填写公开 listing 和价格。
+3. 主系统用 package-only 路径生成 `role_package/`，本地 scanner 通过。
+4. 开发者上传岗位包到 developer center，平台校验目录后回填岗位包身份，开发者只填写公开 listing 和价格。
 5. admin 审核并发布。
 6. buyer 购买或授权岗位。
 7. OpenClaw 通过云端事实请求 execution token。

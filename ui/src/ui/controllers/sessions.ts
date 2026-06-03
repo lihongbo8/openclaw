@@ -1271,7 +1271,7 @@ export async function deleteSessionsAndRefresh(
     return [];
   }
   const confirmed = window.confirm(
-    `Delete ${keys.length} ${keys.length === 1 ? "session" : "sessions"}?\n\nThis will delete the session entries and archive their transcripts.`,
+    `删除 ${keys.length} 条对话记录？\n\n对话条目和对应记录都会归档删除。`,
   );
   if (!confirmed) {
     return [];

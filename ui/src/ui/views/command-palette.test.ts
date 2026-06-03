@@ -133,13 +133,21 @@ describe("command palette", () => {
     await i18n.setLocale("zh-CN");
 
     const configItem = getPaletteItems().find((item) => item.id === "nav-config");
+    const marketplaceItem = getFilteredPaletteItems("岗位商城").find(
+      (item) => item.id === "nav-marketplace",
+    );
+    const toolsItem = getFilteredPaletteItems("已安装工具").find(
+      (item) => item.id === "nav-skills",
+    );
     const debugItem = getFilteredPaletteItems("切换调试").find((item) => item.id === "skill-debug");
     expect(configItem?.label).toBe("设置");
+    expect(marketplaceItem?.action).toBe("nav:marketplace");
+    expect(toolsItem?.action).toBe("nav:skills");
     expect(debugItem?.id).toBe("skill-debug");
   });
 
   it("renders a labelled modal combobox with listbox options", async () => {
-    await renderPalette({ query: "overview", activeIndex: 0 });
+    await renderPalette({ query: "主对话", activeIndex: 0 });
 
     const dialog = container.querySelector<HTMLDialogElement>("dialog.cmd-palette-overlay");
     expect(dialog?.open).toBe(true);
@@ -156,11 +164,11 @@ describe("command palette", () => {
     expect(input?.getAttribute("aria-autocomplete")).toBe("list");
     expect(input?.getAttribute("aria-expanded")).toBe("true");
     expect(input?.getAttribute("aria-controls")).toBe("cmd-palette-listbox");
-    expect(input?.getAttribute("aria-activedescendant")).toBe("cmd-palette-option-nav-overview");
+    expect(input?.getAttribute("aria-activedescendant")).toBe("cmd-palette-option-nav-chat");
     expect(document.activeElement).toBe(input);
 
     expect(listbox?.getAttribute("role")).toBe("listbox");
-    const option = listbox?.querySelector<HTMLElement>("#cmd-palette-option-nav-overview");
+    const option = listbox?.querySelector<HTMLElement>("#cmd-palette-option-nav-chat");
     expect(option?.getAttribute("role")).toBe("option");
     expect(option?.getAttribute("aria-selected")).toBe("true");
   });

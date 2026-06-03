@@ -2,12 +2,10 @@ import { html } from "lit";
 import { ConnectErrorDetailCodes } from "../../../../packages/gateway-protocol/src/connect-error-details.js";
 import { t } from "../../i18n/index.ts";
 import type { AppViewState } from "../app-view-state.ts";
-import { buildExternalLinkRel, EXTERNAL_LINK_TARGET } from "../external-link.ts";
 import { icons } from "../icons.ts";
 import { normalizeBasePath } from "../navigation.ts";
 import { normalizeLowercaseStringOrEmpty } from "../string-coerce.ts";
 import { agentLogoUrl } from "./agents-utils.ts";
-import { renderConnectCommand } from "./connect-command.ts";
 import {
   resolveAuthHintKind,
   resolvePairingHint,
@@ -251,20 +249,6 @@ function renderLoginFailure(feedback: LoginFailureFeedback) {
     >
       <div class="login-gate__failure-title">${feedback.title}</div>
       <div class="login-gate__failure-summary">${feedback.summary}</div>
-      <ol class="login-gate__failure-steps">
-        ${feedback.steps.map((step) => html`<li>${step}</li>`)}
-      </ol>
-      <details class="login-gate__failure-detail">
-        <summary>${t("login.failure.rawError")}</summary>
-        <div class="login-gate__failure-raw mono">${feedback.rawError}</div>
-      </details>
-      <a
-        class="session-link login-gate__failure-docs"
-        href=${feedback.docsHref}
-        target=${EXTERNAL_LINK_TARGET}
-        rel=${buildExternalLinkRel()}
-        >${feedback.docsLabel}</a
-      >
     </div>
   `;
 }
@@ -284,8 +268,8 @@ export function renderLoginGate(state: AppViewState) {
     <div class="login-gate">
       <div class="login-gate__card">
         <div class="login-gate__header">
-          <img class="login-gate__logo" src=${faviconSrc} alt="OpenClaw" />
-          <div class="login-gate__title">OpenClaw</div>
+          <img class="login-gate__logo" src=${faviconSrc} alt="迭界AI" />
+          <div class="login-gate__title">迭界AI</div>
           <div class="login-gate__sub">${t("login.subtitle")}</div>
         </div>
         <div class="login-gate__form">
@@ -312,7 +296,7 @@ export function renderLoginGate(state: AppViewState) {
                   const v = (e.target as HTMLInputElement).value;
                   state.applySettings({ ...state.settings, token: v });
                 }}
-                placeholder="OPENCLAW_GATEWAY_TOKEN (${t("login.passwordPlaceholder")})"
+                placeholder="${t("overview.access.token")}（${t("login.passwordPlaceholder")}）"
                 @keydown=${(e: KeyboardEvent) => {
                   if (e.key === "Enter") {
                     state.connect();
@@ -373,25 +357,6 @@ export function renderLoginGate(state: AppViewState) {
           </button>
         </div>
         ${failure ? renderLoginFailure(failure) : ""}
-        <div class="login-gate__help">
-          <div class="login-gate__help-title">${t("overview.connection.title")}</div>
-          <ol class="login-gate__steps">
-            <li>
-              ${t("overview.connection.step1")}${renderConnectCommand("openclaw gateway run")}
-            </li>
-            <li>${t("overview.connection.step2")} ${renderConnectCommand("openclaw dashboard")}</li>
-            <li>${t("overview.connection.step3")}</li>
-          </ol>
-          <div class="login-gate__docs">
-            <a
-              class="session-link"
-              href="https://docs.openclaw.ai/web/dashboard"
-              target="_blank"
-              rel="noreferrer"
-              >${t("overview.connection.docsLink")}</a
-            >
-          </div>
-        </div>
       </div>
     </div>
   `;

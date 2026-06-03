@@ -1,6 +1,7 @@
 import { html } from "lit";
-import { icons, type IconName } from "../icons.ts";
-import type { Tab } from "../navigation.ts";
+import { buildExternalLinkRel, EXTERNAL_LINK_TARGET } from "../external-link.ts";
+import { icons } from "../icons.ts";
+import { BUYER_STOREFRONT_URL, type Tab } from "../navigation.ts";
 
 export type AicsRoleBuilderForm = {
   requestZh: string;
@@ -58,40 +59,6 @@ export type AicsDashboardProps = {
   onRoleBuilderRun: () => void;
 };
 
-type DashboardAction = {
-  label: string;
-  detail: string;
-  tab?: Tab;
-  onSelect?: () => void;
-  icon: IconName;
-};
-
-const actions = [
-  {
-    label: "开发岗位",
-    detail: "进入开发者模式，只讲业务逻辑，平台自动处理岗位包标准。",
-    icon: "wrench",
-  },
-  {
-    label: "进入主对话",
-    detail: "用自然语言安排任务、选择岗位和调用工具。",
-    tab: "chat",
-    icon: "messageSquare",
-  },
-  {
-    label: "查看工作板",
-    detail: "查看任务队列、运行状态和交接记录。",
-    tab: "workboard",
-    icon: "folder",
-  },
-  {
-    label: "使用记录",
-    detail: "查看对话和岗位任务的使用情况。",
-    tab: "usage",
-    icon: "barChart",
-  },
-] satisfies DashboardAction[];
-
 function renderStatusPill(connected: boolean) {
   return html`
     <span class="aics-status ${connected ? "aics-status--ok" : "aics-status--warn"}">
@@ -101,20 +68,77 @@ function renderStatusPill(connected: boolean) {
   `;
 }
 
-function renderAction(action: DashboardAction, onNavigate: (tab: Tab) => void) {
+function renderHelp(text: string) {
   return html`
-    <button
-      class="aics-action"
-      type="button"
-      @click=${() => (action.tab ? onNavigate(action.tab) : action.onSelect?.())}
+    <span
+      class="aics-help"
+      title=${text}
+      aria-label=${text}
+      data-tooltip=${text}
+      role="img"
+      tabindex="0"
     >
-      <span class="aics-action__icon" aria-hidden="true">${icons[action.icon]}</span>
-      <span class="aics-action__copy">
-        <span class="aics-action__label">${action.label}</span>
-        <span class="aics-action__detail">${action.detail}</span>
-      </span>
-      <span class="aics-action__arrow" aria-hidden="true">${icons.chevronRight}</span>
-    </button>
+      ${icons.info}
+    </span>
+  `;
+}
+
+function renderTitleWithHelp(title: string, help: string) {
+  return html`
+    <span class="aics-title-row">
+      <span>${title}</span>
+      ${renderHelp(help)}
+    </span>
+  `;
+}
+
+function resolveSchedulerState(props: AicsDashboardProps) {
+  const running =
+    props.roleBuilder.running || props.roleBuilder.tokenRunning || props.roleBuilder.auditRunning;
+  const blockingError = props.roleBuilder.error ?? props.marketplace.error;
+  return {
+    currentTask: props.roleBuilder.running
+      ? "岗位生成"
+      : props.roleBuilder.tokenRunning
+        ? "授权请求"
+        : props.roleBuilder.auditRunning
+          ? "安全回读"
+          : "空闲",
+    queue: props.marketplace.loading ? "同步中" : "0",
+    runningRole: running ? "运行中" : "无",
+    pending: blockingError ? "需处理" : "0",
+    risk: props.roleBuilder.tokenRunning || props.roleBuilder.auditRunning ? "校验中" : "正常",
+    next: blockingError ? "检查连接" : props.marketplace.roles.length ? "可派单" : "同步岗位",
+  };
+}
+
+function renderSchedulerPanel(props: AicsDashboardProps) {
+  const state = resolveSchedulerState(props);
+  const rows = [
+    ["当前任务", state.currentTask, "调度层当前处理的任务。", icons.activity],
+    ["队列", state.queue, "等待调度的任务数量。", icons.folder],
+    ["运行岗位", state.runningRole, "正在执行的岗位。", icons.brain],
+    ["待确认", state.pending, "等待人工确认或处理的事项。", icons.eye],
+    ["风险门控", state.risk, "高风险动作审批状态。", icons.check],
+    ["下一步", state.next, "调度层建议的下一步。", icons.chevronRight],
+  ] as const;
+  return html`
+    <aside class="aics-scheduler" aria-label="调度层状态">
+      <div class="aics-scheduler__title">
+        <strong>调度层状态</strong>
+      </div>
+      <div class="aics-scheduler__list">
+        ${rows.map(
+          ([label, value, help, icon]) => html`
+            <div class="aics-scheduler__row" title=${help} data-tooltip=${help}>
+              <span class="aics-scheduler__icon" aria-hidden="true">${icon}</span>
+              <span>${label}</span>
+              <strong>${value}</strong>
+            </div>
+          `,
+        )}
+      </div>
+    </aside>
   `;
 }
 
@@ -122,52 +146,50 @@ function renderRoleWorkbench(props: AicsDashboardProps) {
   const marketplace = props.marketplace;
   const hasRoles = marketplace.roles.length > 0;
   return html`
-    <section class="aics-workbench" aria-labelledby="aics-workbench-title">
-      <div class="aics-section-heading">
-        <div class="aics-kicker">岗位工作台</div>
-        <h2 id="aics-workbench-title">我的岗位</h2>
-      </div>
-
-      <div class="aics-boundary-grid" aria-label="岗位工作台">
+    <section class="aics-workbench" aria-label="调度层">
+      <div class="aics-boundary-grid" aria-label="调度层">
         <article class="aics-panel">
           <div class="aics-panel__icon" aria-hidden="true">${icons.brain}</div>
-          <div class="aics-panel__eyebrow">当前入口</div>
-          <h2>主对话</h2>
-          <p>从这里用自然语言安排任务、调用工具、完成编程和资料处理。</p>
+          <h2>${renderTitleWithHelp("已同步授权", "已经同步到本机的岗位授权。")}</h2>
+          <strong class="aics-panel__metric">${marketplace.roles.length}</strong>
           <div class="aics-runner__actions">
             <button
               class="aics-runner__secondary"
               type="button"
-              @click=${() => props.onNavigate("chat")}
+              title="同步授权"
+              aria-label="同步授权"
+              ?disabled=${marketplace.loading}
+              @click=${props.onMarketplaceRolesRefresh}
             >
-              <span aria-hidden="true">${icons.messageSquare}</span>
-              <span>进入主对话</span>
-            </button>
-            <button
-              class="aics-runner__secondary"
-              type="button"
-              @click=${props.onDeveloperModeStart}
-            >
-              <span aria-hidden="true">${icons.wrench}</span>
-              <span>开发岗位</span>
+              <span aria-hidden="true">${marketplace.loading ? icons.loader : icons.refresh}</span>
+              <span>${marketplace.loading ? "同步中" : "同步"}</span>
             </button>
           </div>
         </article>
 
-        <article class="aics-context-panel">
-          <div class="aics-context-panel__mark" aria-hidden="true">${icons.folder}</div>
-          <div class="aics-panel__eyebrow">岗位列表</div>
-          <h2>已安装岗位</h2>
-          <p>从岗位商场同步已购买和已授权的岗位；暂时连不上时会明确提示。</p>
-          <button
-            class="aics-runner__secondary"
-            type="button"
-            ?disabled=${marketplace.loading}
-            @click=${props.onMarketplaceRolesRefresh}
+        <article class="aics-panel">
+          <div class="aics-panel__icon" aria-hidden="true">${icons.check}</div>
+          <h2>${renderTitleWithHelp("已授权岗位", "已经允许调度层使用的岗位。")}</h2>
+          <strong class="aics-panel__metric">${marketplace.roles.length}</strong>
+        </article>
+
+        <article class="aics-panel">
+          <div class="aics-panel__icon" aria-hidden="true">${icons.refresh}</div>
+          <h2>${renderTitleWithHelp("可更新岗位", "有新版资料可同步的岗位。")}</h2>
+          <strong class="aics-panel__metric">0</strong>
+        </article>
+
+        <article class="aics-panel">
+          <div class="aics-panel__icon" aria-hidden="true">${icons.eye}</div>
+          <h2>${renderTitleWithHelp("等待确认", "调度层拦截后等待人工确认的事项。")}</h2>
+          <strong class="aics-panel__metric"
+            >${marketplace.error || props.roleBuilder.error ? "1" : "0"}</strong
           >
-            <span aria-hidden="true">${marketplace.loading ? icons.loader : icons.refresh}</span>
-            <span>${marketplace.loading ? "同步中" : "同步岗位"}</span>
-          </button>
+        </article>
+
+        <article class="aics-context-panel aics-context-panel--wide">
+          <div class="aics-context-panel__mark" aria-hidden="true">${icons.folder}</div>
+          <h2>${renderTitleWithHelp("可调度岗位", "来自本机已同步的岗位。")}</h2>
           ${marketplace.error
             ? html`<div class="aics-runner__error">${marketplace.error}</div>`
             : hasRoles
@@ -177,48 +199,62 @@ function renderRoleWorkbench(props: AicsDashboardProps) {
                       (role) => html`
                         <div class="aics-api-grid__item">
                           <span>${role.title}</span>
-                          ${role.detail ? html`<small>${role.detail}</small>` : null}
                           <button
                             class="aics-runner__secondary"
                             type="button"
+                            title="授权岗位"
+                            aria-label=${`授权岗位：${role.title}`}
                             @click=${() => props.onMarketplaceRoleUse(role)}
                           >
                             <span aria-hidden="true">${icons.messageSquare}</span>
-                            <span>使用岗位</span>
+                            <span>授权</span>
                           </button>
                         </div>
                       `,
                     )}
                   </div>
                 `
-              : html`<div class="aics-runner__empty">暂无已安装岗位。</div>`}
+              : html`<div class="aics-runner__empty">暂无已授权岗位。</div>`}
         </article>
 
         <article class="aics-panel">
           <div class="aics-panel__icon" aria-hidden="true">${icons.fileText}</div>
-          <div class="aics-panel__eyebrow">最近任务</div>
-          <h2>任务记录</h2>
-          <p>查看已经启动、正在运行或已经完成的任务交接记录。</p>
-          <button
-            class="aics-runner__secondary"
-            type="button"
-            @click=${() => props.onNavigate("workboard")}
-          >
-            <span aria-hidden="true">${icons.folder}</span>
-            <span>查看工作板</span>
-          </button>
+          <h2>${renderTitleWithHelp("反馈资料", "岗位执行返回后由调度层整理。")}</h2>
+          <strong class="aics-panel__metric">${props.roleBuilder.result ? "1" : "0"}</strong>
         </article>
       </div>
+    </section>
+  `;
+}
 
-      <section class="aics-lane" aria-label="使用记录">
-        <div class="aics-section-heading">
-          <div class="aics-kicker">使用记录</div>
-          <h2>对话和岗位任务的消耗会在这里汇总</h2>
+export function renderAicsMarketplace(props: AicsDashboardProps) {
+  return html`
+    <section class="aics-page">
+      <section class="aics-hero" aria-labelledby="aics-marketplace-title">
+        <div class="aics-hero__main">
+          <div class="aics-kicker">迭界AI</div>
+          <h1 id="aics-marketplace-title">
+            ${renderTitleWithHelp("岗位商城", "在云端商城浏览和购买岗位。")}
+          </h1>
+          <div class="aics-hero__meta">
+            ${renderStatusPill(props.connected)}
+            <span class="aics-chip">版本 ${props.version || "unknown"}</span>
+          </div>
         </div>
-        <div class="aics-api-grid">
-          <div class="aics-api-grid__item"><span>对话用量</span></div>
-          <div class="aics-api-grid__item"><span>岗位任务记录</span></div>
-          <div class="aics-api-grid__item"><span>费用与授权状态</span></div>
+        <div class="aics-hero__actions">
+          <a
+            class="aics-action"
+            href=${BUYER_STOREFRONT_URL}
+            target=${EXTERNAL_LINK_TARGET}
+            rel=${buildExternalLinkRel()}
+            title="打开云端岗位商城"
+            aria-label="打开云端岗位商城"
+          >
+            <span class="aics-action__icon" aria-hidden="true"> ${icons.externalLink} </span>
+            <span class="aics-action__copy">
+              <span class="aics-action__label">打开云端岗位商城</span>
+            </span>
+          </a>
         </div>
       </section>
     </section>
@@ -233,26 +269,15 @@ export function renderAicsDashboard(props: AicsDashboardProps) {
       <section class="aics-hero" aria-labelledby="aics-title">
         <div class="aics-hero__main">
           <div class="aics-kicker">迭界AI</div>
-          <h1 id="aics-title">岗位工作台</h1>
-          <p>
-            这里是终端客户开始工作的地方。先进入主对话安排任务；岗位商场接入后，已购买和已授权的岗位会出现在这里。
-          </p>
+          <h1 id="aics-title">
+            ${renderTitleWithHelp("我的岗位", "调度层负责派单、确认和状态更新。")}
+          </h1>
           <div class="aics-hero__meta">
             ${renderStatusPill(props.connected)}
             <span class="aics-chip">版本 ${version}</span>
-            <span class="aics-chip">岗位列表可同步</span>
           </div>
         </div>
-        <div class="aics-hero__actions">
-          ${actions.map((action) =>
-            renderAction(
-              action.label === "开发岗位"
-                ? { ...action, onSelect: props.onDeveloperModeStart }
-                : action,
-              props.onNavigate,
-            ),
-          )}
-        </div>
+        <div class="aics-hero__actions">${renderSchedulerPanel(props)}</div>
       </section>
 
       ${renderRoleWorkbench(props)}

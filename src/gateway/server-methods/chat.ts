@@ -151,6 +151,10 @@ import {
 import { formatForLog } from "../ws-log.js";
 import { injectTimestamp, timestampOptsFromConfig } from "./agent-timestamp.js";
 import { setGatewayDedupeEntry } from "./agent-wait-dedupe.js";
+import {
+  buildAicsDeveloperModeModelPrompt,
+  normalizeChatSendAicsContext,
+} from "./aics-chat-context.js";
 import { normalizeRpcAttachmentsToChatAttachments } from "./attachment-normalize.js";
 import { normalizeWebchatReplyMediaPathsForDisplay } from "./chat-reply-media.js";
 import {
@@ -2892,6 +2896,7 @@ export const chatHandlers: GatewayRequestHandlers = {
       sessionId?: string;
       message: string;
       modelPrompt?: string;
+      aicsContext?: unknown;
       thinking?: string;
       fastMode?: boolean;
       deliver?: boolean;
@@ -2945,9 +2950,19 @@ export const chatHandlers: GatewayRequestHandlers = {
       );
       return;
     }
+    const aicsContext = normalizeChatSendAicsContext(p.aicsContext);
+    const inboundMessage = sanitizedMessageResult.message;
+    const aicsModelPrompt = aicsContext
+      ? buildAicsDeveloperModeModelPrompt({
+          message: inboundMessage,
+          stage: aicsContext.stage,
+        })
+      : undefined;
+    const rawModelPrompt =
+      typeof p.modelPrompt === "string" && p.modelPrompt.trim() ? p.modelPrompt : aicsModelPrompt;
     const sanitizedModelPromptResult =
-      typeof p.modelPrompt === "string" && p.modelPrompt.trim()
-        ? sanitizeChatSendMessageInput(p.modelPrompt)
+      typeof rawModelPrompt === "string" && rawModelPrompt.trim()
+        ? sanitizeChatSendMessageInput(rawModelPrompt)
         : undefined;
     if (sanitizedModelPromptResult && !sanitizedModelPromptResult.ok) {
       respond(
@@ -2962,7 +2977,6 @@ export const chatHandlers: GatewayRequestHandlers = {
       respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, systemReceiptResult.error));
       return;
     }
-    const inboundMessage = sanitizedMessageResult.message;
     const modelPromptMessage =
       sanitizedModelPromptResult?.ok === true ? sanitizedModelPromptResult.message : undefined;
     const systemInputProvenance = normalizeInputProvenance(p.systemInputProvenance);

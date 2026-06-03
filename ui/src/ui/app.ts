@@ -3,7 +3,6 @@ import { state } from "lit/decorators.js";
 import { i18n, I18nController, isSupportedLocale, t } from "../i18n/index.ts";
 import type { ActivityEntry, ActivityStatus } from "./activity-model.ts";
 import {
-  AICS_DEVELOPER_MODE_OPENING,
   getDefaultAicsConversationStage,
   resolveAicsConversationProtocol,
   type AicsConversationMode,
@@ -186,7 +185,7 @@ const DEFAULT_AICS_ROLE_BUILDER_FORM: AicsRoleBuilderForm = {
 };
 
 const AICS_REQUIRED_ROLE_BUILDER_FIELDS: Array<[keyof AicsRoleBuilderForm, string]> = [
-  ["executionToken", "执行授权凭证不能为空；需要迭界AI岗位商场签发的一次执行授权。"],
+  ["executionToken", "执行授权凭证不能为空；需要迭界AI岗位商城签发的一次执行授权。"],
   ["roleListingId", "岗位编号不能为空。"],
   ["entitlementId", "授权编号不能为空。"],
   ["deviceId", "设备编号不能为空。"],
@@ -347,7 +346,7 @@ export class OpenClawApp extends LitElement {
   @state() password = "";
   @state() loginShowGatewayToken = false;
   @state() loginShowGatewayPassword = false;
-  @state() tab: Tab = "aics";
+  @state() tab: Tab = "chat";
   @state() onboarding = resolveOnboardingMode();
   @state() connected = false;
   @state() aicsRoleBuilder: AicsRoleBuilderState = {
@@ -1094,10 +1093,11 @@ export class OpenClawApp extends LitElement {
   setAicsConversationMode(mode: AicsConversationMode) {
     this.aicsConversationMode = mode;
     this.aicsConversationStage = getDefaultAicsConversationStage(mode);
-    if (mode === "developer" && !this.chatMessage.trim()) {
-      this.chatMessage = AICS_DEVELOPER_MODE_OPENING;
-    }
-    if (mode === "user" && this.chatMessage.trim() === AICS_DEVELOPER_MODE_OPENING) {
+    const trimmedDraft = this.chatMessage.trim();
+    if (
+      mode === "user" &&
+      trimmedDraft.startsWith("已进入开发者模式。当前角色：岗位开发专属助手；")
+    ) {
       this.chatMessage = "";
     }
   }
@@ -1157,7 +1157,7 @@ export class OpenClawApp extends LitElement {
     if (!cloudAccessToken) {
       this.aicsMarketplace = {
         ...this.aicsMarketplace,
-        error: "需要先连接岗位商场账号，才能同步已安装岗位。",
+        error: "需要先连接岗位商城账号，才能同步已授权岗位。",
       };
       return;
     }
@@ -1190,11 +1190,11 @@ export class OpenClawApp extends LitElement {
           resultRecord.ok === false
             ? toAicsUserErrorMessage(
                 resultRecord.error ?? resultRecord.summary,
-                "岗位同步失败，请检查岗位商场连接状态。",
+                "岗位同步失败，请检查岗位商城连接状态。",
               )
             : roles.length > 0
               ? null
-              : "岗位商场没有返回可显示的岗位。",
+              : "岗位商城没有返回可显示的岗位。",
       };
     } catch (error) {
       this.aicsMarketplace = {
@@ -1202,7 +1202,7 @@ export class OpenClawApp extends LitElement {
         loading: false,
         error: toAicsUserErrorMessage(
           error instanceof Error ? error.message : String(error),
-          "岗位同步失败，请检查岗位商场连接状态。",
+          "岗位同步失败，请检查岗位商城连接状态。",
         ),
       };
     }
@@ -1222,7 +1222,7 @@ export class OpenClawApp extends LitElement {
 
     const form = this.aicsRoleBuilder.form;
     const requiredFields: Array<[keyof AicsRoleBuilderForm, string]> = [
-      ["cloudAccessToken", "云端授权凭证不能为空；需要岗位商场登录态对应的授权。"],
+      ["cloudAccessToken", "云端授权凭证不能为空；需要岗位商城登录态对应的授权。"],
       ["roleListingId", "岗位编号不能为空。"],
       ["entitlementId", "授权编号不能为空。"],
       ["deviceId", "设备编号不能为空。"],
@@ -1289,7 +1289,7 @@ export class OpenClawApp extends LitElement {
         tokenRunning: false,
         error: toAicsUserErrorMessage(
           error instanceof Error ? error.message : String(error),
-          "执行授权请求失败，请检查本机连接和岗位商场状态。",
+          "执行授权请求失败，请检查本机连接和岗位商城状态。",
         ),
       };
     }
@@ -1317,7 +1317,7 @@ export class OpenClawApp extends LitElement {
     if (!cloudAccessToken) {
       this.aicsRoleBuilder = {
         ...this.aicsRoleBuilder,
-        error: "云端授权凭证不能为空；需要岗位商场登录态对应的授权。",
+        error: "云端授权凭证不能为空；需要岗位商城登录态对应的授权。",
       };
       return;
     }
@@ -1361,7 +1361,7 @@ export class OpenClawApp extends LitElement {
         auditRunning: false,
         error: toAicsUserErrorMessage(
           error instanceof Error ? error.message : String(error),
-          "审计记录查询失败，请检查本机连接和岗位商场状态。",
+          "审计记录查询失败，请检查本机连接和岗位商城状态。",
         ),
       };
     }
@@ -1769,7 +1769,7 @@ export class OpenClawApp extends LitElement {
           }
         },
         onTranscript: (entry) => {
-          this.realtimeTalkTranscript = `${entry.role === "user" ? "You" : "OpenClaw"}: ${entry.text}`;
+          this.realtimeTalkTranscript = `${entry.role === "user" ? "你" : "本机系统"}: ${entry.text}`;
           this.realtimeTalkConversationState = updateRealtimeTalkConversation(
             this.realtimeTalkConversationState,
             entry,

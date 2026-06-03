@@ -102,6 +102,36 @@ function toolParams(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function rolePackageManifest(name: string) {
+  return JSON.stringify(
+    {
+      manifestVersion: 1,
+      rolePackageId: `pkg_${name.replace(/[^a-z0-9]+/gi, "_").toLowerCase()}`,
+      version: "1.0.0",
+      name,
+      entrypoint: "role_package/adapters/openclaw-adapter.ts",
+      permissions: ["workspace.read", "workspace.write"],
+      files: [
+        {
+          path: "role_package/manifest.json",
+          sha256: "sha256",
+          sizeBytes: 512,
+        },
+      ],
+    },
+    null,
+    2,
+  );
+}
+
+function readRolePackageManifest(outputRoot: string) {
+  return JSON.parse(readFileSync(path.join(outputRoot, "role_package", "manifest.json"), "utf8"));
+}
+
+function sha256Hex(content: string) {
+  return crypto.createHash("sha256").update(content).digest("hex");
+}
+
 function createFakeLocalExecutorBinary(
   options: {
     files?: Record<string, string>;
@@ -112,7 +142,7 @@ function createFakeLocalExecutorBinary(
   const dir = mkdtempSync(path.join(os.tmpdir(), "dijie-fake-local-executor-"));
   const binary = path.join(dir, "local-executor");
   const files = options.files ?? {
-    "role_package/manifest.json": JSON.stringify({ name: "role-builder" }, null, 2),
+    "role_package/manifest.json": rolePackageManifest("role-builder"),
     "role_package/listing.md": "# 主系统岗位包生成\n",
     "role_package/README.md": "# Role package\n",
     "role_package/adapters/openclaw-adapter.ts": "export const adapter = 'openclaw';\n",
@@ -157,7 +187,7 @@ function createFakeLocalExecutorBinary(
 function createFakeNativeRuntime(options: { files?: Record<string, string> } = {}) {
   const runEmbeddedAgent = vi.fn(async (params: { workspaceDir: string; prompt: string }) => {
     const files = options.files ?? {
-      "role_package/manifest.json": JSON.stringify({ name: "native-role-builder" }, null, 2),
+      "role_package/manifest.json": rolePackageManifest("native-role-builder"),
       "role_package/listing.md": "# Native role package\n",
       "role_package/README.md": "# Role package\n",
       "role_package/adapters/openclaw-native-adapter.ts":
@@ -865,9 +895,170 @@ describe("Dijie execution preflight", () => {
           "role_package/validation/smoke-test.md",
         ],
       },
+      roleFeedbackPacket: {
+        packetVersion: 1,
+        mode: "authorized_execution",
+        role: {
+          packageId: "pkg_developer_agent",
+          packageVersion: "1.0.0",
+          roleListingId: "prod_role_developer_agent",
+          developerRef: "dev_001",
+        },
+        schedulerContext: {
+          executionId: "exec_123",
+          entitlementId: "ordgrp_123",
+          deviceId: "device_123",
+          workspaceRef: "workspace_123",
+          localGatewayId: "gateway_123",
+        },
+        status: "completed",
+        toolUsage: {
+          shellCommands: 1,
+          testsRun: 1,
+          filesRead: 0,
+          filesChanged: 5,
+        },
+        modelProxyUsage: {
+          requestCount: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+        },
+        costUsage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          currency: "CNY",
+          estimatedCents: 0,
+        },
+        riskEvents: [],
+        evolutionSuggestions: [],
+      },
+    });
+    expect(result.details.auditSummary).toMatchObject({
+      status: "completed",
+      result: {
+        status: "completed",
+        changedFiles: result.details.roleFeedbackPacket.changedFiles,
+      },
+      toolUsage: result.details.roleFeedbackPacket.toolUsage,
     });
     expect(existsSync(path.join(outputRoot, "role_package", "manifest.json"))).toBe(true);
     expect(result.details.localExecutor.command[0]).toBe(fakeExecutor);
+  });
+
+  it("generates a public developer role_package before listing and execution facts exist", async () => {
+    const registerGatewayMethod = vi.fn();
+    const registerTool = vi.fn();
+    const outputRoot = mkdtempSync(path.join(os.tmpdir(), "dijie-role-output-"));
+    const fakeExecutor = createFakeLocalExecutorBinary();
+
+    plugin.register({
+      pluginConfig: {
+        allowWrites: true,
+        rolePackageOutputRoot: outputRoot,
+        localExecutorCommand: fakeExecutor,
+      },
+      registerGatewayMethod,
+      registerTool,
+    } as never);
+
+    const roleBuilderTool = registerTool.mock.calls
+      .map((call) => call[0])
+      .find((tool) => tool.name === "dijie_role_builder");
+    const result = await roleBuilderTool.execute(
+      "call-1",
+      toolParams({
+        package_only: true,
+        execution_token: undefined,
+        role_listing_id: undefined,
+        entitlement_id: undefined,
+        device_id: undefined,
+        workspace_ref: undefined,
+        local_gateway_id: undefined,
+      }),
+    );
+
+    expect(result.details).toMatchObject({
+      ok: true,
+      summary: "迭界AI role-builder developer package generation completed and validated",
+      confirmed: true,
+      packageOnly: true,
+      status: "completed",
+      rolePackageValidation: { ok: true, errors: [] },
+      result: {
+        status: "completed",
+        changedFiles: [
+          "role_package/README.md",
+          "role_package/adapters/openclaw-adapter.ts",
+          "role_package/listing.md",
+          "role_package/manifest.json",
+          "role_package/validation/smoke-test.md",
+        ],
+      },
+      roleFeedbackPacket: {
+        packetVersion: 1,
+        mode: "developer_package",
+        role: {
+          packageId: expect.stringMatching(/^pkg_/),
+          packageVersion: "1.0.0",
+        },
+        schedulerContext: {},
+        status: "completed",
+        toolUsage: {
+          shellCommands: 1,
+          testsRun: 1,
+          filesRead: 0,
+          filesChanged: 5,
+        },
+        modelProxyUsage: {
+          requestCount: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+        },
+        riskEvents: [],
+        evolutionSuggestions: [],
+      },
+    });
+    expect(JSON.stringify(result.details)).not.toContain("executionId");
+    expect(JSON.stringify(result.details)).not.toContain("entitlementId");
+    expect(JSON.stringify(result.details)).not.toContain("deviceId");
+    expect(JSON.stringify(result.details)).not.toContain("workspaceRef");
+    expect(JSON.stringify(result.details)).not.toContain("localGatewayId");
+    expect(result.details.roleFeedbackPacket.schedulerContext).not.toHaveProperty("executionId");
+    expect(result.details.roleFeedbackPacket.schedulerContext).not.toHaveProperty("entitlementId");
+    expect(result.details.roleFeedbackPacket.schedulerContext).not.toHaveProperty("deviceId");
+    expect(result.details.roleFeedbackPacket.schedulerContext).not.toHaveProperty("workspaceRef");
+    expect(result.details.roleFeedbackPacket.schedulerContext).not.toHaveProperty("localGatewayId");
+    const manifestContent = readFileSync(
+      path.join(outputRoot, "role_package", "manifest.json"),
+      "utf8",
+    );
+    const manifest = JSON.parse(manifestContent);
+    expect(Object.keys(manifest)).toEqual([
+      "manifestVersion",
+      "rolePackageId",
+      "version",
+      "name",
+      "entrypoint",
+      "permissions",
+      "files",
+    ]);
+    expect(result.details.roleFeedbackPacket.role.packageId).toBe(manifest.rolePackageId);
+    expect(manifest).toMatchObject({
+      manifestVersion: 1,
+      name: "主系统岗位包生成",
+      entrypoint: "role_package/adapters/openclaw-adapter.ts",
+      permissions: ["workspace.read", "workspace.write"],
+    });
+    expect(manifest.files.map((file: { path: string }) => file.path)).not.toContain(
+      "role_package/manifest.json",
+    );
+    const manifestArtifact = result.details.artifacts.find(
+      (artifact: { title: string }) => artifact.title === "role_package/manifest.json",
+    );
+    expect(manifestArtifact).toMatchObject({
+      sha256: sha256Hex(manifestContent),
+      sizeBytes: Buffer.byteLength(manifestContent),
+    });
   });
 
   it("uses OpenClaw-native runEmbeddedAgent when the runtime executor is available", async () => {
@@ -948,6 +1139,171 @@ describe("Dijie execution preflight", () => {
     expect(prompt).not.toContain("cus_123");
     expect(prompt).not.toContain("ordgrp_123");
     expect(prompt).not.toContain("pricing:");
+  });
+
+  it("normalizes OpenClaw-native legacy role_package manifests after embedded execution", async () => {
+    const registerTool = vi.fn();
+    const outputRoot = mkdtempSync(path.join(os.tmpdir(), "dijie-role-output-"));
+    const { runtime } = createFakeNativeRuntime({
+      files: {
+        "role_package/manifest.json": JSON.stringify(
+          {
+            schema_version: "legacy",
+            role_name: "legacy-native-role",
+            entrypoint: "src/private-adapter.ts",
+            permissions: ["network.unrestricted"],
+            files: [
+              {
+                path: "role_package/manifest.json",
+                sha256: "agent-self-reference",
+                sizeBytes: 10,
+              },
+            ],
+          },
+          null,
+          2,
+        ),
+        "role_package/listing.md": "# Native legacy role\n",
+        "role_package/README.md": "# Role package\n",
+        "role_package/adapters/openclaw-native-adapter.ts":
+          "export const adapter = 'openclaw-native';\n",
+        "role_package/validation/smoke-test.md": "# Smoke test\n",
+      },
+    });
+
+    plugin.register({
+      pluginConfig: {
+        allowWrites: true,
+        executionTokenPublicKeyPem: publicKeyPem,
+        rolePackageOutputRoot: outputRoot,
+        localExecutorMode: "native",
+      },
+      config: {},
+      runtime,
+      registerGatewayMethod: vi.fn(),
+      registerTool,
+    } as never);
+
+    const roleBuilderTool = registerTool.mock.calls
+      .map((call) => call[0])
+      .find((tool) => tool.name === "dijie_role_builder");
+    const result = await roleBuilderTool.execute(
+      "call-1",
+      toolParams({
+        package_only: true,
+        execution_token: undefined,
+        role_listing_id: undefined,
+        entitlement_id: undefined,
+        device_id: undefined,
+        workspace_ref: undefined,
+        local_gateway_id: undefined,
+        role_build_brief_json: JSON.stringify({
+          name: "platform normalized role",
+          businessGoal: "repair a legacy manifest shape",
+        }),
+      }),
+    );
+
+    expect(result.details).toMatchObject({
+      ok: true,
+      status: "completed",
+      executionEngine: "openclaw-native",
+      rolePackageValidation: { ok: true, errors: [] },
+    });
+    const manifestContent = readFileSync(
+      path.join(outputRoot, "role_package", "manifest.json"),
+      "utf8",
+    );
+    const manifest = JSON.parse(manifestContent);
+    expect(Object.keys(manifest)).toEqual([
+      "manifestVersion",
+      "rolePackageId",
+      "version",
+      "name",
+      "entrypoint",
+      "permissions",
+      "files",
+    ]);
+    expect(manifest).toMatchObject({
+      manifestVersion: 1,
+      rolePackageId: "pkg_platform_normalized_role",
+      version: "1.0.0",
+      name: "platform normalized role",
+      entrypoint: "role_package/adapters/openclaw-native-adapter.ts",
+      permissions: ["workspace.read", "workspace.write"],
+    });
+    expect(JSON.stringify(manifest)).not.toContain("schema_version");
+    expect(JSON.stringify(manifest)).not.toContain("role_name");
+    expect(JSON.stringify(manifest)).not.toContain("legacy-native-role");
+    expect(manifest.files.map((file: { path: string }) => file.path)).not.toContain(
+      "role_package/manifest.json",
+    );
+    const manifestArtifact = result.details.artifacts.find(
+      (artifact: { title: string }) => artifact.title === "role_package/manifest.json",
+    );
+    expect(manifestArtifact).toMatchObject({
+      sha256: sha256Hex(manifestContent),
+      sizeBytes: Buffer.byteLength(manifestContent),
+    });
+  });
+
+  it("fails OpenClaw-native role_package output when the pre-normalized manifest leaks backend material", async () => {
+    const registerTool = vi.fn();
+    const outputRoot = mkdtempSync(path.join(os.tmpdir(), "dijie-role-output-"));
+    const { runtime } = createFakeNativeRuntime({
+      files: {
+        "role_package/manifest.json": JSON.stringify(
+          {
+            schema_version: "legacy",
+            role_name: "native-leaky-role",
+            executionId: "exec_123",
+            providerSecret: "sk-testsecretvalue1234567890",
+          },
+          null,
+          2,
+        ),
+        "role_package/listing.md": "# Native leaky role\n",
+        "role_package/README.md": "# Role package\n",
+        "role_package/adapters/openclaw-native-adapter.ts":
+          "export const adapter = 'openclaw-native';\n",
+        "role_package/validation/smoke-test.md": "# Smoke test\n",
+      },
+    });
+
+    plugin.register({
+      pluginConfig: {
+        allowWrites: true,
+        executionTokenPublicKeyPem: publicKeyPem,
+        rolePackageOutputRoot: outputRoot,
+        localExecutorMode: "native",
+      },
+      config: {},
+      runtime,
+      registerGatewayMethod: vi.fn(),
+      registerTool,
+    } as never);
+
+    const roleBuilderTool = registerTool.mock.calls
+      .map((call) => call[0])
+      .find((tool) => tool.name === "dijie_role_builder");
+    const result = await roleBuilderTool.execute("call-1", toolParams());
+
+    expect(result.details).toMatchObject({
+      ok: false,
+      status: "failed",
+      executionEngine: "openclaw-native",
+      rolePackageValidation: { ok: false },
+    });
+    expect(result.details.rolePackageValidation.errors).toEqual(
+      expect.arrayContaining([
+        "role_package/manifest.json contains backend-only id or raw execution token",
+        "role_package/manifest.json contains provider key name or value",
+        "role_package/manifest.json contains secret or token field",
+        "role_package/manifest.json contains backend-only field executionId",
+      ]),
+    );
+    expect(readRolePackageManifest(outputRoot)).not.toHaveProperty("executionId");
+    expect(readRolePackageManifest(outputRoot)).not.toHaveProperty("providerSecret");
   });
 
   it("keeps developer-mode prompt context on the allowlisted local boundary", async () => {
@@ -1083,6 +1439,42 @@ describe("Dijie execution preflight", () => {
       ]),
     );
     expect(result.details.result.error).toContain("role_package validation failed");
+  });
+
+  it("normalizes role_package manifest entrypoints outside role_package", async () => {
+    const outputRoot = mkdtempSync(path.join(os.tmpdir(), "dijie-role-output-"));
+    const roleBuilderTool = registerRoleBuilder({
+      rolePackageOutputRoot: outputRoot,
+      localExecutorCommand: createFakeLocalExecutorBinary({
+        files: {
+          "role_package/manifest.json": rolePackageManifest("unsafe-entrypoint").replace(
+            "role_package/adapters/openclaw-adapter.ts",
+            "src/private-adapter.ts",
+          ),
+          "role_package/listing.md": "# Unsafe entrypoint role package\n",
+          "role_package/README.md": "# Role package\n",
+          "role_package/adapters/openclaw-adapter.ts":
+            "export const adapter = 'openclaw-native';\n",
+          "role_package/validation/smoke-test.md": "# Smoke test\n",
+        },
+      }),
+    });
+
+    const result = await roleBuilderTool.execute("call-1", toolParams());
+
+    expect(result.details).toMatchObject({
+      ok: true,
+      status: "completed",
+      rolePackageValidation: {
+        ok: true,
+        errors: [],
+      },
+    });
+    expect(readRolePackageManifest(outputRoot)).toMatchObject({
+      manifestVersion: 1,
+      entrypoint: "role_package/adapters/openclaw-adapter.ts",
+      permissions: ["workspace.read", "workspace.write"],
+    });
   });
 
   it("applies role_package forbidden material scanning to OpenClaw-native output", async () => {
@@ -1273,6 +1665,32 @@ describe("Dijie execution preflight", () => {
     expect(result.details).toMatchObject({
       ok: true,
       status: "completed",
+      roleFeedbackPacket: {
+        packetVersion: 1,
+        mode: "authorized_execution",
+        role: {
+          packageId: "pkg_developer_agent",
+          packageVersion: "1.0.0",
+          roleListingId: "prod_role_developer_agent",
+          developerRef: "dev_001",
+        },
+        schedulerContext: {
+          executionId: "exec_123",
+          entitlementId: "ordgrp_123",
+          deviceId: "device_123",
+          workspaceRef: "workspace_123",
+          localGatewayId: "gateway_123",
+        },
+        status: "completed",
+      },
+      auditSummary: {
+        executionId: "exec_123",
+        status: "completed",
+        result: {
+          executionId: "exec_123",
+          status: "completed",
+        },
+      },
       auditUpload: {
         ok: true,
         skipped: false,
@@ -1381,6 +1799,7 @@ describe("Dijie execution preflight", () => {
         errors: [
           "missing role_package/listing.md",
           "missing role_package/README.md",
+          "role_package/manifest.json entrypoint is required",
           "missing role_package wrapper, adapter, or integration example file",
           "missing role_package validation or smoke test material",
         ],
@@ -1388,7 +1807,7 @@ describe("Dijie execution preflight", () => {
       result: {
         status: "failed",
         error:
-          "role_package validation failed: missing role_package/listing.md; missing role_package/README.md; missing role_package wrapper, adapter, or integration example file; missing role_package validation or smoke test material",
+          "role_package validation failed: missing role_package/listing.md; missing role_package/README.md; role_package/manifest.json entrypoint is required; missing role_package wrapper, adapter, or integration example file; missing role_package validation or smoke test material",
       },
     });
   });

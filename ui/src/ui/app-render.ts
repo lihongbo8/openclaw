@@ -11,7 +11,6 @@ import {
   scopedAgentParamsForSession,
 } from "./app-chat.ts";
 import { DEFAULT_CRON_FORM } from "./app-defaults.ts";
-import { renderUsageTab } from "./app-render-usage-tab.ts";
 import {
   renderChatControls,
   renderTab,
@@ -23,15 +22,10 @@ import {
   dismissChatError,
   switchChatSession,
 } from "./app-render.helpers.ts";
-import { hasOperatorAdminAccess, hasOperatorWriteAccess, warnQueryToken } from "./app-settings.ts";
+import { hasOperatorWriteAccess, warnQueryToken } from "./app-settings.ts";
 import type { AppViewState } from "./app-view-state.ts";
 import { reconcileChatRunLifecycle } from "./chat/run-lifecycle.ts";
-import {
-  renderChatSessionSelect,
-  resolveChatAgentFilterId,
-  resolveChatAgentFilterOptions,
-  resolvePreferredSessionForAgent,
-} from "./chat/session-controls.ts";
+import { renderChatSessionSelect } from "./chat/session-controls.ts";
 import {
   controlUiNowMs,
   recordControlUiRenderTiming,
@@ -94,20 +88,7 @@ import {
   revokeDeviceToken,
   rotateDeviceToken,
 } from "./controllers/devices.ts";
-import {
-  backfillDreamDiary,
-  copyDreamingArchivePath,
-  dedupeDreamDiary,
-  loadDreamDiary,
-  loadDreamingStatus,
-  loadWikiImportInsights,
-  loadWikiMemoryPalace,
-  repairDreamingArtifacts,
-  resetGroundedShortTerm,
-  resetDreamDiary,
-  resolveConfiguredDreaming,
-  updateDreamingEnabled,
-} from "./controllers/dreaming.ts";
+import { loadDreamingStatus, updateDreamingEnabled } from "./controllers/dreaming.ts";
 import {
   loadExecApprovals,
   removeExecApprovalsFormValue,
@@ -127,19 +108,10 @@ import {
   toggleSessionCompactionCheckpoints,
 } from "./controllers/sessions.ts";
 import {
-  closeClawHubDetail,
-  installFromClawHub,
-  loadSkillCard,
-  installSkill,
-  loadClawHubDetail,
-  loadSkills,
-  saveSkillApiKey,
-  searchClawHub,
-  setClawHubSearchQuery,
-  updateSkillEdit,
-  updateSkillEnabled,
-} from "./controllers/skills.ts";
-import { captureSessionToWorkboard, getWorkboardState } from "./controllers/workboard.ts";
+  captureSessionToWorkboard,
+  getWorkboardState,
+  loadWorkboard,
+} from "./controllers/workboard.ts";
 import { getCronJobPayload } from "./cron-payload.ts";
 import { buildExternalLinkRel, EXTERNAL_LINK_TARGET } from "./external-link.ts";
 import { formatTimeMs } from "./format.ts";
@@ -147,14 +119,16 @@ import { formatRelativeTimestamp } from "./format.ts";
 import { icons } from "./icons.ts";
 import { createLazyView, renderLazyView } from "./lazy-view.ts";
 import {
+  BUYER_STOREFRONT_URL,
+  displayTitleForTab,
   iconForTab,
+  isPrimaryNavTab,
   isSettingsTab,
   normalizeBasePath,
   pathForTab,
-  SETTINGS_TABS,
+  SETTINGS_NAV_GROUPS,
   TAB_GROUPS,
   subtitleForTab,
-  titleForTab,
   type Tab,
 } from "./navigation.ts";
 import { isPluginEnabledInConfigSnapshot } from "./plugin-activation.ts";
@@ -181,7 +155,7 @@ import {
   resolveModelPrimary,
   sortLocaleStrings,
 } from "./views/agents-utils.ts";
-import { renderAicsDashboard } from "./views/aics.ts";
+import type { AicsMarketplaceRole } from "./views/aics.ts";
 import { renderChat } from "./views/chat.ts";
 import { renderCommandPalette } from "./views/command-palette.ts";
 import { getPresetById } from "./views/config-presets.ts";
@@ -193,16 +167,82 @@ import {
   draftToCronFormPatch,
 } from "./views/cron-quick-create.ts";
 import { renderDreamingRestartConfirmation } from "./views/dreaming-restart-confirmation.ts";
-import { renderDreaming } from "./views/dreaming.ts";
 import { renderExecApprovalPrompt } from "./views/exec-approval.ts";
 import { renderGatewayUrlConfirmation } from "./views/gateway-url-confirmation.ts";
 import { renderLoginGate } from "./views/login-gate.ts";
+import { renderMainSystemShell, type MainSystemItem } from "./views/main-system-shell.ts";
 import { renderMcp } from "./views/mcp.ts";
 import { renderOverview } from "./views/overview.ts";
 
 let pendingUpdate: (() => void) | undefined;
 
 const notifyLazyViewChanged = () => pendingUpdate?.();
+
+function formatMainSystemCount(value: number | undefined | null) {
+  return Number.isFinite(value) ? String(Math.max(0, Math.floor(value ?? 0))) : "待同步";
+}
+
+function formatMainSystemNumber(value: number | undefined | null) {
+  if (!Number.isFinite(value)) {
+    return "待同步";
+  }
+  const normalized = Math.max(0, Number(value));
+  if (normalized >= 1_000_000) {
+    return `${(normalized / 1_000_000).toFixed(1)}M`;
+  }
+  if (normalized >= 10_000) {
+    return `${(normalized / 1_000).toFixed(1)}K`;
+  }
+  return String(Math.round(normalized));
+}
+
+function formatMainSystemCost(value: number | undefined | null) {
+  if (!Number.isFinite(value)) {
+    return "待同步";
+  }
+  return `$${Math.max(0, Number(value)).toFixed(2)}`;
+}
+
+function roleStatusLabel(role: AicsMarketplaceRole) {
+  const status = normalizeOptionalString(role.status) ?? "";
+  if (role.entitlementId) {
+    return "已授权";
+  }
+  if (status.includes("update") || status.includes("可更新")) {
+    return "可更新";
+  }
+  if (status.includes("installed") || status.includes("已安装")) {
+    return "已安装";
+  }
+  return status || "可授权";
+}
+
+function roleTaskStatusLabel(status: string) {
+  switch (status) {
+    case "triage":
+    case "backlog":
+    case "todo":
+    case "scheduled":
+    case "ready":
+    case "queued":
+      return "排单中";
+    case "running":
+      return "运行中";
+    case "review":
+      return "待确认";
+    case "blocked":
+      return "已阻塞";
+    case "done":
+    case "completed":
+      return "已完成";
+    case "failed":
+    case "cancelled":
+    case "timed_out":
+      return "已失败";
+    default:
+      return "待同步";
+  }
+}
 
 function runUiTask<Args extends unknown[]>(
   task: (...args: Args) => Promise<unknown>,
@@ -218,36 +258,46 @@ function renderSettingsSectionNav(state: AppViewState) {
   }
   return html`
     <nav class="settings-section-nav" aria-label=${t("common.settingsSections")}>
-      ${SETTINGS_TABS.map((tab) => {
-        const active = state.tab === tab;
-        const href = pathForTab(tab, state.basePath);
-        return html`
-          <a
-            href=${href}
-            class="settings-section-nav__item ${active ? "settings-section-nav__item--active" : ""}"
-            @click=${(event: MouseEvent) => {
-              if (
-                event.defaultPrevented ||
-                event.button !== 0 ||
-                event.metaKey ||
-                event.ctrlKey ||
-                event.shiftKey ||
-                event.altKey
-              ) {
-                return;
-              }
-              event.preventDefault();
-              state.setTab(tab);
-            }}
-            title=${titleForTab(tab)}
-          >
-            <span class="settings-section-nav__icon" aria-hidden="true"
-              >${icons[iconForTab(tab)]}</span
-            >
-            <span class="settings-section-nav__label">${titleForTab(tab)}</span>
-          </a>
-        `;
-      })}
+      ${SETTINGS_NAV_GROUPS.map(
+        (group) => html`
+          <div class="settings-section-nav__group">
+            <div class="settings-section-nav__group-label">${group.label}</div>
+            ${group.tabs.map((tab) => {
+              const active = state.tab === tab;
+              const href = pathForTab(tab, state.basePath);
+              const label = displayTitleForTab(tab);
+              return html`
+                <a
+                  href=${href}
+                  class="settings-section-nav__item ${active
+                    ? "settings-section-nav__item--active"
+                    : ""}"
+                  @click=${(event: MouseEvent) => {
+                    if (
+                      event.defaultPrevented ||
+                      event.button !== 0 ||
+                      event.metaKey ||
+                      event.ctrlKey ||
+                      event.shiftKey ||
+                      event.altKey
+                    ) {
+                      return;
+                    }
+                    event.preventDefault();
+                    state.setTab(tab);
+                  }}
+                  title=${label}
+                >
+                  <span class="settings-section-nav__icon" aria-hidden="true"
+                    >${icons[iconForTab(tab)]}</span
+                  >
+                  <span class="settings-section-nav__label">${label}</span>
+                </a>
+              `;
+            })}
+          </div>
+        `,
+      )}
     </nav>
   `;
 }
@@ -258,6 +308,328 @@ function renderSettingsWorkspace(state: AppViewState, body: unknown) {
       ${renderSettingsSectionNav(state)}
       <div class="settings-workspace__body">${body}</div>
     </section>
+  `;
+}
+
+function renderMyRolesProductPage(state: AppViewState, onNavigate: (tab: Tab) => void) {
+  const roles = state.aicsMarketplace.roles;
+  const authorized = roles.filter(
+    (role) => role.entitlementId || roleStatusLabel(role) === "已授权",
+  );
+  const updatable = roles.filter((role) => roleStatusLabel(role) === "可更新");
+  const items: MainSystemItem[] = roles.slice(0, 12).map((role) => ({
+    title: role.title,
+    status: roleStatusLabel(role),
+    meta: role.detail,
+    icon: role.entitlementId ? "check" : "brain",
+    action: {
+      label: "授权",
+      title: "在主对话中授权该岗位。",
+      onClick: () => state.useAicsMarketplaceRole(role),
+    },
+  }));
+
+  return renderMainSystemShell({
+    title: "我的岗位",
+    status: state.aicsMarketplace.loading ? "同步中" : roles.length ? "已同步" : "待同步",
+    icon: "brain",
+    loading: state.aicsMarketplace.loading,
+    error: state.aicsMarketplace.error,
+    emptyLabel: "暂无岗位",
+    metrics: [
+      { label: "已同步授权", value: roles.length, title: "已同步到本机的岗位授权。" },
+      { label: "已授权", value: authorized.length, title: "已购买或已授权的岗位。" },
+      { label: "可更新", value: updatable.length, title: "存在新版本的岗位。" },
+      { label: "岗位列表", value: roles.length, title: "本机可调度的岗位列表。" },
+    ],
+    items,
+    actions: [
+      {
+        label: "同步",
+        title: "同步云端已授权岗位。",
+        icon: "loader",
+        onClick: () => state.refreshAicsMarketplaceRoles(),
+        disabled: state.aicsMarketplace.loading,
+      },
+    ],
+    onNavigate,
+  });
+}
+
+function renderRoleMarketplaceProductPage(state: AppViewState, onNavigate: (tab: Tab) => void) {
+  const syncedRoles = state.aicsMarketplace.roles.length;
+
+  return renderMainSystemShell({
+    title: "岗位商城",
+    status: state.aicsMarketplace.loading ? "同步中" : "待同步",
+    icon: "globe",
+    loading: false,
+    error: state.aicsMarketplace.error,
+    emptyLabel: "",
+    metrics: [
+      { label: "云端商城", value: "可打开", title: BUYER_STOREFRONT_URL },
+      { label: "已同步", value: syncedRoles, title: "已同步到本机的岗位。" },
+    ],
+    items: [
+      { title: "打开云端商城", status: "跳转", icon: "externalLink" },
+      {
+        title: "同步授权",
+        status: state.aicsMarketplace.loading ? "同步中" : "待同步",
+        icon: "loader",
+      },
+    ],
+    actions: [
+      {
+        label: "打开云端",
+        title: "打开云端岗位商城。",
+        icon: "externalLink",
+        onClick: () =>
+          window.open(BUYER_STOREFRONT_URL, EXTERNAL_LINK_TARGET, "noopener,noreferrer"),
+      },
+      {
+        label: "同步",
+        title: "同步已授权岗位。",
+        icon: "loader",
+        onClick: () => state.refreshAicsMarketplaceRoles(),
+        disabled: state.aicsMarketplace.loading,
+      },
+    ],
+    onNavigate,
+  });
+}
+
+function renderRoleTasksProductPage(
+  state: AppViewState,
+  onNavigate: (tab: Tab) => void,
+  requestHostUpdate: () => void,
+) {
+  const auth =
+    (state.hello as { auth?: { role?: string; scopes?: string[] } } | null)?.auth ?? null;
+  const pluginEnabled = isPluginEnabledInConfigSnapshot(state.configSnapshot, "workboard", {
+    enabledByDefault: false,
+  });
+  const workboardState = getWorkboardState(state);
+  if (pluginEnabled) {
+    void loadWorkboard({
+      host: state,
+      client: state.client,
+      requestUpdate: requestHostUpdate,
+    });
+  }
+  const cards = workboardState.cards.filter((card) => !card.metadata?.archivedAt);
+  const items: MainSystemItem[] = cards.slice(0, 8).map((card) => {
+    const task = workboardState.tasksByCardId.get(card.id);
+    const status = roleTaskStatusLabel(task?.status ?? card.status);
+    return {
+      title: card.title,
+      status,
+      meta: card.updatedAt ? formatRelativeTimestamp(card.updatedAt) : undefined,
+      icon: status === "运行中" ? "activity" : status === "已完成" ? "check" : "folder",
+    };
+  });
+  const countByStatus = (label: string) =>
+    cards.filter((card) => roleTaskStatusLabel(card.status) === label).length;
+  return renderMainSystemShell({
+    title: "岗位任务",
+    status: pluginEnabled ? (hasOperatorWriteAccess(auth) ? "已接入" : "只读") : "待接入",
+    icon: "folder",
+    loading: pluginEnabled && workboardState.loading,
+    error: pluginEnabled ? workboardState.error : null,
+    emptyLabel: pluginEnabled ? "暂无岗位任务" : "岗位任务待接入",
+    metrics: [
+      {
+        label: "排单中",
+        value: countByStatus("排单中"),
+        title: "等待调度的岗位任务。",
+      },
+      {
+        label: "运行中",
+        value: countByStatus("运行中"),
+        title: "正在执行的岗位任务。",
+      },
+      {
+        label: "待确认",
+        value: countByStatus("待确认"),
+        title: "等待人工确认的岗位任务。",
+      },
+      {
+        label: "已失败",
+        value: countByStatus("已失败"),
+        title: "失败或阻塞后需要处理的岗位任务。",
+      },
+    ],
+    items,
+    actions: [],
+    onNavigate,
+  });
+}
+
+function renderMemoryEvolutionProductPage(state: AppViewState, onNavigate: (tab: Tab) => void) {
+  const status = state.dreamingStatus;
+  return renderMainSystemShell({
+    title: "记忆与进化",
+    status: state.dreamingStatusLoading ? "同步中" : status ? "已接入" : "待接入",
+    icon: "brain",
+    loading: state.dreamingStatusLoading,
+    error: state.dreamingStatusError,
+    emptyLabel: "暂无记忆候选",
+    metrics: [
+      {
+        label: "记忆候选",
+        value: formatMainSystemCount(status?.shortTermCount),
+        title: "等待调度层评估的记忆候选。",
+      },
+      {
+        label: "已确认记忆",
+        value: formatMainSystemCount(status?.promotedTotal),
+        title: "已经确认并可召回的记忆。",
+      },
+      { label: "待人工确认", value: "待接入", title: "高风险记忆需要人工确认。" },
+      { label: "优化候选", value: "待接入", title: "岗位能力优化候选。" },
+    ],
+    items: [
+      {
+        title: "记忆候选",
+        status: formatMainSystemCount(status?.shortTermCount),
+        icon: "brain",
+        titleHelp: "只显示调度层候选，不由岗位直接写入。",
+      },
+      { title: "已确认记忆", status: formatMainSystemCount(status?.promotedTotal), icon: "check" },
+      { title: "自动归档低风险记忆", status: status?.enabled ? "已开启" : "待接入", icon: "book" },
+      { title: "待人工确认高风险记忆", status: "待接入", icon: "eye" },
+      { title: "岗位优化候选", status: "待接入", icon: "spark" },
+      { title: "调度层总结入库", status: "待接入", icon: "fileText" },
+    ],
+    actions: [{ label: "设置", title: "打开设置。", icon: "settings", tab: "config" }],
+    onNavigate,
+  });
+}
+
+function renderBillingAuthorizationProductPage(
+  state: AppViewState,
+  onNavigate: (tab: Tab) => void,
+) {
+  const totals = state.usageCostSummary?.totals ?? state.usageResult?.totals ?? null;
+  const installedRoles = state.aicsMarketplace.roles.length;
+  return renderMainSystemShell({
+    title: "费用与授权",
+    status: state.usageLoading ? "同步中" : totals ? "已同步" : "待同步",
+    icon: "barChart",
+    loading: state.usageLoading,
+    error: state.usageError,
+    emptyLabel: "暂无费用记录",
+    metrics: [
+      { label: "授权岗位", value: installedRoles, title: "已经同步到本机的岗位数量。" },
+      { label: "授权费", value: "待接入", title: "岗位授权费用。" },
+      {
+        label: "对话用量",
+        value: formatMainSystemNumber(totals?.totalTokens),
+        title: "主系统和岗位执行产生的用量。",
+      },
+      {
+        label: "安全计费",
+        value: formatMainSystemCost(totals?.totalCost),
+        title: "只展示安全摘要。",
+      },
+    ],
+    items: [
+      {
+        title: "岗位授权状态",
+        status: installedRoles ? `${installedRoles}` : "暂无",
+        icon: "check",
+      },
+      { title: "授权费", status: "待接入", icon: "barChart" },
+      { title: "对话用量", status: formatMainSystemNumber(totals?.totalTokens), icon: "activity" },
+      { title: "开发者应收", status: "待接入", icon: "fileText" },
+      { title: "平台应收", status: "待接入", icon: "fileText" },
+      { title: "安全计费摘要", status: formatMainSystemCost(totals?.totalCost), icon: "eye" },
+    ],
+    actions: [],
+    onNavigate,
+  });
+}
+
+function renderToolsProductPage(state: AppViewState, onNavigate: (tab: Tab) => void) {
+  const toolCount =
+    state.toolsCatalogResult?.groups.reduce((count, group) => count + group.tools.length, 0) ??
+    null;
+  const skillCount =
+    state.skillsReport?.skills.filter((skill) => skill.eligible && !skill.disabled).length ?? null;
+  const callCount = state.usageResult?.aggregates?.tools?.totalCalls ?? null;
+  return renderMainSystemShell({
+    title: "已安装工具",
+    status:
+      state.toolsCatalogLoading || state.skillsLoading
+        ? "同步中"
+        : toolCount != null || skillCount != null
+          ? "已接入"
+          : "待同步",
+    icon: "zap",
+    loading: state.toolsCatalogLoading || state.skillsLoading,
+    error: state.toolsCatalogError ?? state.skillsError,
+    emptyLabel: "暂无已安装工具",
+    metrics: [
+      {
+        label: "已安装工具",
+        value: formatMainSystemCount(toolCount ?? skillCount),
+        title: "当前已安装并可展示的工具数量。",
+      },
+      { label: "岗位工具", value: "待选择", title: "选择岗位后显示可调用工具。" },
+      {
+        label: "调用记录",
+        value: formatMainSystemCount(callCount),
+        title: "来自安全用量摘要的工具调用次数。",
+      },
+      { label: "风险门控", value: "待接入", title: "高风险工具调用审批。" },
+    ],
+    items: [
+      { title: "已安装工具", status: formatMainSystemCount(toolCount ?? skillCount), icon: "zap" },
+      { title: "岗位工具", status: "待选择", icon: "wrench" },
+      { title: "工具调用记录", status: formatMainSystemCount(callCount), icon: "fileText" },
+    ],
+    actions: [{ label: "设置", title: "打开设置。", icon: "settings", tab: "config" }],
+    onNavigate,
+  });
+}
+
+const CONFIG_SETTINGS_TABS = [
+  "config",
+  "channels",
+  "communications",
+  "appearance",
+  "automation",
+  "mcp",
+  "infrastructure",
+  "aiAgents",
+] as const satisfies readonly Tab[];
+
+function isConfigSettingsTab(tab: Tab): boolean {
+  return (CONFIG_SETTINGS_TABS as readonly Tab[]).includes(tab);
+}
+
+const SETTINGS_WORKSPACE_WRAPPED_TABS = [
+  ...CONFIG_SETTINGS_TABS,
+  "debug",
+  "logs",
+] as const satisfies readonly Tab[];
+const CHAT_WORKSPACE_FILE_RAIL_ENABLED = false;
+
+function shouldRenderStandaloneSettingsSectionNav(tab: Tab): boolean {
+  return (
+    isSettingsTab(tab) &&
+    !isPrimaryNavTab(tab) &&
+    !(SETTINGS_WORKSPACE_WRAPPED_TABS as readonly Tab[]).includes(tab)
+  );
+}
+
+function renderStandaloneSettingsSectionNav(state: AppViewState) {
+  if (!shouldRenderStandaloneSettingsSectionNav(state.tab)) {
+    return nothing;
+  }
+  return html`
+    <div class="settings-workspace settings-workspace--nav-only">
+      ${renderSettingsSectionNav(state)}
+    </div>
   `;
 }
 
@@ -403,41 +775,80 @@ function renderSidebarRecentSession(state: AppViewState, row: GatewaySessionRow)
   const meta = row.updatedAt ? formatRelativeTimestamp(row.updatedAt) : "n/a";
   const href = `${pathForTab("chat", state.basePath)}?session=${encodeURIComponent(row.key)}`;
   return html`
-    <a
-      href=${href}
+    <div
       class="sidebar-recent-session ${active ? "sidebar-recent-session--active" : ""}"
       data-session-key=${row.key}
-      title=${`${label} · ${row.key}`}
+      title=${`${label} · ${meta}`}
       @click=${(event: MouseEvent) => {
-        if (
-          event.defaultPrevented ||
-          event.button !== 0 ||
-          event.metaKey ||
-          event.ctrlKey ||
-          event.shiftKey ||
-          event.altKey
-        ) {
+        const target = event.target instanceof Element ? event.target : null;
+        if (target?.closest("a,button")) {
           return;
         }
-        event.preventDefault();
         if (row.key !== state.sessionKey) {
           switchChatSession(state, row.key);
         }
         state.setTab("chat" as import("./navigation.ts").Tab);
       }}
     >
-      <span class="sidebar-recent-session__dot" aria-hidden="true"></span>
-      <span class="sidebar-recent-session__body">
-        <span class="sidebar-recent-session__name">${label}</span>
-        <span class="sidebar-recent-session__meta">${meta}</span>
-      </span>
+      <a
+        href=${href}
+        class="sidebar-recent-session__link"
+        @click=${(event: MouseEvent) => {
+          if (
+            event.defaultPrevented ||
+            event.button !== 0 ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.shiftKey ||
+            event.altKey
+          ) {
+            return;
+          }
+          event.preventDefault();
+          if (row.key !== state.sessionKey) {
+            switchChatSession(state, row.key);
+          }
+          state.setTab("chat" as import("./navigation.ts").Tab);
+        }}
+      >
+        <span class="sidebar-recent-session__dot" aria-hidden="true"></span>
+        <span class="sidebar-recent-session__body">
+          <span class="sidebar-recent-session__name">${label}</span>
+          <span class="sidebar-recent-session__meta">${meta}</span>
+        </span>
+      </a>
       ${row.hasActiveRun
         ? html`<span
             class="sidebar-recent-session__live"
             aria-label=${t("sessions.sessionDetails.activeRun")}
           ></span>`
         : nothing}
-    </a>
+      <button
+        class="sidebar-recent-session__delete"
+        type="button"
+        title="删除对话记录"
+        aria-label=${`删除对话记录：${label}`}
+        ?disabled=${state.sessionsLoading}
+        @click=${async (event: MouseEvent) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const deleted = await deleteSessionsAndRefresh(state, [row.key]);
+          if (deleted.includes(row.key) && row.key === state.sessionKey) {
+            const nextSessionKey =
+              state.sessionsResult?.sessions.find((session) => !deleted.includes(session.key))
+                ?.key ?? null;
+            if (nextSessionKey) {
+              switchChatSession(state, nextSessionKey);
+              state.setTab("chat" as import("./navigation.ts").Tab);
+            } else {
+              await createChatSession(state);
+            }
+          }
+        }}
+      >
+        ${icons.trash}
+      </button>
+    </div>
   `;
 }
 
@@ -452,8 +863,6 @@ const lazyInstances = createLazyView(() => import("./views/instances.ts"), notif
 const lazyLogs = createLazyView(() => import("./views/logs.ts"), notifyLazyViewChanged);
 const lazyNodes = createLazyView(() => import("./views/nodes.ts"), notifyLazyViewChanged);
 const lazySessions = createLazyView(() => import("./views/sessions.ts"), notifyLazyViewChanged);
-const lazySkills = createLazyView(() => import("./views/skills.ts"), notifyLazyViewChanged);
-const lazyWorkboard = createLazyView(() => import("./views/workboard.ts"), notifyLazyViewChanged);
 
 type ChatWorkspaceFilesState = {
   activeName: string | null;
@@ -499,26 +908,6 @@ export function formatDreamNextCycle(nextRunAtMs: number | undefined): string | 
     ) || null
   );
 }
-
-function resolveDreamingNextCycle(
-  status: { phases?: Record<string, { enabled: boolean; nextRunAtMs?: number }> } | null,
-): string | null {
-  if (!status?.phases) {
-    return null;
-  }
-  let nextRunAtMs: number | undefined;
-  for (const phase of Object.values(status.phases)) {
-    if (!phase.enabled || typeof phase.nextRunAtMs !== "number") {
-      continue;
-    }
-    if (nextRunAtMs === undefined || phase.nextRunAtMs < nextRunAtMs) {
-      nextRunAtMs = phase.nextRunAtMs;
-    }
-  }
-  return formatDreamNextCycle(nextRunAtMs);
-}
-
-let clawhubSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
 const UPDATE_BANNER_DISMISS_KEY = "openclaw:control-ui:update-banner-dismissed:v1";
 const CRON_THINKING_SUGGESTIONS = ["off", "minimal", "low", "medium", "high"];
@@ -1090,6 +1479,9 @@ export function renderApp(state: AppViewState) {
   const dashboardHeaderContext = resolveDashboardHeaderContext(state);
   const showThinking = state.onboarding ? false : state.settings.chatShowThinking;
   const showToolCalls = state.onboarding ? true : state.settings.chatShowToolCalls;
+  const navigateProductTab = (tab: Tab) => {
+    state.setTab(tab);
+  };
   const localAssistantAvatarOverride =
     normalizeOptionalString(loadLocalAssistantIdentity().avatar) ?? null;
   const assistantAvatarUrl = resolveAssistantAvatarUrl(state);
@@ -1128,85 +1520,6 @@ export function renderApp(state: AppViewState) {
       ? buildAssistantAvatarRoute(state.basePath, state.assistantAgentId)
       : (state.chatAvatarUrl ??
         (configAssistantAvatarMissing ? null : (assistantAvatarUrl ?? null))));
-  const configValue =
-    state.configForm ?? (state.configSnapshot?.config as Record<string, unknown> | null);
-  const configuredDreaming = resolveConfiguredDreaming(configValue);
-  const dreamingOn = state.dreamingStatus?.enabled ?? configuredDreaming.enabled;
-  const dreamingNextCycle = resolveDreamingNextCycle(state.dreamingStatus);
-  const dreamingAgentOptions = resolveChatAgentFilterOptions(state);
-  const dreamingSelectedAgentId = resolveChatAgentFilterId(state, state.sessionKey);
-  const syncDreamingSelectedAgent = () => {
-    state.selectedAgentId = dreamingSelectedAgentId;
-  };
-  const dreamingLoading = state.dreamingStatusLoading || state.dreamingModeSaving;
-  const dreamingRefreshLoading = state.dreamingStatusLoading || state.dreamDiaryLoading;
-  const refreshDreaming = () => {
-    void (async () => {
-      syncDreamingSelectedAgent();
-      await loadConfig(state);
-      await Promise.all([
-        loadDreamingStatus(state),
-        loadDreamDiary(state),
-        loadWikiImportInsights(state),
-        loadWikiMemoryPalace(state),
-      ]);
-    })();
-  };
-  const openWikiPage = async (lookup: string) => {
-    if (!state.client || !state.connected) {
-      return null;
-    }
-    const payload: {
-      title?: unknown;
-      path?: unknown;
-      content?: unknown;
-      updatedAt?: unknown;
-      totalLines?: unknown;
-      truncated?: unknown;
-    } | null = await state.client.request("wiki.get", {
-      lookup,
-      fromLine: 1,
-      lineCount: 5000,
-    });
-    const title =
-      typeof payload?.title === "string" && payload.title.trim() ? payload.title.trim() : lookup;
-    const path =
-      typeof payload?.path === "string" && payload.path.trim() ? payload.path.trim() : lookup;
-    const content =
-      typeof payload?.content === "string" && payload.content.length > 0
-        ? payload.content
-        : "No wiki content available.";
-    const updatedAt =
-      typeof payload?.updatedAt === "string" && payload.updatedAt.trim()
-        ? payload.updatedAt.trim()
-        : undefined;
-    const totalLines =
-      typeof payload?.totalLines === "number" && Number.isFinite(payload.totalLines)
-        ? Math.max(0, Math.floor(payload.totalLines))
-        : undefined;
-    const truncated = payload?.truncated === true;
-    return {
-      title,
-      path,
-      content,
-      ...(totalLines !== undefined ? { totalLines } : {}),
-      ...(truncated ? { truncated } : {}),
-      ...(updatedAt ? { updatedAt } : {}),
-    };
-  };
-  const applyDreamingEnabled = (enabled: boolean) => {
-    if (
-      state.dreamingModeSaving ||
-      state.dreamingRestartConfirmLoading ||
-      state.dreamingRestartConfirmOpen ||
-      dreamingOn === enabled
-    ) {
-      return;
-    }
-    state.dreamingPendingEnabled = enabled;
-    state.dreamingRestartConfirmOpen = true;
-    state.dreamingStatusError = null;
-  };
   const cancelDreamingRestart = () => {
     if (state.dreamingRestartConfirmLoading) {
       return;
@@ -1278,6 +1591,7 @@ export function renderApp(state: AppViewState) {
       : null;
   const getCurrentConfigValue = () =>
     state.configForm ?? (state.configSnapshot?.config as Record<string, unknown> | null);
+  const configValue = getCurrentConfigValue();
   const findAgentIndex = (agentId: string) =>
     findAgentConfigEntryIndex(getCurrentConfigValue(), agentId);
   const ensureAgentIndex = (agentId: string) => ensureAgentConfigEntry(state, agentId);
@@ -1875,6 +2189,7 @@ export function renderApp(state: AppViewState) {
     resetToolsEffectiveState(state);
   };
   if (
+    CHAT_WORKSPACE_FILE_RAIL_ENABLED &&
     isChat &&
     state.connected &&
     state.agentsList &&
@@ -1998,7 +2313,7 @@ export function renderApp(state: AppViewState) {
         state.paletteActiveIndex = i;
       },
       onNavigate: (tab) => {
-        state.setTab(tab as import("./navigation.ts").Tab);
+        navigateProductTab(tab as import("./navigation.ts").Tab);
       },
       onSlashCommand: (cmd) => {
         state.setTab("chat" as import("./navigation.ts").Tab);
@@ -2047,7 +2362,7 @@ export function renderApp(state: AppViewState) {
               .basePath=${state.basePath}
               .agentLabel=${dashboardHeaderContext.agentLabel}
               @navigate=${(event: CustomEvent<Tab>) => {
-                state.setTab(event.detail);
+                navigateProductTab(event.detail);
               }}
             ></dashboard-header>
           </div>
@@ -2108,6 +2423,7 @@ export function renderApp(state: AppViewState) {
                 ${TAB_GROUPS.map((group) => {
                   const isGroupCollapsed = state.settings.navGroupsCollapsed[group.label] ?? false;
                   const showItems = navCollapsed || !isGroupCollapsed;
+                  const groupLabel = group.label === "main" ? "主导航" : t(`nav.${group.label}`);
 
                   return html`
                     <section class="nav-section ${!showItems ? "nav-section--collapsed" : ""}">
@@ -2125,9 +2441,7 @@ export function renderApp(state: AppViewState) {
                               }}
                               aria-expanded=${showItems}
                             >
-                              <span class="nav-section__label-text"
-                                >${t(`nav.${group.label}`)}</span
-                              >
+                              <span class="nav-section__label-text">${groupLabel}</span>
                               <span class="nav-section__chevron"> ${icons.chevronDown} </span>
                             </button>
                           `
@@ -2144,21 +2458,6 @@ export function renderApp(state: AppViewState) {
             </div>
             <div class="sidebar-shell__footer">
               <div class="sidebar-utility-group">
-                <a
-                  class="nav-item nav-item--external sidebar-utility-link"
-                  href="https://docs.openclaw.ai"
-                  target=${EXTERNAL_LINK_TARGET}
-                  rel=${buildExternalLinkRel()}
-                  title=${t("chat.docsOpensInNewTab", { label: t("common.docs") })}
-                >
-                  <span class="nav-item__icon" aria-hidden="true">${icons.book}</span>
-                  ${!navCollapsed
-                    ? html`
-                        <span class="nav-item__text">${t("common.docs")}</span>
-                        <span class="nav-item__external-icon">${icons.externalLink}</span>
-                      `
-                    : nothing}
-                </a>
                 <div class="sidebar-mode-switch">${renderTopbarThemeModeToggle(state)}</div>
                 ${(() => {
                   const version = state.hello?.server?.version ?? "";
@@ -2228,57 +2527,18 @@ export function renderApp(state: AppViewState) {
               aria-hidden=${chatHeaderHidden ? "true" : nothing}
             >
               <div>
-                <div class="page-title">${titleForTab(state.tab)}</div>
+                <div class="page-title">${displayTitleForTab(state.tab)}</div>
                 <div class="page-sub">${subtitleForTab(state.tab)}</div>
               </div>
               <div class="page-meta">
-                ${state.tab === "dreams"
-                  ? html`
-                      <div class="dreaming-header-controls">
-                        <button
-                          class="btn btn--subtle btn--sm"
-                          ?disabled=${dreamingLoading || state.dreamDiaryLoading}
-                          @click=${refreshDreaming}
-                        >
-                          ${dreamingRefreshLoading
-                            ? t("dreaming.header.refreshing")
-                            : t("dreaming.header.refresh")}
-                        </button>
-                        <button
-                          class="dreams__phase-toggle ${dreamingOn
-                            ? "dreams__phase-toggle--on"
-                            : ""}"
-                          ?disabled=${dreamingLoading}
-                          @click=${() => applyDreamingEnabled(!dreamingOn)}
-                        >
-                          <span class="dreams__phase-toggle-dot"></span>
-                          <span class="dreams__phase-toggle-label">
-                            ${dreamingOn ? t("dreaming.header.on") : t("dreaming.header.off")}
-                          </span>
-                        </button>
-                      </div>
-                    `
-                  : nothing}
                 ${headerError ? html`<div class="pill danger">${headerError}</div>` : nothing}
               </div>
             </section>`}
-        ${state.tab === "aics"
-          ? renderAicsDashboard({
-              connected: state.connected,
-              version: state.hello?.server?.version ?? "",
-              roleBuilder: state.aicsRoleBuilder,
-              marketplace: state.aicsMarketplace,
-              onNavigate: (tab) => state.setTab(tab),
-              onRoleBuilderFieldChange: (field, value) =>
-                state.updateAicsRoleBuilderField(field, value),
-              onMarketplaceRolesRefresh: () => state.refreshAicsMarketplaceRoles(),
-              onMarketplaceRoleUse: (role) => state.useAicsMarketplaceRole(role),
-              onDeveloperModeStart: () => state.startAicsDeveloperMode(),
-              onExecutionTokenRequest: () => state.requestAicsExecutionToken(),
-              onExecutionAuditRead: () => state.readAicsExecutionAudit(),
-              onRoleBuilderRun: () => state.runAicsRoleBuilder(),
-            })
+        ${state.tab === "aics" ? renderMyRolesProductPage(state, navigateProductTab) : nothing}
+        ${state.tab === "marketplace"
+          ? renderRoleMarketplaceProductPage(state, navigateProductTab)
           : nothing}
+        ${renderStandaloneSettingsSectionNav(state)}
         ${state.tab === "overview"
           ? renderOverview({
               connected: state.connected,
@@ -2317,7 +2577,7 @@ export function renderApp(state: AppViewState) {
               },
               onConnect: () => state.connect(),
               onRefresh: () => void state.loadOverview({ refresh: true }),
-              onNavigate: (tab) => state.setTab(tab as import("./navigation.ts").Tab),
+              onNavigate: (tab) => navigateProductTab(tab as import("./navigation.ts").Tab),
               onRefreshLogs: () => void state.loadOverview({ refresh: true }),
             })
           : nothing}
@@ -2515,6 +2775,28 @@ export function renderApp(state: AppViewState) {
                     state.sessionsSelectedKeys = next;
                   }
                 }),
+                onDeleteSession: runUiTask(async (key) => {
+                  const deleted = await deleteSessionsAndRefresh(state, [key]);
+                  if (deleted.length > 0) {
+                    const next = new Set(state.sessionsSelectedKeys);
+                    for (const deletedKey of deleted) {
+                      next.delete(deletedKey);
+                    }
+                    state.sessionsSelectedKeys = next;
+                    if (deleted.includes(state.sessionKey)) {
+                      const nextSessionKey =
+                        state.sessionsResult?.sessions.find(
+                          (session) => !deleted.includes(session.key),
+                        )?.key ?? null;
+                      if (nextSessionKey) {
+                        switchChatSession(state, nextSessionKey);
+                        state.setTab("chat" as import("./navigation.ts").Tab);
+                      } else {
+                        await createChatSession(state);
+                      }
+                    }
+                  }
+                }),
                 onNavigateToChat: (sessionKey) => {
                   switchChatSession(state, sessionKey);
                   state.setTab("chat" as import("./navigation.ts").Tab);
@@ -2550,30 +2832,11 @@ export function renderApp(state: AppViewState) {
             })
           : nothing}
         ${state.tab === "workboard"
-          ? renderLazyView(lazyWorkboard, (m) => {
-              const auth =
-                (state.hello as { auth?: { role?: string; scopes?: string[] } } | null)?.auth ??
-                null;
-              return m.renderWorkboard({
-                host: state,
-                client: state.client,
-                connected: state.connected,
-                canWrite: hasOperatorWriteAccess(auth),
-                canModelOverride: hasOperatorAdminAccess(auth),
-                pluginEnabled: isPluginEnabledInConfigSnapshot(state.configSnapshot, "workboard", {
-                  enabledByDefault: false,
-                }),
-                agentsList: state.agentsList,
-                sessions: state.sessionsResult?.sessions ?? [],
-                onOpenSession: (sessionKey) => {
-                  switchChatSession(state, sessionKey);
-                  state.setTab("chat" as import("./navigation.ts").Tab);
-                },
-                onRequestUpdate: requestHostUpdate,
-              });
-            })
+          ? renderRoleTasksProductPage(state, navigateProductTab, requestHostUpdate)
           : nothing}
-        ${renderUsageTab(state)}
+        ${state.tab === "usage"
+          ? renderBillingAuthorizationProductPage(state, navigateProductTab)
+          : nothing}
         ${state.tab === "cron" ? renderCronQuickCreateForTab(state, requestHostUpdate) : nothing}
         ${state.tab === "cron"
           ? renderLazyView(lazyCron, (m) =>
@@ -3019,70 +3282,7 @@ export function renderApp(state: AppViewState) {
               }),
             )
           : nothing}
-        ${state.tab === "skills"
-          ? renderLazyView(lazySkills, (m) =>
-              m.renderSkills({
-                connected: state.connected,
-                loading: state.skillsLoading,
-                report: state.skillsReport,
-                error: state.skillsError,
-                filter: state.skillsFilter,
-                statusFilter: state.skillsStatusFilter,
-                edits: state.skillEdits,
-                messages: state.skillMessages,
-                busyKey: state.skillsBusyKey,
-                detailKey: state.skillsDetailKey,
-                detailTab: state.skillsDetailTab,
-                clawhubVerdicts: state.clawhubVerdicts,
-                clawhubVerdictsLoading: state.clawhubVerdictsLoading,
-                clawhubVerdictsError: state.clawhubVerdictsError,
-                skillCardContents: state.skillCardContents,
-                skillCardLoadingKey: state.skillCardLoadingKey,
-                skillCardErrors: state.skillCardErrors,
-                clawhubQuery: state.clawhubSearchQuery,
-                clawhubResults: state.clawhubSearchResults,
-                clawhubSearchLoading: state.clawhubSearchLoading,
-                clawhubSearchError: state.clawhubSearchError,
-                clawhubDetail: state.clawhubDetail,
-                clawhubDetailSlug: state.clawhubDetailSlug,
-                clawhubDetailLoading: state.clawhubDetailLoading,
-                clawhubDetailError: state.clawhubDetailError,
-                clawhubInstallSlug: state.clawhubInstallSlug,
-                clawhubInstallMessage: state.clawhubInstallMessage,
-                onFilterChange: (next) => (state.skillsFilter = next),
-                onStatusFilterChange: (next) => (state.skillsStatusFilter = next),
-                onRefresh: () => void loadSkills(state, { clearMessages: true }),
-                onToggle: (key, enabled) => void updateSkillEnabled(state, key, enabled),
-                onEdit: (key, value) => updateSkillEdit(state, key, value),
-                onSaveKey: (key) => void saveSkillApiKey(state, key),
-                onInstall: (skillKey, name, installId) =>
-                  void installSkill(state, skillKey, name, installId),
-                onDetailOpen: (key) => {
-                  state.skillsDetailKey = key;
-                  state.skillsDetailTab = "overview";
-                },
-                onDetailClose: () => (state.skillsDetailKey = null),
-                onDetailTabChange: (tab) => {
-                  state.skillsDetailTab = tab;
-                  if (tab === "card" && state.skillsDetailKey) {
-                    void loadSkillCard(state, state.skillsDetailKey);
-                  }
-                },
-                onClawHubQueryChange: (query) => {
-                  setClawHubSearchQuery(state, query);
-                  if (clawhubSearchTimer) {
-                    clearTimeout(clawhubSearchTimer);
-                  }
-                  clawhubSearchTimer = setTimeout(() => {
-                    void searchClawHub(state, query);
-                  }, 300);
-                },
-                onClawHubDetailOpen: (slug) => void loadClawHubDetail(state, slug),
-                onClawHubDetailClose: () => closeClawHubDetail(state),
-                onClawHubInstall: (slug) => void installFromClawHub(state, slug),
-              }),
-            )
-          : nothing}
+        ${state.tab === "skills" ? renderToolsProductPage(state, navigateProductTab) : nothing}
         ${state.tab === "nodes"
           ? renderLazyView(lazyNodes, (m) =>
               m.renderNodes({
@@ -3196,6 +3396,7 @@ export function renderApp(state: AppViewState) {
                   aicsMode: state.aicsConversationMode,
                   aicsStage: state.aicsConversationStage,
                   onAicsModeChange: (mode) => state.setAicsConversationMode(mode),
+                  onNavigate: navigateProductTab,
                   queue: state.chatQueue,
                   realtimeTalkActive: state.realtimeTalkActive,
                   realtimeTalkStatus: state.realtimeTalkStatus,
@@ -3212,18 +3413,20 @@ export function renderApp(state: AppViewState) {
                   onDismissError: () => dismissChatError(state),
                   sessions: state.sessionsResult,
                   composerControls: renderGuardedChatControls(state),
-                  workspaceFiles: {
-                    agentId: chatAgentId,
-                    list:
-                      chatWorkspaceFiles.list?.agentId === chatAgentId
-                        ? chatWorkspaceFiles.list
-                        : null,
-                    loading: chatWorkspaceFiles.loading,
-                    error: chatWorkspaceFiles.error,
-                    activeName: chatWorkspaceFiles.activeName,
-                    onRefresh: refreshChatWorkspaceFiles,
-                    onOpenFile: openChatWorkspaceFile,
-                  },
+                  workspaceFiles: CHAT_WORKSPACE_FILE_RAIL_ENABLED
+                    ? {
+                        agentId: chatAgentId,
+                        list:
+                          chatWorkspaceFiles.list?.agentId === chatAgentId
+                            ? chatWorkspaceFiles.list
+                            : null,
+                        loading: chatWorkspaceFiles.loading,
+                        error: chatWorkspaceFiles.error,
+                        activeName: chatWorkspaceFiles.activeName,
+                        onRefresh: refreshChatWorkspaceFiles,
+                        onOpenFile: openChatWorkspaceFile,
+                      }
+                    : undefined,
                   autoExpandToolCalls: false,
                   onRefresh: () => {
                     state.chatSideResult = null;
@@ -3329,9 +3532,9 @@ export function renderApp(state: AppViewState) {
                 }),
             )
           : nothing}
-        ${isSettingsTab(state.tab) && state.tab !== "debug" && state.tab !== "logs"
+        ${isConfigSettingsTab(state.tab)
           ? renderSettingsWorkspace(state, renderConfigTabForActiveTab())
-          : renderConfigTabForActiveTab()}
+          : nothing}
         ${state.tab === "debug"
           ? renderSettingsWorkspace(
               state,
@@ -3382,91 +3585,7 @@ export function renderApp(state: AppViewState) {
             )
           : nothing}
         ${state.tab === "dreams"
-          ? renderDreaming({
-              active: dreamingOn,
-              selectedAgentId: dreamingSelectedAgentId,
-              agentOptions: dreamingAgentOptions,
-              shortTermCount: state.dreamingStatus?.shortTermCount ?? 0,
-              groundedSignalCount: state.dreamingStatus?.groundedSignalCount ?? 0,
-              totalSignalCount: state.dreamingStatus?.totalSignalCount ?? 0,
-              promotedCount: state.dreamingStatus?.promotedToday ?? 0,
-              phases: state.dreamingStatus?.phases ?? undefined,
-              shortTermEntries: state.dreamingStatus?.shortTermEntries ?? [],
-              promotedEntries: state.dreamingStatus?.promotedEntries ?? [],
-              dreamingOf: null,
-              nextCycle: dreamingNextCycle,
-              timezone: state.dreamingStatus?.timezone ?? null,
-              statusLoading: state.dreamingStatusLoading,
-              statusError: state.dreamingStatusError,
-              modeSaving: state.dreamingModeSaving,
-              dreamDiaryLoading: state.dreamDiaryLoading,
-              dreamDiaryActionLoading: state.dreamDiaryActionLoading,
-              dreamDiaryActionMessage: state.dreamDiaryActionMessage,
-              dreamDiaryActionArchivePath: state.dreamDiaryActionArchivePath,
-              dreamDiaryError: state.dreamDiaryError,
-              dreamDiaryPath: state.dreamDiaryPath,
-              dreamDiaryContent: state.dreamDiaryContent,
-              memoryWikiEnabled: isPluginEnabledInConfigSnapshot(
-                state.configSnapshot,
-                "memory-wiki",
-                { enabledByDefault: false },
-              ),
-              wikiImportInsightsLoading: state.wikiImportInsightsLoading,
-              wikiImportInsightsError: state.wikiImportInsightsError,
-              wikiImportInsights: state.wikiImportInsights,
-              wikiMemoryPalaceLoading: state.wikiMemoryPalaceLoading,
-              wikiMemoryPalaceError: state.wikiMemoryPalaceError,
-              wikiMemoryPalace: state.wikiMemoryPalace,
-              onRefresh: refreshDreaming,
-              onSelectAgent: (agentId: string) => {
-                state.selectedAgentId = agentId;
-                switchChatSession(state, resolvePreferredSessionForAgent(state, agentId));
-                void loadDreamingStatus(state);
-                void loadDreamDiary(state);
-              },
-              onRefreshDiary: () => {
-                syncDreamingSelectedAgent();
-                void loadDreamDiary(state);
-              },
-              onRefreshImports: () => {
-                void (async () => {
-                  await loadConfig(state);
-                  await loadWikiImportInsights(state);
-                })();
-              },
-              onRefreshMemoryPalace: () => {
-                void (async () => {
-                  await loadConfig(state);
-                  await loadWikiMemoryPalace(state);
-                })();
-              },
-              onOpenConfig: () => void openConfigFile(state),
-              onOpenWikiPage: (lookup: string) => openWikiPage(lookup),
-              onBackfillDiary: () => {
-                syncDreamingSelectedAgent();
-                void backfillDreamDiary(state);
-              },
-              onCopyDreamingArchivePath: () => {
-                void copyDreamingArchivePath(state);
-              },
-              onDedupeDreamDiary: () => {
-                syncDreamingSelectedAgent();
-                void dedupeDreamDiary(state);
-              },
-              onResetDiary: () => {
-                syncDreamingSelectedAgent();
-                void resetDreamDiary(state);
-              },
-              onResetGroundedShortTerm: () => {
-                syncDreamingSelectedAgent();
-                void resetGroundedShortTerm(state);
-              },
-              onRepairDreamingArtifacts: () => {
-                syncDreamingSelectedAgent();
-                void repairDreamingArtifacts(state);
-              },
-              onRequestUpdate: requestHostUpdate,
-            })
+          ? renderMemoryEvolutionProductPage(state, navigateProductTab)
           : nothing}
       </main>
       ${renderExecApprovalPrompt(state)} ${renderGatewayUrlConfirmation(state)}

@@ -86,6 +86,7 @@ describe("lazy protocol validators", () => {
         sessionKey: "global",
         agentId: "work",
         message: "hello",
+        aicsContext: { mode: "developer", stage: "intake" },
         idempotencyKey: "run-global-work",
       }),
     ).toBe(true);

@@ -2,21 +2,9 @@ import { t } from "../i18n/index.ts";
 import type { IconName } from "./icons.js";
 import { normalizeLowercaseStringOrEmpty } from "./string-coerce.ts";
 
-export const TAB_GROUPS = [
-  { label: "aics", tabs: ["aics", "workboard", "chat"] },
-  {
-    label: "control",
-    tabs: ["overview", "activity", "instances", "sessions", "usage", "cron"],
-  },
-  { label: "agent", tabs: ["agents", "skills", "skillWorkshop", "nodes", "dreams"] },
-  {
-    label: "settings",
-    tabs: ["config"],
-  },
-] as const;
-
 export type Tab =
   | "aics"
+  | "marketplace"
   | "agents"
   | "activity"
   | "overview"
@@ -41,21 +29,91 @@ export type Tab =
   | "logs"
   | "dreams";
 
-export const SETTINGS_TABS = [
+const PRIMARY_NAV_TABS = [
+  "chat",
+  "aics",
+  "workboard",
+  "usage",
+  "skills",
+  "sessions",
+  "dreams",
+  "marketplace",
+  "config",
+] as const satisfies readonly Tab[];
+
+const SETTINGS_GENERAL_TABS = [
   "config",
   "channels",
   "communications",
   "appearance",
+] as const satisfies readonly Tab[];
+
+const SETTINGS_DEVELOPER_TABS = [
   "automation",
   "mcp",
   "infrastructure",
   "aiAgents",
+  "agents",
+  "skillWorkshop",
+  "nodes",
+  "cron",
+] as const satisfies readonly Tab[];
+
+const SETTINGS_DIAGNOSTIC_TABS = [
+  "overview",
+  "activity",
+  "instances",
   "debug",
   "logs",
 ] as const satisfies readonly Tab[];
 
+export const TAB_GROUPS = [{ label: "main", tabs: PRIMARY_NAV_TABS }] as const;
+
+export const SETTINGS_NAV_GROUPS = [
+  { label: "基础设置", tabs: SETTINGS_GENERAL_TABS },
+  { label: "开发者工具", tabs: SETTINGS_DEVELOPER_TABS },
+  { label: "高级诊断", tabs: SETTINGS_DIAGNOSTIC_TABS },
+] as const;
+
+export const SETTINGS_TABS = [
+  ...SETTINGS_GENERAL_TABS,
+  ...SETTINGS_DEVELOPER_TABS,
+  ...SETTINGS_DIAGNOSTIC_TABS,
+] as const satisfies readonly Tab[];
+
+export const BUYER_STOREFRONT_URL = "http://127.0.0.1:8000/categories";
+
+const DISPLAY_TAB_TITLES: Partial<Record<Tab, string>> = {
+  chat: "主对话",
+  aics: "我的岗位",
+  workboard: "岗位任务",
+  dreams: "记忆与进化",
+  usage: "费用与授权",
+  marketplace: "岗位商城",
+  skills: "已安装工具",
+  sessions: "对话记录",
+  config: "设置",
+  channels: "渠道",
+  communications: "通信",
+  appearance: "外观",
+  automation: "自动化",
+  mcp: "MCP",
+  infrastructure: "基础设施",
+  aiAgents: "AI 与代理",
+  agents: "代理",
+  skillWorkshop: "技能工坊",
+  nodes: "节点",
+  cron: "定时任务",
+  overview: "控制概览",
+  activity: "活动",
+  instances: "实例",
+  debug: "调试",
+  logs: "日志",
+};
+
 const TAB_PATHS: Record<Tab, string> = {
   aics: "/aics",
+  marketplace: "/marketplace",
   agents: "/agents",
   activity: "/activity",
   overview: "/overview",
@@ -145,14 +203,15 @@ export function pathForTab(tab: Tab, basePath = ""): string {
   return base ? `${base}${path}` : path;
 }
 
+export function isPrimaryNavTab(tab: Tab): boolean {
+  return (PRIMARY_NAV_TABS as readonly Tab[]).includes(tab);
+}
+
 export function isSettingsTab(tab: Tab): boolean {
   return (SETTINGS_TABS as readonly Tab[]).includes(tab);
 }
 
 export function isTabInGroup(group: (typeof TAB_GROUPS)[number], tab: Tab): boolean {
-  if (group.label === "settings") {
-    return isSettingsTab(tab);
-  }
   return (group.tabs as readonly Tab[]).includes(tab);
 }
 
@@ -171,7 +230,7 @@ export function tabFromPath(pathname: string, basePath = ""): Tab | null {
     normalized = "/";
   }
   if (normalized === "/") {
-    return "aics";
+    return "chat";
   }
   return PATH_TO_TAB.get(normalized) ?? null;
 }
@@ -202,6 +261,8 @@ export function iconForTab(tab: Tab): IconName {
   switch (tab) {
     case "aics":
       return "brain";
+    case "marketplace":
+      return "globe";
     case "agents":
       return "folder";
     case "chat":
@@ -258,6 +319,10 @@ export function titleForTab(tab: Tab) {
     return t("nav.settings");
   }
   return t(`tabs.${tab}`);
+}
+
+export function displayTitleForTab(tab: Tab) {
+  return DISPLAY_TAB_TITLES[tab] ?? titleForTab(tab);
 }
 
 export function subtitleForTab(tab: Tab) {

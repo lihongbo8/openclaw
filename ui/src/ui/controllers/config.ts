@@ -194,9 +194,9 @@ function resolveUpdateStatusBanner(params: { status?: string; reason?: string })
       dirty: "Commit or stash changes, then retry.",
       "no-upstream": "Set an upstream branch, then retry.",
       "not-git-install":
-        "Not a git checkout. Run `openclaw update` from the CLI for a global reinstall.",
+        "Not a git checkout. Run the local system CLI update command for a global reinstall.",
       "not-openclaw-root":
-        "Run the update from an OpenClaw checkout or use the CLI global reinstall path.",
+        "Run the update from a local system checkout or use the CLI global reinstall path.",
       "deps-install-failed": "Dependency install failed. Fix the install error and retry.",
       "build-failed": "Build failed. Fix the build error and retry.",
       "ui-build-failed": "The control UI rebuild failed. Fix the UI build error and retry.",

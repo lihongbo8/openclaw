@@ -59,15 +59,11 @@ import {
 import { getExpandedToolCards, syncToolCardExpansionState } from "../chat/tool-expansion-state.ts";
 import type { EmbedSandboxMode } from "../embed-sandbox.ts";
 import { icons } from "../icons.ts";
+import type { Tab } from "../navigation.ts";
 import { formatGoalDetail, formatGoalSummary } from "../session-goal.ts";
 import type { SidebarContent } from "../sidebar-content.ts";
 import { detectTextDirection } from "../text-direction.ts";
-import type {
-  AgentFileEntry,
-  AgentsFilesListResult,
-  SessionGoal,
-  SessionsListResult,
-} from "../types.ts";
+import type { AgentsFilesListResult, SessionGoal, SessionsListResult } from "../types.ts";
 import type { ChatAttachment, ChatQueueItem } from "../ui-types.ts";
 import { resolveLocalUserName } from "../user-identity.ts";
 import { renderMarkdownSidebar } from "./markdown-sidebar.ts";
@@ -113,6 +109,7 @@ export type ChatProps = {
   aicsMode?: AicsConversationMode;
   aicsStage?: AicsConversationStage;
   onAicsModeChange?: (mode: AicsConversationMode) => void;
+  onNavigate?: (tab: Tab) => void;
   queue: ChatQueueItem[];
   realtimeTalkActive?: boolean;
   realtimeTalkStatus?: RealtimeTalkStatus;
@@ -233,7 +230,7 @@ const TALK_PROVIDER_OPTIONS: TalkSelectOption[] = [
 const TALK_TRANSPORT_OPTIONS: TalkSelectOption[] = [
   { label: "Auto", value: "" },
   { label: "WebRTC", value: "webrtc" },
-  { label: "Gateway relay", value: "gateway-relay" },
+  { label: "本机中继", value: "gateway-relay" },
   { label: "Provider WebSocket", value: "provider-websocket" },
 ];
 const TALK_REASONING_OPTIONS: TalkSelectOption[] = [
@@ -445,7 +442,11 @@ function renderRealtimeTalkConversation(props: ChatProps) {
         (entry) => entry.id,
         (entry) => {
           const label =
-            entry.role === "user" ? props.userName?.trim() || "You" : props.assistantName;
+            entry.role === "user"
+              ? props.userName?.trim() || "You"
+              : props.aicsMode
+                ? "迭界AI"
+                : props.assistantName;
           return html`
             <div
               class="agent-chat__voice-turn agent-chat__voice-turn--${entry.role}"
@@ -551,7 +552,8 @@ function sameChatItemsInput(previous: BuildChatItemsProps, next: BuildChatItemsP
     previous.queue === next.queue &&
     previous.showToolCalls === next.showToolCalls &&
     previous.searchOpen === next.searchOpen &&
-    previous.searchQuery === next.searchQuery
+    previous.searchQuery === next.searchQuery &&
+    previous.sanitizeInternalDisplay === next.sanitizeInternalDisplay
   );
 }
 
@@ -847,92 +849,6 @@ function renderChatGoal(goal: SessionGoal | undefined): TemplateResult | typeof 
   `;
 }
 
-function formatWorkspaceFileSize(file: AgentFileEntry): string {
-  const size = file.size;
-  if (typeof size !== "number" || !Number.isFinite(size) || size < 0) {
-    return "";
-  }
-  if (size >= 1024 * 1024) {
-    return `${(size / (1024 * 1024)).toFixed(1).replace(/\.0$/, "")} MB`;
-  }
-  if (size >= 1024) {
-    return `${(size / 1024).toFixed(1).replace(/\.0$/, "")} KB`;
-  }
-  return `${size} B`;
-}
-
-function renderWorkspaceFileRail(
-  workspaceFiles: NonNullable<ChatProps["workspaceFiles"]> | undefined,
-): TemplateResult | typeof nothing {
-  if (!workspaceFiles) {
-    return nothing;
-  }
-  const files = workspaceFiles.list?.files ?? [];
-  return html`
-    <aside class="chat-workspace-rail" aria-label="Workspace files">
-      <div class="chat-workspace-rail__header">
-        <div class="chat-workspace-rail__title">
-          <span class="chat-workspace-rail__eyebrow">Workspace</span>
-          <strong>Files</strong>
-        </div>
-        <button
-          class="btn btn--ghost btn--sm chat-workspace-rail__refresh"
-          type="button"
-          title="Refresh files"
-          aria-label="Refresh files"
-          ?disabled=${workspaceFiles.loading}
-          @click=${workspaceFiles.onRefresh}
-        >
-          ${icons.refresh}
-        </button>
-      </div>
-      ${workspaceFiles.list?.workspace
-        ? html`<div class="chat-workspace-rail__path" title=${workspaceFiles.list.workspace}>
-            ${workspaceFiles.list.workspace}
-          </div>`
-        : nothing}
-      ${workspaceFiles.error
-        ? html`<div class="chat-workspace-rail__state chat-workspace-rail__state--error">
-            ${workspaceFiles.error}
-          </div>`
-        : workspaceFiles.loading && files.length === 0
-          ? html`<div class="chat-workspace-rail__state">Loading files...</div>`
-          : files.length === 0
-            ? html`<div class="chat-workspace-rail__state">No workspace files</div>`
-            : html`
-                <div class="chat-workspace-rail__list" role="list">
-                  ${files.map((file) => {
-                    const size = formatWorkspaceFileSize(file);
-                    const isActive = file.name === workspaceFiles.activeName;
-                    return html`
-                      <button
-                        class="chat-workspace-rail__file ${isActive
-                          ? "chat-workspace-rail__file--active"
-                          : ""}"
-                        type="button"
-                        role="listitem"
-                        title=${file.path || file.name}
-                        @click=${() => workspaceFiles.onOpenFile(file.name)}
-                      >
-                        <span class="chat-workspace-rail__file-icon">${icons.fileText}</span>
-                        <span class="chat-workspace-rail__file-main">
-                          <span class="chat-workspace-rail__file-name">${file.name}</span>
-                          ${size
-                            ? html`<span class="chat-workspace-rail__file-meta">${size}</span>`
-                            : nothing}
-                        </span>
-                        ${file.missing
-                          ? html`<span class="chat-workspace-rail__file-badge">Missing</span>`
-                          : nothing}
-                      </button>
-                    `;
-                  })}
-                </div>
-              `}
-    </aside>
-  `;
-}
-
 function resetSlashMenuState(): void {
   vs.slashMenuMode = "command";
   vs.slashMenuCommand = null;
@@ -1136,7 +1052,40 @@ function tokenEstimate(draft: string): string | null {
   if (draft.length < 100) {
     return null;
   }
-  return `~${Math.ceil(draft.length / 4)} tokens`;
+  return `长度估算 ${Math.ceil(draft.length / 4)}`;
+}
+
+function renderChatSchedulerPanel(props: ChatProps): TemplateResult {
+  const running =
+    props.sending ||
+    props.stream !== null ||
+    Boolean(props.canAbort && !hasTerminalRunStatus(props.runStatus));
+  const rows = [
+    ["当前任务", running ? "处理中" : "空"],
+    ["队列", String(props.queue.length)],
+    ["待确认", "0"],
+    ["运行岗位", "无"],
+    ["风险门控", props.error ? "需处理" : "正常"],
+    ["下一步", running ? "等待完成" : "等待输入"],
+  ] as const;
+
+  return html`
+    <aside class="agent-chat__scheduler-panel" aria-label="调度层状态">
+      <div class="agent-chat__scheduler-title">
+        <strong>调度层</strong>
+      </div>
+      <div class="agent-chat__scheduler-list">
+        ${rows.map(
+          ([label, value]) => html`
+            <div class="agent-chat__scheduler-row">
+              <span>${label}</span>
+              <strong>${value}</strong>
+            </div>
+          `,
+        )}
+      </div>
+    </aside>
+  `;
 }
 
 function renderAicsModeSwitch(props: ChatProps): TemplateResult | typeof nothing {
@@ -1167,31 +1116,17 @@ function renderAicsModeSwitch(props: ChatProps): TemplateResult | typeof nothing
       icon: icons.wrench,
     },
   ];
+  const currentHelp =
+    mode === "developer"
+      ? "说清楚业务目标、使用对象和判断流程即可。"
+      : "使用已安装或已购买的岗位处理任务。";
   return html`
-    <div class="agent-chat__aics-mode" aria-label="迭界AI对话模式">
-      <div
-        class="agent-chat__aics-mode-current"
-        data-aics-mode=${currentProtocol.mode}
-        data-aics-role=${currentProtocol.role}
-        data-aics-stage=${currentProtocol.stage}
-      >
-        <span>
-          <span class="agent-chat__aics-mode-meta-label">当前角色</span>
-          <strong>${currentProtocol.roleLabel}</strong>
-        </span>
-        <span>
-          <span class="agent-chat__aics-mode-meta-label">工作身份</span>
-          <strong>${currentProtocol.workIdentityLabel}</strong>
-        </span>
-        <span>
-          <span class="agent-chat__aics-mode-meta-label">当前流程阶段</span>
-          <strong>${currentProtocol.stageLabel}</strong>
-        </span>
-        <span>
-          <span class="agent-chat__aics-mode-meta-label">阶段说明</span>
-          <strong>${currentProtocol.stageDetail}</strong>
-        </span>
-      </div>
+    <div
+      class="agent-chat__aics-mode"
+      aria-label=${`迭界AI对话模式：${currentProtocol.stageLabel}`}
+      title=${currentHelp}
+      data-tooltip=${currentHelp}
+    >
       ${options.map(
         (option) => html`
           <button
@@ -1200,23 +1135,14 @@ function renderAicsModeSwitch(props: ChatProps): TemplateResult | typeof nothing
               ? "agent-chat__aics-mode-option--active"
               : ""}"
             aria-pressed=${mode === option.mode ? "true" : "false"}
+            title=${option.protocol.stageDetail}
+            aria-label=${`${option.label}。${option.protocol.stageDetail}`}
+            data-tooltip=${option.protocol.stageDetail}
             @click=${() => props.onAicsModeChange?.(option.mode)}
           >
             <span class="agent-chat__aics-mode-icon" aria-hidden="true">${option.icon}</span>
             <span>
               <span class="agent-chat__aics-mode-label">${option.label}</span>
-              <span class="agent-chat__aics-mode-detail"
-                >当前角色：${option.protocol.roleLabel}</span
-              >
-              <span class="agent-chat__aics-mode-detail"
-                >工作身份：${option.protocol.workIdentityLabel}</span
-              >
-              <span class="agent-chat__aics-mode-detail"
-                >当前流程阶段：${option.protocol.stageLabel}</span
-              >
-              <span class="agent-chat__aics-mode-detail"
-                >阶段说明：${option.protocol.stageDetail}</span
-              >
             </span>
           </button>
         `,
@@ -1477,8 +1403,9 @@ export function renderChat(props: ChatProps) {
   const activeSession = props.sessions?.sessions?.find((row) => row.key === props.sessionKey);
   const reasoningLevel = activeSession?.reasoningLevel ?? "off";
   const showReasoning = props.showThinking && reasoningLevel !== "off";
+  const assistantDisplayName = props.aicsMode ? "迭界AI" : props.assistantName || "Assistant";
   const assistantIdentity = {
-    name: props.assistantName,
+    name: assistantDisplayName,
     avatar: resolveAssistantDisplayAvatar(props),
   };
   const draftMirror = getComposerDraftMirror(props);
@@ -1486,18 +1413,19 @@ export function renderChat(props: ChatProps) {
   const pinned = getPinnedMessages(props.sessionKey);
   const deleted = getDeletedMessages(props.sessionKey);
   const hasAttachments = (props.attachments?.length ?? 0) > 0;
-  const tokens = tokenEstimate(visibleDraft);
+  const tokens = props.aicsMode ? null : tokenEstimate(visibleDraft);
 
   const placeholder = props.connected
     ? hasAttachments
       ? t("chat.composer.placeholderWithAttachments")
-      : t("chat.composer.placeholder", { name: props.assistantName || "agent" })
+      : t("chat.composer.placeholder", { name: assistantDisplayName })
     : t("chat.composer.placeholderDisconnected");
 
   const requestUpdate = props.onRequestUpdate ?? (() => {});
   const splitRatio = props.splitRatio ?? 0.6;
   const sidebarOpen = Boolean(props.sidebarOpen && props.onCloseSidebar);
   const displayStream = props.stream ?? null;
+  let composerTextarea: HTMLTextAreaElement | null = null;
 
   const handleCodeBlockCopy = (e: Event) => {
     const btn = (e.target as HTMLElement).closest(".code-block-copy");
@@ -1525,6 +1453,7 @@ export function renderChat(props: ChatProps) {
     showToolCalls: props.showToolCalls,
     searchOpen: vs.searchOpen,
     searchQuery: vs.searchQuery,
+    sanitizeInternalDisplay: Boolean(props.aicsMode),
   });
   syncToolCardExpansionState(props.sessionKey, chatItems, Boolean(props.autoExpandToolCalls));
   const expandedToolCards = getExpandedToolCards(props.sessionKey);
@@ -1586,7 +1515,9 @@ export function renderChat(props: ChatProps) {
               </div>
             `
           : nothing}
-        ${isEmpty && !vs.searchOpen ? renderWelcomeState(props) : nothing}
+        ${isEmpty && !vs.searchOpen
+          ? renderWelcomeState({ ...props, assistantName: assistantDisplayName })
+          : nothing}
         ${isEmpty && vs.searchOpen
           ? html` <div class="agent-chat__empty">No matching messages</div> `
           : nothing}
@@ -1601,7 +1532,7 @@ export function renderChat(props: ChatProps) {
             showReasoning,
             props.showToolCalls,
             Boolean(props.autoExpandToolCalls),
-            props.assistantName,
+            assistantDisplayName,
             assistantIdentity.avatar,
             props.userName,
             props.userAvatar,
@@ -1693,7 +1624,7 @@ export function renderChat(props: ChatProps) {
                       expandedToolCards.get(toolCardId) ?? false,
                     onToggleToolExpanded: toggleToolCardExpanded,
                     onRequestUpdate: requestUpdate,
-                    assistantName: props.assistantName,
+                    assistantName: assistantDisplayName,
                     assistantAvatar: assistantIdentity.avatar,
                     userName: props.userName ?? null,
                     userAvatar: props.userAvatar ?? null,
@@ -1837,6 +1768,10 @@ export function renderChat(props: ChatProps) {
       if (canCompose) {
         const target = e.target as HTMLTextAreaElement;
         commitComposerDraft(props, target.value);
+        draftMirror.value = "";
+        target.value = "";
+        adjustTextareaHeight(target);
+        requestUpdate();
         props.onSend();
       }
     }
@@ -1858,6 +1793,12 @@ export function renderChat(props: ChatProps) {
   };
   const handleSend = () => {
     commitComposerDraft(props, draftMirror.value);
+    draftMirror.value = "";
+    if (composerTextarea) {
+      composerTextarea.value = "";
+      adjustTextareaHeight(composerTextarea);
+    }
+    requestUpdate();
     props.onSend();
   };
   const slashMenuVisible = isSlashMenuVisible();
@@ -1931,9 +1872,8 @@ export function renderChat(props: ChatProps) {
               `
             : nothing}
         </div>
-        ${renderWorkspaceFileRail(props.workspaceFiles)}
+        ${renderChatSchedulerPanel(props)}
       </div>
-
       ${renderChatQueue({
         queue: props.queue,
         canAbort: showAbortableUi,
@@ -1985,17 +1925,22 @@ export function renderChat(props: ChatProps) {
                   ? props.realtimeTalkTranscript
                   : null) ??
                 (props.realtimeTalkStatus === "thinking"
-                  ? "Asking OpenClaw..."
+                  ? "正在请求本机系统..."
                   : props.realtimeTalkStatus === "connecting"
-                    ? "Connecting Talk..."
-                    : "Talk live")}
+                    ? "正在连接语音..."
+                    : "语音已连接")}
               </div>
             `
           : nothing}
 
         <div class="agent-chat__composer-combobox">
           <textarea
-            ${ref((el) => el && adjustTextareaHeight(el as HTMLTextAreaElement))}
+            ${ref((el) => {
+              composerTextarea = el instanceof HTMLTextAreaElement ? el : null;
+              if (composerTextarea) {
+                adjustTextareaHeight(composerTextarea);
+              }
+            })}
             .value=${visibleDraft}
             dir=${detectTextDirection(visibleDraft)}
             ?disabled=${!props.connected}

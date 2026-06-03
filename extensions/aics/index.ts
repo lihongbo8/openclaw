@@ -1,6 +1,14 @@
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { verifyDijieExecutionToken } from "@openclaw/gateway-protocol";
 import {
@@ -58,6 +66,73 @@ type DijieModelProxyUsage = {
   requestCount: number;
   inputTokens: number;
   outputTokens: number;
+};
+
+type DijieToolUsage = {
+  shellCommands: number;
+  testsRun: number;
+  filesRead: number;
+  filesChanged: number;
+};
+
+type DijieRoleArtifact = {
+  id: string;
+  type: string;
+  title: string;
+  sizeBytes?: number;
+  sha256?: string;
+};
+
+type DijieRoleFeedbackPacket = {
+  packetVersion: 1;
+  packetId: string;
+  mode: "developer_package" | "authorized_execution";
+  producedAt: string;
+  role: {
+    packageId: string;
+    packageVersion: string;
+    roleListingId?: string;
+    developerRef?: string;
+  };
+  schedulerContext: {
+    schedulerRunId?: string;
+    executionId?: string;
+    entitlementId?: string;
+    deviceId?: string;
+    workspaceRef?: string;
+    localGatewayId?: string;
+  };
+  status: DijieExecutionStatus;
+  startedAt: string;
+  endedAt: string;
+  summary?: string;
+  changedFiles: string[];
+  artifacts: DijieRoleArtifact[];
+  toolUsage: DijieToolUsage;
+  modelProxyUsage?: DijieModelProxyUsage;
+  costUsage?: {
+    inputTokens: number;
+    outputTokens: number;
+    currency?: string;
+    estimatedCents?: number;
+  };
+  riskEvents: Array<{
+    level: "low" | "medium" | "high" | "critical";
+    category: string;
+    summary: string;
+    requiresHumanConfirmation: boolean;
+  }>;
+  evolutionSuggestions: Array<{
+    target:
+      | "capability_rubric"
+      | "failure_mode_library"
+      | "test_example_library"
+      | "dispatch_strategy"
+      | "role_package";
+    summary: string;
+    evidenceRefs: string[];
+  }>;
+  error?: string;
 };
 
 type RolePackageFile = {
@@ -198,6 +273,10 @@ const SECRET_FIELD_PATTERN =
   /["']?[A-Za-z0-9_-]*(?:secret|api[_-]?key|provider[_-]?key|bearer[_-]?token|access[_-]?token|execution[_-]?token)[A-Za-z0-9_-]*["']?\s*[:=]/iu;
 const LOCAL_ABSOLUTE_PATH_PATTERN =
   /(?:^|[\s"'(=:[,])(?:\/(?:Users|private|tmp|var|home|opt)\/[^\s"',)]+|[A-Za-z]:\\[^\s"',)]+)/u;
+const ROLE_PACKAGE_MANIFEST_PATH = "role_package/manifest.json";
+const DEFAULT_PUBLIC_ROLE_PACKAGE_NAME = "Dijie Role Package";
+const DEFAULT_PUBLIC_ROLE_PACKAGE_VERSION = "1.0.0";
+const DEFAULT_PUBLIC_ROLE_PACKAGE_PERMISSIONS = ["workspace.read", "workspace.write"] as const;
 
 const DijieExecutionPreflightParamsSchema = Type.Object(
   {
@@ -222,6 +301,12 @@ const RoleBuilderParamsSchema = Type.Object(
       Type.Boolean({
         description:
           "When true, asks 迭界AI to confirm the brief and write the local role package. Requires allowWrites=true.",
+      }),
+    ),
+    package_only: Type.Optional(
+      Type.Boolean({
+        description:
+          "When true with confirm_brief=true, generates and validates the public developer role_package before marketplace listing exists. Does not require execution token, entitlement, audit upload, or billing facts.",
       }),
     ),
     role_build_brief_json: Type.Optional(
@@ -927,9 +1012,11 @@ async function runOpenClawNativeRoleBuilder(params: {
   workspaceRoot: string;
   timeoutMs: number;
   maxOutputChars: number;
-  preflight: ReturnType<typeof verifyDijieExecutionPreflight> & { ok: true };
+  preflight?: ReturnType<typeof verifyDijieExecutionPreflight> & { ok: true };
 }): Promise<CommandResult> {
-  const sessionId = `dijie-role-builder-${String(params.preflight.executionId)}`;
+  const sessionId = params.preflight
+    ? `dijie-role-builder-${String(params.preflight.executionId)}`
+    : `dijie-role-package-${Date.now()}`;
   const sessionFile = path.join(params.workspaceRoot, ".dijie_openclaw_native_session.json");
   const runId = `${sessionId}-${Date.now()}`;
 
@@ -1022,6 +1109,170 @@ function listWorkspaceFiles(workspaceRoot: string): RolePackageFile[] {
   );
 }
 
+function isRolePackageRelativePath(value: string): boolean {
+  return (
+    value.startsWith("role_package/") &&
+    !value.startsWith("/") &&
+    !value.split("/").includes("..") &&
+    !LOCAL_ABSOLUTE_PATH_PATTERN.test(value)
+  );
+}
+
+function isRolePackageEntrypointCandidate(relativePath: string): boolean {
+  return (
+    isRolePackageRelativePath(relativePath) &&
+    relativePath !== ROLE_PACKAGE_MANIFEST_PATH &&
+    /(^|\/)(wrappers?|adapters?|examples?|samples?|integrations?)(\/|[-_.])|[-_.](wrapper|adapter|example|sample|integration)\./i.test(
+      relativePath,
+    )
+  );
+}
+
+function chooseRolePackageEntrypoint(files: RolePackageFile[]): string {
+  return (
+    files
+      .map((file) => file.relativePath)
+      .filter((relativePath) => isRolePackageEntrypointCandidate(relativePath))
+      .sort((a, b) => {
+        const rank = (relativePath: string) => {
+          if (/(^|\/)adapters?(\/|[-_.])/i.test(relativePath)) {
+            return 0;
+          }
+          if (/(^|\/)wrappers?(\/|[-_.])/i.test(relativePath)) {
+            return 1;
+          }
+          if (/(^|\/)(examples?|samples?|integrations?)(\/|[-_.])/i.test(relativePath)) {
+            return 2;
+          }
+          return 3;
+        };
+        const rankDelta = rank(a) - rank(b);
+        return rankDelta !== 0 ? rankDelta : a < b ? -1 : a > b ? 1 : 0;
+      })[0] ?? ""
+  );
+}
+
+function safePublicManifestString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const redacted = redactForbiddenDeveloperModeContextText(value).trim();
+  if (
+    !redacted ||
+    LOCAL_ABSOLUTE_PATH_PATTERN.test(redacted) ||
+    SECRET_FIELD_PATTERN.test(redacted)
+  ) {
+    return undefined;
+  }
+  return redacted;
+}
+
+function firstSafePublicManifestString(values: unknown[]): string | undefined {
+  for (const value of values) {
+    const safe = safePublicManifestString(value);
+    if (safe) {
+      return safe;
+    }
+  }
+  return undefined;
+}
+
+function readRoleBuildBriefRecord(roleBuildBriefJson: string): Record<string, unknown> {
+  try {
+    return asRecord(sanitizeDeveloperModeContextValue(JSON.parse(roleBuildBriefJson)));
+  } catch {
+    return {};
+  }
+}
+
+function slugifyRolePackageName(name: string): string {
+  return name
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, "_")
+    .replace(/^_+|_+$/gu, "")
+    .slice(0, 48)
+    .replace(/_+$/u, "");
+}
+
+function deterministicRolePackageId(name: string): string {
+  const slug = slugifyRolePackageName(name);
+  if (slug) {
+    return `pkg_${slug}`;
+  }
+  const digest = crypto.createHash("sha256").update(name).digest("hex").slice(0, 12);
+  return `pkg_role_package_${digest}`;
+}
+
+function normalizeRolePackageManifest(params: {
+  workspaceRoot: string;
+  files: RolePackageFile[];
+  roleBuildBriefJson: string;
+  packageId?: string;
+  packageVersion?: string;
+}) {
+  const rolePackageDir = path.join(params.workspaceRoot, "role_package");
+  const hasRolePackageOutput =
+    existsSync(rolePackageDir) ||
+    params.files.some((file) => file.relativePath.startsWith("role_package/"));
+  if (!hasRolePackageOutput) {
+    return;
+  }
+
+  mkdirSync(rolePackageDir, { recursive: true });
+  const briefRecord = readRoleBuildBriefRecord(params.roleBuildBriefJson);
+  const name =
+    firstSafePublicManifestString([
+      briefRecord.name,
+      briefRecord.roleName,
+      briefRecord.role_name,
+      briefRecord.title,
+    ]) ?? DEFAULT_PUBLIC_ROLE_PACKAGE_NAME;
+  const rolePackageId =
+    safePublicManifestString(params.packageId) ?? deterministicRolePackageId(name);
+  const version =
+    safePublicManifestString(params.packageVersion) ?? DEFAULT_PUBLIC_ROLE_PACKAGE_VERSION;
+  const entrypoint = chooseRolePackageEntrypoint(params.files);
+  const files = params.files
+    .filter(
+      (file) =>
+        file.relativePath.startsWith("role_package/") &&
+        file.relativePath !== ROLE_PACKAGE_MANIFEST_PATH,
+    )
+    .map((file) => ({
+      path: file.relativePath,
+      sha256: file.sha256,
+      sizeBytes: file.sizeBytes,
+    }));
+
+  const manifest = {
+    manifestVersion: 1,
+    rolePackageId,
+    version,
+    name,
+    entrypoint,
+    permissions: [...DEFAULT_PUBLIC_ROLE_PACKAGE_PERMISSIONS],
+    files,
+  };
+  writeFileSync(
+    path.join(params.workspaceRoot, ROLE_PACKAGE_MANIFEST_PATH),
+    `${JSON.stringify(manifest, null, 2)}\n`,
+    "utf8",
+  );
+}
+
+function combineRolePackageValidation(
+  validation: { ok: boolean; errors: string[] },
+  additionalErrors: string[],
+) {
+  const errors = Array.from(new Set([...additionalErrors, ...validation.errors]));
+  return {
+    ok: errors.length === 0,
+    errors,
+  };
+}
+
 function uniqueNonEmptyStrings(values: Array<unknown>): string[] {
   return Array.from(
     new Set(
@@ -1103,13 +1354,16 @@ function scanRolePackageArtifactContent(params: {
 function scanRolePackageArtifacts(params: {
   workspaceRoot: string;
   files: RolePackageFile[];
-  preflight: ReturnType<typeof verifyDijieExecutionPreflight> & { ok: true };
-  executionToken: string;
+  preflight?: ReturnType<typeof verifyDijieExecutionPreflight> & { ok: true };
+  executionToken?: string;
 }): string[] {
-  const forbiddenExactValues = buildForbiddenArtifactExactValues({
-    preflight: params.preflight,
-    executionToken: params.executionToken,
-  });
+  const forbiddenExactValues =
+    params.preflight && params.executionToken
+      ? buildForbiddenArtifactExactValues({
+          preflight: params.preflight,
+          executionToken: params.executionToken,
+        })
+      : [];
   const errors: string[] = [];
   for (const file of params.files) {
     if (!file.relativePath.startsWith("role_package/")) {
@@ -1139,7 +1393,7 @@ function validateRolePackage(
   const filePaths = new Set(files.map((file) => file.relativePath));
   const errors: string[] = [];
   const requiredFiles = [
-    "role_package/manifest.json",
+    ROLE_PACKAGE_MANIFEST_PATH,
     "role_package/listing.md",
     "role_package/README.md",
   ];
@@ -1149,9 +1403,112 @@ function validateRolePackage(
     }
   }
 
-  if (filePaths.has("role_package/manifest.json")) {
+  if (filePaths.has(ROLE_PACKAGE_MANIFEST_PATH)) {
     try {
-      JSON.parse(readFileSync(path.join(workspaceRoot, "role_package", "manifest.json"), "utf8"));
+      const manifest = JSON.parse(
+        readFileSync(path.join(workspaceRoot, ROLE_PACKAGE_MANIFEST_PATH), "utf8"),
+      );
+      const manifestRecord =
+        manifest && typeof manifest === "object" && !Array.isArray(manifest)
+          ? (manifest as Record<string, unknown>)
+          : {};
+      if (manifestRecord.manifestVersion !== 1) {
+        errors.push("role_package/manifest.json manifestVersion must be 1");
+      }
+      for (const field of ["rolePackageId", "version", "name", "entrypoint"]) {
+        if (typeof manifestRecord[field] !== "string" || !manifestRecord[field].trim()) {
+          errors.push(`role_package/manifest.json ${field} is required`);
+        }
+      }
+      if ("roleListingId" in manifestRecord || "role_listing_id" in manifestRecord) {
+        errors.push("role_package/manifest.json must not contain backend-only roleListingId");
+      }
+      if (
+        typeof manifestRecord.entrypoint === "string" &&
+        manifestRecord.entrypoint.trim() &&
+        (!manifestRecord.entrypoint.startsWith("role_package/") ||
+          manifestRecord.entrypoint.startsWith("/") ||
+          manifestRecord.entrypoint.split("/").includes("..") ||
+          LOCAL_ABSOLUTE_PATH_PATTERN.test(manifestRecord.entrypoint))
+      ) {
+        errors.push("role_package/manifest.json entrypoint must be a role_package/ relative path");
+      }
+      if (
+        typeof manifestRecord.entrypoint === "string" &&
+        manifestRecord.entrypoint.trim() &&
+        !filePaths.has(manifestRecord.entrypoint)
+      ) {
+        errors.push("role_package/manifest.json entrypoint must reference an existing file");
+      }
+      if (
+        typeof manifestRecord.entrypoint === "string" &&
+        manifestRecord.entrypoint.trim() &&
+        filePaths.has(manifestRecord.entrypoint) &&
+        !isRolePackageEntrypointCandidate(manifestRecord.entrypoint)
+      ) {
+        errors.push(
+          "role_package/manifest.json entrypoint must reference a wrapper, adapter, or example file",
+        );
+      }
+      if (!Array.isArray(manifestRecord.permissions)) {
+        errors.push("role_package/manifest.json permissions must be an array");
+      } else if (
+        manifestRecord.permissions.length !== DEFAULT_PUBLIC_ROLE_PACKAGE_PERMISSIONS.length ||
+        !DEFAULT_PUBLIC_ROLE_PACKAGE_PERMISSIONS.every(
+          (permission, index) => manifestRecord.permissions[index] === permission,
+        )
+      ) {
+        errors.push("role_package/manifest.json permissions must use the public default");
+      }
+      if (!Array.isArray(manifestRecord.files)) {
+        errors.push("role_package/manifest.json files must be an array");
+      } else {
+        const filesByPath = new Map(files.map((file) => [file.relativePath, file]));
+        const manifestFilePaths = new Set<string>();
+        for (const entry of manifestRecord.files) {
+          const fileEntry = asRecord(entry);
+          const filePath = typeof fileEntry.path === "string" ? fileEntry.path.trim() : "";
+          if (!filePath || !isRolePackageRelativePath(filePath)) {
+            errors.push("role_package/manifest.json files entries must use role_package/ paths");
+            continue;
+          }
+          if (filePath === ROLE_PACKAGE_MANIFEST_PATH) {
+            errors.push("role_package/manifest.json files must exclude role_package/manifest.json");
+            continue;
+          }
+          if (manifestFilePaths.has(filePath)) {
+            errors.push("role_package/manifest.json files entries must be unique");
+            continue;
+          }
+          manifestFilePaths.add(filePath);
+          const workspaceFile = filesByPath.get(filePath);
+          if (!workspaceFile) {
+            errors.push("role_package/manifest.json files entries must reference existing files");
+            continue;
+          }
+          if (fileEntry.sha256 !== workspaceFile.sha256) {
+            errors.push("role_package/manifest.json files entries must match file sha256");
+          }
+          if (fileEntry.sizeBytes !== workspaceFile.sizeBytes) {
+            errors.push("role_package/manifest.json files entries must match file sizeBytes");
+          }
+        }
+        const expectedFilePaths = files
+          .map((file) => file.relativePath)
+          .filter(
+            (relativePath) =>
+              relativePath.startsWith("role_package/") &&
+              relativePath !== ROLE_PACKAGE_MANIFEST_PATH,
+          );
+        for (const expectedFilePath of expectedFilePaths) {
+          if (!manifestFilePaths.has(expectedFilePath)) {
+            errors.push(
+              "role_package/manifest.json files entries must include every role_package file",
+            );
+            break;
+          }
+        }
+      }
     } catch {
       errors.push("role_package/manifest.json must contain valid JSON");
     }
@@ -1176,16 +1533,18 @@ function validateRolePackage(
     errors.push("missing role_package validation or smoke test material");
   }
 
-  if (scanContext) {
-    errors.push(
-      ...scanRolePackageArtifacts({
-        workspaceRoot,
-        files,
-        preflight: scanContext.preflight,
-        executionToken: scanContext.executionToken,
-      }),
-    );
-  }
+  errors.push(
+    ...scanRolePackageArtifacts({
+      workspaceRoot,
+      files,
+      ...(scanContext
+        ? {
+            preflight: scanContext.preflight,
+            executionToken: scanContext.executionToken,
+          }
+        : {}),
+    }),
+  );
 
   return {
     ok: errors.length === 0,
@@ -1227,21 +1586,188 @@ function artifactId(relativePath: string): string {
   return `artifact_${normalized || "role_package"}`;
 }
 
-function buildDijieAuditSummary(params: {
-  preflight: ReturnType<typeof verifyDijieExecutionPreflight> & { ok: true };
+function rolePackageArtifacts(files: RolePackageFile[]): DijieRoleArtifact[] {
+  return files
+    .filter((file) => file.relativePath.startsWith("role_package/"))
+    .map((file) => ({
+      id: artifactId(file.relativePath),
+      type: "role_package_file",
+      title: file.relativePath,
+      sizeBytes: file.sizeBytes,
+      sha256: file.sha256,
+    }));
+}
+
+function readRolePackageMetadata(files: RolePackageFile[]): {
+  packageId?: string;
+  packageVersion?: string;
+} {
+  const manifestFile = files.find((file) => file.relativePath === ROLE_PACKAGE_MANIFEST_PATH);
+  if (!manifestFile) {
+    return {};
+  }
+  try {
+    const manifest = asRecord(JSON.parse(readFileSync(manifestFile.absolutePath, "utf8")));
+    return {
+      ...(isNonEmptyString(manifest.rolePackageId)
+        ? { packageId: manifest.rolePackageId.trim() }
+        : {}),
+      ...(isNonEmptyString(manifest.version) ? { packageVersion: manifest.version.trim() } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+function buildDijieToolUsage(filesChanged: number): DijieToolUsage {
+  return {
+    shellCommands: 1,
+    testsRun: 1,
+    filesRead: 0,
+    filesChanged,
+  };
+}
+
+function estimateDijieTokenCostCents(
+  usage: DijieModelProxyUsage,
+  pricing: DijieRoleTokenPricing,
+): number {
+  const rawCents =
+    (usage.inputTokens * pricing.inputTokenCentsPerMillion +
+      usage.outputTokens * pricing.outputTokenCentsPerMillion) /
+    1_000_000;
+  return rawCents > 0 ? Math.ceil(rawCents) : 0;
+}
+
+function buildRoleFeedbackPacketId(params: {
+  preflight?: ReturnType<typeof verifyDijieExecutionPreflight> & { ok: true };
+  mode: "developer_package" | "authorized_execution";
+  packageId: string;
+  packageVersion: string;
+  startedAt: string;
+  endedAt: string;
+  changedFiles: string[];
+}): string {
+  if (params.preflight) {
+    return `packet_${params.preflight.executionId}`;
+  }
+  const digest = crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify({
+        mode: params.mode,
+        packageId: params.packageId,
+        packageVersion: params.packageVersion,
+        startedAt: params.startedAt,
+        endedAt: params.endedAt,
+        changedFiles: params.changedFiles,
+      }),
+    )
+    .digest("hex")
+    .slice(0, 16);
+  return `packet_${digest}`;
+}
+
+function buildDijieRoleFeedbackPacket(params: {
   result: CommandResult;
   startedAt: string;
   endedAt: string;
   files: RolePackageFile[];
   validation: { ok: boolean; errors: string[] };
-}) {
+  preflight?: ReturnType<typeof verifyDijieExecutionPreflight> & { ok: true };
+}): DijieRoleFeedbackPacket {
   const changedFiles = params.files.map((file) => file.relativePath);
-  const rolePackageFiles = params.files.filter((file) =>
-    file.relativePath.startsWith("role_package/"),
-  );
+  const artifacts = rolePackageArtifacts(params.files);
   const status = statusFromLocalExecutorAndValidation(params.result, params.validation.ok);
   const error = errorFromLocalExecutorAndValidation(params.result, params.validation.errors);
   const modelProxyUsage = params.result.modelProxyUsage ?? zeroModelProxyUsage();
+  const mode = params.preflight ? "authorized_execution" : "developer_package";
+  const manifest = readRolePackageMetadata(params.files);
+  const packageId = params.preflight?.packageId ?? manifest.packageId ?? "pkg_unresolved";
+  const packageVersion = params.preflight?.packageVersion ?? manifest.packageVersion ?? "0.0.0";
+  const packetId = buildRoleFeedbackPacketId({
+    preflight: params.preflight,
+    mode,
+    packageId,
+    packageVersion,
+    startedAt: params.startedAt,
+    endedAt: params.endedAt,
+    changedFiles,
+  });
+
+  return {
+    packetVersion: 1,
+    packetId,
+    mode,
+    producedAt: params.endedAt,
+    role: {
+      packageId,
+      packageVersion,
+      ...(params.preflight
+        ? {
+            roleListingId: params.preflight.roleListingId,
+            developerRef: params.preflight.developerRef,
+          }
+        : {}),
+    },
+    schedulerContext: params.preflight
+      ? {
+          executionId: params.preflight.executionId,
+          entitlementId: params.preflight.entitlementId,
+          deviceId: params.preflight.deviceId,
+          workspaceRef: params.preflight.workspaceRef,
+          localGatewayId: params.preflight.localGatewayId,
+        }
+      : {},
+    status,
+    startedAt: params.startedAt,
+    endedAt: params.endedAt,
+    summary:
+      status === "completed"
+        ? mode === "developer_package"
+          ? "迭界AI role-builder generated and validated a public developer role_package."
+          : "迭界AI role-builder generated and validated a local role_package."
+        : mode === "developer_package"
+          ? "迭界AI role-builder did not produce a valid public developer role_package."
+          : "迭界AI role-builder did not produce a valid local role_package.",
+    changedFiles,
+    artifacts,
+    toolUsage: buildDijieToolUsage(changedFiles.length),
+    modelProxyUsage,
+    ...(params.preflight
+      ? {
+          costUsage: {
+            inputTokens: modelProxyUsage.inputTokens,
+            outputTokens: modelProxyUsage.outputTokens,
+            currency: params.preflight.roleTokenPricing.currency,
+            estimatedCents: estimateDijieTokenCostCents(
+              modelProxyUsage,
+              params.preflight.roleTokenPricing,
+            ),
+          },
+        }
+      : {}),
+    riskEvents:
+      params.validation.errors.length > 0
+        ? [
+            {
+              level: "medium",
+              category: "role_package_validation",
+              summary: params.validation.errors[0] ?? "role_package validation failed",
+              requiresHumanConfirmation: true,
+            },
+          ]
+        : [],
+    evolutionSuggestions: [],
+    ...(error ? { error } : {}),
+  };
+}
+
+function buildDijieAuditSummary(params: {
+  preflight: ReturnType<typeof verifyDijieExecutionPreflight> & { ok: true };
+  roleFeedbackPacket: DijieRoleFeedbackPacket;
+}) {
+  const modelProxyUsage = params.roleFeedbackPacket.modelProxyUsage ?? zeroModelProxyUsage();
   const roleResult = {
     executionId: params.preflight.executionId,
     roleListingId: params.preflight.roleListingId,
@@ -1250,24 +1776,15 @@ function buildDijieAuditSummary(params: {
     developerRef: params.preflight.developerRef,
     listingOwnerRef: params.preflight.listingOwnerRef,
     billingBeneficiaryRef: params.preflight.billingBeneficiaryRef,
-    status,
-    startedAt: params.startedAt,
-    endedAt: params.endedAt,
+    status: params.roleFeedbackPacket.status,
+    startedAt: params.roleFeedbackPacket.startedAt,
+    endedAt: params.roleFeedbackPacket.endedAt,
     roleTokenPricing: params.preflight.roleTokenPricing,
     modelProxyUsage,
-    summary:
-      status === "completed"
-        ? "迭界AI role-builder generated and validated a local role_package."
-        : "迭界AI role-builder did not produce a valid local role_package.",
-    changedFiles,
-    artifacts: rolePackageFiles.map((file) => ({
-      id: artifactId(file.relativePath),
-      type: "role_package_file",
-      title: file.relativePath,
-      sizeBytes: file.sizeBytes,
-      sha256: file.sha256,
-    })),
-    ...(error ? { error } : {}),
+    summary: params.roleFeedbackPacket.summary,
+    changedFiles: params.roleFeedbackPacket.changedFiles,
+    artifacts: params.roleFeedbackPacket.artifacts,
+    ...(params.roleFeedbackPacket.error ? { error: params.roleFeedbackPacket.error } : {}),
   };
 
   return {
@@ -1282,18 +1799,23 @@ function buildDijieAuditSummary(params: {
     billingBeneficiaryRef: params.preflight.billingBeneficiaryRef,
     entitlementId: params.preflight.entitlementId,
     localGatewayId: params.preflight.localGatewayId,
-    status,
-    startedAt: params.startedAt,
-    endedAt: params.endedAt,
+    status: params.roleFeedbackPacket.status,
+    startedAt: params.roleFeedbackPacket.startedAt,
+    endedAt: params.roleFeedbackPacket.endedAt,
     roleTokenPricing: params.preflight.roleTokenPricing,
     modelProxyUsage,
-    toolUsage: {
-      shellCommands: 1,
-      testsRun: 1,
-      filesRead: 0,
-      filesChanged: changedFiles.length,
-    },
+    toolUsage: params.roleFeedbackPacket.toolUsage,
     result: roleResult,
+  };
+}
+
+function buildDeveloperRolePackageResult(params: { roleFeedbackPacket: DijieRoleFeedbackPacket }) {
+  return {
+    status: params.roleFeedbackPacket.status,
+    summary: params.roleFeedbackPacket.summary,
+    changedFiles: params.roleFeedbackPacket.changedFiles,
+    artifacts: params.roleFeedbackPacket.artifacts,
+    ...(params.roleFeedbackPacket.error ? { error: params.roleFeedbackPacket.error } : {}),
   };
 }
 
@@ -1421,7 +1943,7 @@ function createExecutionTokenRequestTool(config: AicsConfig): AnyAgentTool {
     name: "dijie_execution_token_request",
     label: "迭界AI Execution Token Request",
     description:
-      "Request a short-lived execution token from 迭界AI岗位商场. Requires configured cloudExecutionTokenUrl/cloudBaseUrl and a transient customer bearer token.",
+      "Request a short-lived execution token from 迭界AI岗位商城. Requires configured cloudExecutionTokenUrl/cloudBaseUrl and a transient customer bearer token.",
     parameters: ExecutionTokenRequestParamsSchema,
     execute: async (_toolCallId, rawParams) => {
       const params = asRecord(rawParams);
@@ -1532,7 +2054,7 @@ function createExecutionAuditReadTool(config: AicsConfig): AnyAgentTool {
     name: "dijie_execution_audit_read",
     label: "迭界AI Execution Audit Read",
     description:
-      "Read the safe execution audit projection from 迭界AI岗位商场. Requires configured cloudExecutionReadUrl/cloudBaseUrl and a transient customer bearer token.",
+      "Read the safe execution audit projection from 迭界AI岗位商城. Requires configured cloudExecutionReadUrl/cloudBaseUrl and a transient customer bearer token.",
     parameters: ExecutionAuditReadParamsSchema,
     execute: async (_toolCallId, rawParams) => {
       const params = asRecord(rawParams);
@@ -1604,7 +2126,7 @@ function createMarketplaceInstalledRolesTool(config: AicsConfig): AnyAgentTool {
     name: "dijie_marketplace_roles_list",
     label: "迭界AI Marketplace Roles",
     description:
-      "Read installed and authorized roles from 迭界AI岗位商场. Requires configured cloudMarketplaceInstalledRolesUrl/cloudBaseUrl and a transient customer bearer token.",
+      "Read installed and authorized roles from 迭界AI岗位商城. Requires configured cloudMarketplaceInstalledRolesUrl/cloudBaseUrl and a transient customer bearer token.",
     parameters: MarketplaceInstalledRolesParamsSchema,
     execute: async (_toolCallId, rawParams) => {
       const params = asRecord(rawParams);
@@ -1767,6 +2289,10 @@ function createRoleBuilderTool(
         throw new Error("request_zh is required");
       }
       const confirmBrief = params.confirm_brief === true;
+      const packageOnly = params.package_only === true;
+      if (packageOnly && !confirmBrief) {
+        throw new Error("package_only requires confirm_brief=true");
+      }
       if (confirmBrief && !config.allowWrites) {
         throw new Error("confirm_brief requires aics.allowWrites=true in OpenClaw config");
       }
@@ -1788,8 +2314,10 @@ function createRoleBuilderTool(
           "role_build_brief_json",
           "role_build_brief_json is required when confirm_brief=true",
         );
-        const preflight = verifyDijieExecutionPreflight(config, buildPreflightParams(params));
-        if (!preflight.ok) {
+        const preflight = packageOnly
+          ? undefined
+          : verifyDijieExecutionPreflight(config, buildPreflightParams(params));
+        if (preflight && !preflight.ok) {
           throw new Error(
             `dijie.execution.preflight failed: ${preflight.code}: ${preflight.error}`,
           );
@@ -1811,7 +2339,7 @@ function createRoleBuilderTool(
                 workspaceRoot,
                 timeoutMs,
                 maxOutputChars: config.maxOutputChars,
-                preflight,
+                ...(preflight?.ok ? { preflight } : {}),
               })
             : await runCommand(
                 requireStringParam(
@@ -1829,22 +2357,89 @@ function createRoleBuilderTool(
                 },
               );
         const endedAt = new Date().toISOString();
-        const files = listWorkspaceFiles(workspaceRoot);
-        const validation = validateRolePackage(workspaceRoot, files, {
-          preflight,
-          executionToken: requireStringParam(params, "execution_token"),
+        const executionToken = packageOnly
+          ? undefined
+          : requireStringParam(params, "execution_token");
+        const preNormalizationFiles = listWorkspaceFiles(workspaceRoot);
+        const preNormalizationScanErrors = scanRolePackageArtifacts({
+          workspaceRoot,
+          files: preNormalizationFiles,
+          ...(preflight?.ok && executionToken
+            ? {
+                preflight,
+                executionToken,
+              }
+            : {}),
         });
-        const auditSummary = buildDijieAuditSummary({
-          preflight,
+        normalizeRolePackageManifest({
+          workspaceRoot,
+          files: preNormalizationFiles,
+          roleBuildBriefJson,
+          ...(preflight?.ok
+            ? {
+                packageId: preflight.packageId,
+                packageVersion: preflight.packageVersion,
+              }
+            : {}),
+        });
+        const files = listWorkspaceFiles(workspaceRoot);
+        const validation =
+          preflight?.ok && executionToken
+            ? combineRolePackageValidation(
+                validateRolePackage(workspaceRoot, files, {
+                  preflight,
+                  executionToken,
+                }),
+                preNormalizationScanErrors,
+              )
+            : combineRolePackageValidation(
+                validateRolePackage(workspaceRoot, files),
+                preNormalizationScanErrors,
+              );
+        const roleFeedbackPacket = buildDijieRoleFeedbackPacket({
           result,
           startedAt,
           endedAt,
           files,
           validation,
+          ...(preflight?.ok ? { preflight } : {}),
+        });
+        if (packageOnly) {
+          const packageResult = buildDeveloperRolePackageResult({
+            roleFeedbackPacket,
+          });
+          const executionOk = packageResult.status === "completed";
+
+          return jsonResult({
+            ok: executionOk,
+            summary:
+              packageResult.status === "completed"
+                ? "迭界AI role-builder developer package generation completed and validated"
+                : "迭界AI role-builder developer package generation failed or produced an invalid role_package",
+            confirmed: true,
+            packageOnly: true,
+            status: packageResult.status,
+            changedFiles: packageResult.changedFiles,
+            artifacts: packageResult.artifacts,
+            result: packageResult,
+            roleFeedbackPacket,
+            rolePackageValidation: validation,
+            allowWrites: config.allowWrites,
+            outputRoot: workspaceRoot,
+            executionEngine: roleBuilderExecutor === "native" ? "openclaw-native" : "subprocess",
+            localExecutor: result,
+          });
+        }
+        if (!preflight?.ok || !executionToken) {
+          throw new Error("authorized role-builder execution requires verified preflight");
+        }
+        const auditSummary = buildDijieAuditSummary({
+          preflight,
+          roleFeedbackPacket,
         });
         const auditUpload = await uploadDijieAudit({
           config,
-          executionToken: requireStringParam(params, "execution_token"),
+          executionToken: executionToken,
           auditSummary,
         });
         const executionOk = auditSummary.status === "completed" && auditUpload.ok;
@@ -1878,6 +2473,7 @@ function createRoleBuilderTool(
           toolUsage: auditSummary.toolUsage,
           result: auditSummary.result,
           auditSummary,
+          roleFeedbackPacket,
           rolePackageValidation: validation,
           auditUpload,
           allowWrites: config.allowWrites,

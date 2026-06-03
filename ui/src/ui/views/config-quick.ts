@@ -238,7 +238,7 @@ function formatAssistantAvatarIssue(
     return "Unsupported image type";
   }
   if (reason === "outside_workspace") {
-    return "Outside workspace";
+    return "不在当前项目内";
   }
   if (reason === "too_large") {
     return "Image is too large";
@@ -929,10 +929,9 @@ function renderPresetsCard(props: QuickSettingsProps) {
       )}
       <div class="qs-card__body qs-profiles">
         <div class="qs-profiles__copy">
-          <div class="qs-profiles__eyebrow">Bootstrap Context</div>
+          <div class="qs-profiles__eyebrow">启动上下文</div>
           <p class="qs-profiles__intro">
-            Choose how much workspace context OpenClaw injects into each run. These profiles do not
-            change your model, tools, channels, or theme.
+            选择每次运行注入多少本机上下文。这些方案不会改变模型、工具、频道或主题。
           </p>
           ${stateBanner}
           <div class="qs-presets-grid">

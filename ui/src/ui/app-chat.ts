@@ -1,6 +1,5 @@
 import {
   advanceAicsDeveloperStageForBusinessLogic,
-  buildAicsDeveloperModeApiText,
   type AicsConversationMode,
   type AicsConversationStage,
 } from "./aics-conversation-mode.ts";
@@ -366,7 +365,7 @@ function enqueueChatMessage(
   attachments?: ChatAttachment[],
   refreshSessions?: boolean,
   localCommand?: { args: string; name: string },
-  apiText?: string,
+  aicsContext?: ChatQueueItem["aicsContext"],
 ): ChatQueueItem | null {
   const trimmed = text.trim();
   const hasAttachments = Boolean(attachments && attachments.length > 0);
@@ -376,7 +375,7 @@ function enqueueChatMessage(
   const item: ChatQueueItem = {
     id: generateUUID(),
     text: trimmed,
-    apiText: apiText?.trim() || undefined,
+    aicsContext,
     createdAt: Date.now(),
     attachments: hasAttachments ? cloneChatAttachmentsMetadata(attachments ?? []) : undefined,
     refreshSessions,
@@ -422,7 +421,7 @@ function enqueuePendingSendMessage(
   sendState: ChatQueueItem["sendState"] = host.connected && host.client
     ? "sending"
     : "waiting-reconnect",
-  apiText?: string,
+  aicsContext?: ChatQueueItem["aicsContext"],
 ): ChatQueueItem | null {
   const trimmed = text.trim();
   const hasAttachments = Boolean(attachments && attachments.length > 0);
@@ -432,7 +431,7 @@ function enqueuePendingSendMessage(
   const pending: ChatQueueItem = {
     id: generateUUID(),
     text: trimmed,
-    apiText: apiText?.trim() || undefined,
+    aicsContext,
     createdAt: Date.now(),
     attachments: hasAttachments ? attachments : undefined,
     refreshSessions,
@@ -865,7 +864,7 @@ async function sendQueuedChatMessage(
   }
   const prepared = ensureQueuedSendState(host, queued, queuedSessionKey);
   const displayMessage = prepared.text.trim();
-  const apiText = prepared.apiText?.trim();
+  const aicsContext = prepared.aicsContext;
   const message = displayMessage;
   const attachments = prepared.attachments ?? [];
   const hasAttachments = attachments.length > 0;
@@ -911,7 +910,7 @@ async function sendQueuedChatMessage(
   try {
     const ack = await requestChatSend(host as unknown as ChatState, {
       message,
-      modelPrompt: apiText && apiText !== message ? apiText : undefined,
+      aicsContext,
       attachments: hasAttachments ? attachments : undefined,
       runId,
       sessionKey,
@@ -1012,7 +1011,7 @@ async function sendChatMessageNow(
   message: string,
   opts?: {
     queueItemId?: string;
-    apiText?: string;
+    aicsContext?: ChatQueueItem["aicsContext"];
     previousDraft?: string;
     restoreDraft?: boolean;
     attachments?: ChatAttachment[];
@@ -1035,7 +1034,7 @@ async function sendChatMessageNow(
           opts?.refreshSessions,
           opts?.submittedAtMs,
           undefined,
-          opts?.apiText,
+          opts?.aicsContext,
         );
   if (!queued) {
     return false;
@@ -1096,22 +1095,26 @@ function chatSubmitKey(
   kind: "btw" | "message",
   message: string,
   attachments: ChatAttachment[],
-  apiText?: string,
+  aicsContext?: ChatQueueItem["aicsContext"],
 ): string {
   return JSON.stringify([
     kind,
     host.sessionKey,
     message.trim(),
-    apiText?.trim() ?? "",
+    aicsContext?.mode ?? "",
+    aicsContext?.stage ?? "",
     attachments.map(attachmentSubmitSignature),
   ]);
 }
 
-function buildChatApiTextForMode(host: ChatHost, message: string): string | undefined {
+function buildChatAicsContextForMode(host: ChatHost): ChatQueueItem["aicsContext"] | undefined {
   if (host.aicsConversationMode !== "developer") {
     return undefined;
   }
-  return buildAicsDeveloperModeApiText(message, host.aicsConversationStage);
+  return {
+    mode: "developer",
+    stage: host.aicsConversationStage,
+  };
 }
 
 function advanceAicsConversationStageForMessage(host: ChatHost) {
@@ -1179,7 +1182,10 @@ function clearSubmittedComposerState(
         attachmentSubmitSignature(attachment) ===
         attachmentSubmitSignature(submittedAttachments[index]),
     );
-  const clearedDraft = host.chatMessage === submittedDraft && attachmentsUnchanged;
+  const currentDraft = host.chatMessage;
+  const clearedDraft =
+    attachmentsUnchanged &&
+    (currentDraft === submittedDraft || currentDraft.trim() === submittedDraft.trim());
   const clearedAttachments = clearedDraft;
   if (clearedDraft) {
     host.chatMessage = "";
@@ -1649,8 +1655,8 @@ export async function handleSendChat(
 
   const refreshSessions = isChatResetCommand(message);
   advanceAicsConversationStageForMessage(host);
-  const apiText = buildChatApiTextForMode(host, message);
-  const submitKey = chatSubmitKey(host, "message", message, attachmentsToSend, apiText);
+  const aicsContext = buildChatAicsContextForMode(host);
+  const submitKey = chatSubmitKey(host, "message", message, attachmentsToSend, aicsContext);
   await withChatSubmitGuard(host, submitKey, async () => {
     if (host.sessionKey !== submittedSessionKey) {
       return;
@@ -1672,7 +1678,7 @@ export async function handleSendChat(
       refreshSessions,
       submittedAtMs,
       waitingForModel ? "waiting-model" : undefined,
-      apiText,
+      aicsContext,
     );
     if (!queued) {
       return;
@@ -1716,7 +1722,7 @@ export async function handleSendChat(
 
     await sendChatMessageNow(host, message, {
       queueItemId: queued.id,
-      apiText,
+      aicsContext,
       previousDraft: cleared.previousDraft,
       restoreDraft: Boolean(messageOverride && opts?.restoreDraft),
       attachments: hasAttachments ? attachmentsToSend : undefined,

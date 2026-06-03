@@ -53,14 +53,12 @@ describe("resolveLoginFailureFeedback", () => {
     });
 
     expect(feedback?.kind).toBe("auth-required");
-    expect(feedback?.title).toBe("Auth required");
-    expect(feedback?.summary).toBe(
-      "The Gateway is reachable, but it needs a matching token or password before this browser can connect.",
-    );
+    expect(feedback?.title).toBe("需要认证");
+    expect(feedback?.summary).toBe("本机服务可以访问，但连接前需要匹配的连接码或密码。");
     expect(feedback?.steps).toEqual([
-      "Paste the token from openclaw dashboard --no-open or enter the configured password.",
-      "If no token is configured, run openclaw doctor --generate-gateway-token on the gateway host.",
-      "Click Connect again after updating the credential.",
+      "粘贴本机提供的连接码，或输入已配置的密码。",
+      "如果没有连接码，请在本机重新生成。",
+      "更新后再次点击连接。",
     ]);
   });
 
@@ -274,24 +272,8 @@ describe("renderLoginGate", () => {
     expect(alert?.querySelector(".login-gate__failure-summary")?.textContent?.trim()).toBe(
       "The served Control UI and the running Gateway do not agree on the supported connection protocol.",
     );
-    expect(
-      Array.from(alert?.querySelectorAll(".login-gate__failure-steps li") ?? []).map((step) =>
-        step.textContent?.trim(),
-      ),
-    ).toEqual([
-      "Reopen the served dashboard with openclaw dashboard so the UI and Gateway come from the same install.",
-      "If using pnpm ui:dev, rebuild or restart the dev UI against the current checkout.",
-      "Restart the Gateway after updating OpenClaw so it serves the current protocol.",
-    ]);
-    expect(alert?.querySelector("details summary")?.textContent?.trim()).toBe("Raw error");
-    expect(alert?.querySelector(".login-gate__failure-raw")?.textContent?.trim()).toBe(
-      "protocol mismatch",
-    );
-
-    const docsLink = alert?.querySelector<HTMLAnchorElement>(".login-gate__failure-docs");
-    expect(docsLink?.textContent?.trim()).toBe("Control UI auth docs");
-    expect(docsLink?.getAttribute("href")).toBe(
-      "https://docs.openclaw.ai/web/control-ui#debuggingtesting-dev-server--remote-gateway",
-    );
+    expect(alert?.querySelector(".login-gate__failure-steps")).toBeNull();
+    expect(alert?.querySelector(".login-gate__failure-raw")).toBeNull();
+    expect(alert?.querySelector(".login-gate__failure-docs")).toBeNull();
   });
 });

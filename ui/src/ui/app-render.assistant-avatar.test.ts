@@ -479,6 +479,104 @@ describe("renderApp assistant avatar routing", () => {
     expect(labels).toEqual(["Work new", "Work older"]);
   });
 
+  it("deletes a sidebar recent session through the real confirmation flow", async () => {
+    const container = document.createElement("div");
+    const request = vi.fn(async (method: string) => {
+      if (method === "sessions.delete") {
+        return { ok: true };
+      }
+      if (method === "sessions.list") {
+        return {
+          ts: 1,
+          path: "",
+          count: 1,
+          defaults: { modelProvider: null, model: null, contextTokens: null },
+          sessions: [
+            {
+              key: "agent:work:dashboard:new",
+              kind: "direct",
+              label: "Work new",
+              updatedAt: 20,
+            },
+          ],
+        };
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const state = createState({
+      tab: "chat",
+      sessionKey: "agent:work:dashboard:new",
+      assistantAgentId: "work",
+      client: { request } as unknown as AppViewState["client"],
+      sessionsLoading: false,
+      sessionsError: null,
+      sessionsFilterActive: "0",
+      sessionsFilterLimit: "50",
+      sessionsIncludeGlobal: true,
+      sessionsIncludeUnknown: true,
+      sessionsShowArchived: false,
+      sessionsExpandedCheckpointKey: null,
+      sessionsCheckpointItemsByKey: {},
+      sessionsCheckpointLoadingKey: null,
+      sessionsCheckpointBusyKey: null,
+      sessionsCheckpointErrorByKey: {},
+      agentsList: {
+        defaultId: "main",
+        agents: [{ id: "work", name: "Work" }],
+      } as AppViewState["agentsList"],
+      sessionsResult: {
+        ts: 0,
+        path: "",
+        count: 2,
+        defaults: { modelProvider: null, model: null, contextTokens: null },
+        sessions: [
+          {
+            key: "agent:work:dashboard:new",
+            kind: "direct",
+            label: "Work new",
+            updatedAt: 20,
+          },
+          {
+            key: "agent:work:dashboard:old",
+            kind: "direct",
+            label: "Work old",
+            updatedAt: 10,
+          },
+        ],
+      } as AppViewState["sessionsResult"],
+    });
+    render(renderApp(state), container);
+    const deleteButton = container.querySelector<HTMLButtonElement>(
+      '[data-session-key="agent:work:dashboard:old"] .sidebar-recent-session__delete',
+    );
+    expect(deleteButton).toBeInstanceOf(HTMLButtonElement);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    deleteButton?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("删除 1 条对话记录？"));
+    expect(request).not.toHaveBeenCalled();
+
+    confirm.mockReturnValue(true);
+    deleteButton?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith("sessions.delete", {
+        key: "agent:work:dashboard:old",
+        deleteTranscript: true,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith("sessions.list", {
+        includeGlobal: true,
+        includeUnknown: true,
+        configuredAgentsOnly: true,
+        limit: 50,
+      }),
+    );
+    confirm.mockRestore();
+  });
+
   it("keeps legacy main sessions tied to the default agent when identity is stale", () => {
     const container = document.createElement("div");
 

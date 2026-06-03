@@ -66,6 +66,7 @@ function buildProps(result: SessionsListResult): SessionsProps {
     onDeselectPage: () => undefined,
     onDeselectAll: () => undefined,
     onDeleteSelected: () => undefined,
+    onDeleteSession: () => undefined,
     onToggleCheckpointDetails: () => undefined,
     onBranchFromCheckpoint: () => undefined,
     onRestoreCheckpoint: () => undefined,

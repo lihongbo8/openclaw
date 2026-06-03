@@ -816,6 +816,10 @@ export async function requestChatSend(
   params: {
     message: string;
     modelPrompt?: string;
+    aicsContext?: {
+      mode: "developer";
+      stage?: string;
+    };
     attachments?: ChatAttachment[];
     runId: string;
     sessionKey?: string;
@@ -841,6 +845,7 @@ export async function requestChatSend(
     ...(sessionId ? { sessionId } : {}),
     message: params.message,
     ...(params.modelPrompt ? { modelPrompt: params.modelPrompt } : {}),
+    ...(params.aicsContext ? { aicsContext: params.aicsContext } : {}),
     deliver: false,
     idempotencyKey: params.runId,
     attachments: buildApiAttachments(params.attachments),

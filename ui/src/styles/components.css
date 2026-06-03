@@ -2751,6 +2751,12 @@
   white-space: nowrap;
 }
 
+.session-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .data-table th {
   position: sticky;
   top: 0;

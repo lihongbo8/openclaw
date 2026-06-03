@@ -113,7 +113,7 @@ describe("control UI routing", () => {
     expectElement(app, 'a.nav-item[href="/dreaming"]', HTMLAnchorElement);
   });
 
-  it("renders the dashboard breadcrumb as an AICS home link", async () => {
+  it("renders the dashboard breadcrumb as a main chat home link", async () => {
     const app = mountApp("/channels");
     await app.updateComplete;
 
@@ -122,20 +122,20 @@ describe("control UI routing", () => {
       "dashboard-header .dashboard-header__breadcrumb-link",
       HTMLAnchorElement,
     );
-    expect(breadcrumb.getAttribute("href")).toBe("/aics");
+    expect(breadcrumb.getAttribute("href")).toBe("/chat");
 
     breadcrumb.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     await app.updateComplete;
 
-    expect(app.tab).toBe("aics");
-    expect(window.location.pathname).toBe("/aics");
+    expect(app.tab).toBe("chat");
+    expect(window.location.pathname).toBe("/chat");
   });
 
   it("keeps AICS from rendering a second role-builder conversation form", async () => {
     const app = mountApp("/aics");
     await app.updateComplete;
 
-    const aicsPage = expectElement(app, ".aics-page", HTMLElement);
+    const aicsPage = expectElement(app, ".main-system-shell", HTMLElement);
     expect(aicsPage.textContent).not.toContain("中文需求");
     expect(aicsPage.textContent).not.toContain("RoleBuildBrief JSON");
     expect(
@@ -149,17 +149,25 @@ describe("control UI routing", () => {
     const app = mountApp("/aics");
     await app.updateComplete;
 
-    const aicsPage = expectElement(app, ".aics-page", HTMLElement);
+    const aicsPage = expectElement(app, ".main-system-shell", HTMLElement);
     const text = aicsPage.textContent ?? "";
-    expect(text).toContain("岗位工作台");
     expect(text).toContain("我的岗位");
-    expect(text).toContain("已安装岗位");
-    expect(text).toContain("使用记录");
+    expect(text).toContain("已安装");
+    expect(text).toContain("已授权");
+    expect(text).toContain("可更新");
+    expect(text).toContain("岗位列表");
+    expect(text).not.toContain("主对话工作台");
+    expect(text).not.toContain("主对话是第一入口");
+    expect(text).not.toContain("调度层是中枢");
+    expect(text).not.toContain("真实任务队列");
+    expect(text).not.toContain("岗位工作台");
+    expect(text).not.toContain("用自然语言安排任务");
+    expect(text).not.toContain("从这里");
+    expect(text).not.toContain("对话和岗位任务的消耗会在这里汇总");
     for (const hiddenWord of [
       "OpenClaw",
       "Mercur",
       "Medusa",
-      "主系统",
       "API Bridge",
       "Gateway",
       "runtime",
@@ -202,8 +210,8 @@ describe("control UI routing", () => {
     fillAicsRoleBuilderRequiredFields(app);
     await app.updateComplete;
 
-    expect(expectElement(app, ".aics-page", HTMLElement).textContent).toContain("暂无已安装岗位");
-    expectButtonWithText(app, "同步岗位").dispatchEvent(
+    expect(expectElement(app, ".main-system-shell", HTMLElement).textContent).toContain("暂无岗位");
+    expectButtonWithText(app, "同步").dispatchEvent(
       new MouseEvent("click", { bubbles: true, cancelable: true }),
     );
     await app.updateComplete;
@@ -226,8 +234,39 @@ describe("control UI routing", () => {
         entitlementId: "ordgrp_001",
       },
     ]);
-    expect(expectElement(app, ".aics-page", HTMLElement).textContent).toContain("客服质检岗位");
+    expect(expectElement(app, ".main-system-shell", HTMLElement).textContent).toContain(
+      "客服质检岗位",
+    );
     expect(JSON.stringify(app.aicsMarketplace.result)).not.toContain("cloud_customer_token");
+  });
+
+  it("renders marketplace as a local role-category page", async () => {
+    const app = mountApp("/marketplace");
+    app.aicsMarketplace = {
+      roles: [
+        {
+          id: "role_quality_agent",
+          title: "客服质检岗位",
+          detail: "本地假商品不应渲染",
+        },
+      ],
+      loading: false,
+      error: null,
+      result: null,
+    };
+    await app.updateComplete;
+
+    expect(app.tab).toBe("marketplace");
+    const page = expectElement(app, ".main-system-shell", HTMLElement);
+    expect(page.textContent).toContain("岗位商城");
+    expect(page.textContent).toContain("打开云端");
+    expect(page.textContent).toContain("同步授权");
+    expect(page.textContent).not.toContain("岗位分类");
+    expect(page.textContent).not.toContain("软件工程师");
+    expect(page.textContent).not.toContain("产品经理");
+    expect(page.textContent).not.toContain("云架构师");
+    expect(page.textContent).not.toContain("客服质检岗位");
+    expect(page.textContent).not.toContain("岗位工作台");
   });
 
   it("uses a marketplace role by jumping into the existing main chat draft", async () => {
@@ -249,7 +288,7 @@ describe("control UI routing", () => {
     await app.refreshAicsMarketplaceRoles();
     await app.updateComplete;
 
-    expectButtonWithText(app, "使用岗位").dispatchEvent(
+    expectButtonWithText(app, "使用").dispatchEvent(
       new MouseEvent("click", { bubbles: true, cancelable: true }),
     );
     await app.updateComplete;
@@ -267,11 +306,19 @@ describe("control UI routing", () => {
     expect(app.aicsRoleBuilder.form.roleListingId).toBe("role_quality_agent");
   });
 
-  it("starts developer mode from AICS without rendering platform internals", async () => {
+  it("keeps developer mode in main chat without rendering platform internals", async () => {
     const app = mountApp("/aics");
     await app.updateComplete;
 
-    expectButtonWithText(app, "开发岗位").dispatchEvent(
+    const aicsButtons = Array.from(app.querySelectorAll<HTMLButtonElement>("button"));
+    expect(aicsButtons.some((candidate) => candidate.textContent?.trim() === "开发岗位")).toBe(
+      false,
+    );
+
+    app.setTab("chat");
+    await app.updateComplete;
+
+    expectButtonContainingText(app, "开发者模式").dispatchEvent(
       new MouseEvent("click", { bubbles: true, cancelable: true }),
     );
     await app.updateComplete;
@@ -284,20 +331,24 @@ describe("control UI routing", () => {
       role: "developerAssistant",
       roleLabel: "岗位开发专属助手",
       stage: "idle",
-      stageLabel: "开发待命",
+      stageLabel: "等待业务逻辑",
     });
-    expect(app.chatMessage).toContain("你只需要讲清楚这个岗位要解决什么业务问题");
+    expect(app.chatMessage).toBe("");
     const text = app.textContent ?? "";
     expect(text).toContain("开发者模式");
     expect(text).toContain("使用者模式");
-    expect(text).toContain("当前角色");
-    expect(text).toContain("工作身份");
-    expect(text).toContain("当前流程阶段");
-    expect(text).toContain("岗位开发专属助手");
-    expect(text).toContain("岗位使用与执行助手");
-    expect(text).toContain("开发待命");
-    expect(text).toContain("只讲业务逻辑");
+    expect(text).not.toContain("等待业务逻辑");
+    expect(text).not.toContain("当前角色");
+    expect(text).not.toContain("工作身份");
+    expect(text).not.toContain("当前流程阶段");
+    expect(text).not.toContain("岗位开发专属助手");
+    expect(text).not.toContain("岗位授权与执行助手");
+    expect(text).not.toContain("你只需要讲清楚");
+    expect(text).not.toContain("只讲业务逻辑");
     expect(text).not.toContain(`对话${"对象"}`);
+    const modeHelp = expectElement(app, ".agent-chat__aics-mode", HTMLElement);
+    expect(modeHelp.getAttribute("aria-label")).toContain("等待业务逻辑");
+    expect(modeHelp.getAttribute("data-tooltip")).toBe("说清楚业务目标、使用对象和判断流程即可。");
     for (const hiddenWord of [
       "RoleBuildBrief",
       "execution token",
@@ -306,8 +357,16 @@ describe("control UI routing", () => {
       "roleListingId",
       "cloud_customer_token",
       "token_123",
+      "输入、输出、规则",
+      "岗位包结构",
+      "协议",
+      "校验",
+      "上传规则",
+      "后端",
+      "token、key",
     ]) {
       expect(text).not.toContain(hiddenWord);
+      expect(modeHelp.getAttribute("data-tooltip")).not.toContain(hiddenWord);
     }
   });
 
@@ -337,20 +396,20 @@ describe("control UI routing", () => {
       "chat.send",
       expect.objectContaining({
         message: "我想做一个发票审核岗位，按金额和供应商风险分流。",
-        modelPrompt: expect.stringContaining("[迭界AI开发者模式]"),
+        aicsContext: {
+          mode: "developer",
+          stage: "intake",
+        },
       }),
     );
     const sentPayload = request.mock.calls[0]?.[1] as
-      | { message?: string; modelPrompt?: string }
+      | { aicsContext?: { mode?: string; stage?: string }; message?: string; modelPrompt?: string }
       | undefined;
-    expect(sentPayload?.modelPrompt).toContain("当前角色：岗位开发专属助手");
-    expect(sentPayload?.modelPrompt).toContain("工作身份：同一个聊天框下的岗位开发工作身份");
-    expect(sentPayload?.modelPrompt).toContain("当前流程阶段：收集业务逻辑");
-    expect(sentPayload?.modelPrompt).toContain("开发者只需要用自然语言讲业务逻辑");
-    expect(sentPayload?.modelPrompt).toContain(
-      "输入、输出、规则、验收标准、岗位包结构、协议映射、验证材料和上传标准都是平台职责",
-    );
-    expect(sentPayload?.modelPrompt).toContain("不要让开发者定义、填写或逐项确认");
+    expect(sentPayload?.modelPrompt).toBeUndefined();
+    expect(sentPayload?.aicsContext).toEqual({ mode: "developer", stage: "intake" });
+    expect(JSON.stringify(sentPayload)).not.toContain("[迭界AI开发者模式]");
+    expect(JSON.stringify(sentPayload)).not.toContain("package_only");
+    expect(JSON.stringify(sentPayload)).not.toContain("confirm_brief");
     expect(sentPayload?.message).not.toContain("[迭界AI开发者模式]");
     const transcript = JSON.stringify(app.chatMessages);
     expect(transcript).toContain("发票审核岗位");
@@ -365,18 +424,19 @@ describe("control UI routing", () => {
     expect(app.aicsConversationMode).toBe("user");
     expect(app.aicsConversationStage).toBe("ready");
     expect(app.aicsConversationProtocol).toMatchObject({
-      roleLabel: "岗位使用与执行助手",
+      roleLabel: "岗位授权与执行助手",
       stage: "ready",
-      stageLabel: "使用就绪",
+      stageLabel: "授权就绪",
     });
     app.chatMessage = "使用我的质检岗位处理今天的记录。";
     await app.handleSendChat();
     const chatSendCalls = request.mock.calls.filter(([method]) => method === "chat.send");
     const secondPayload = chatSendCalls[1]?.[1] as
-      | { message?: string; modelPrompt?: string }
+      | { aicsContext?: unknown; message?: string; modelPrompt?: string }
       | undefined;
     expect(secondPayload?.message).toBe("使用我的质检岗位处理今天的记录。");
     expect(secondPayload?.modelPrompt).toBeUndefined();
+    expect(secondPayload?.aicsContext).toBeUndefined();
   });
 
   it("fails marketplace role sync clearly before RPC when cloud auth is missing", async () => {
@@ -391,7 +451,7 @@ describe("control UI routing", () => {
     await app.updateComplete;
 
     expect(request).not.toHaveBeenCalled();
-    expect(app.aicsMarketplace.error).toContain("需要先连接岗位商场账号");
+    expect(app.aicsMarketplace.error).toContain("需要先连接岗位商城账号");
     expect(app.aicsMarketplace.roles).toEqual([]);
   });
 
@@ -427,7 +487,7 @@ describe("control UI routing", () => {
     await app.updateComplete;
 
     expect(request).toHaveBeenCalledWith("dijie.marketplace.roles.list", expect.any(Object));
-    expect(app.aicsMarketplace.error).toBe("岗位同步失败，请检查岗位商场连接状态。");
+    expect(app.aicsMarketplace.error).toBe("岗位同步失败，请检查岗位商城连接状态。");
     expect(app.aicsMarketplace.roles).toEqual([]);
   });
 
@@ -672,10 +732,10 @@ describe("control UI routing", () => {
       "dashboard-header .dashboard-header__breadcrumb-link",
       HTMLAnchorElement,
     );
-    expect(breadcrumb.getAttribute("href")).toBe("/ui/aics");
+    expect(breadcrumb.getAttribute("href")).toBe("/ui/chat");
   });
 
-  it("renders the dreaming view on the /dreaming route", async () => {
+  it("renders the memory and evolution shell on the /dreaming route", async () => {
     const app = mountApp("/dreaming");
     app.dreamingStatus = {
       enabled: true,
@@ -737,11 +797,19 @@ describe("control UI routing", () => {
     await app.updateComplete;
 
     expect(app.tab).toBe("dreams");
-    expectElement(app, ".dreams__tab", HTMLElement);
-    expectElement(app, ".dreams__lobster", HTMLElement);
+    const shell = expectElement(app, ".main-system-shell", HTMLElement);
+    const text = shell.textContent ?? "";
+    expect(text).toContain("记忆与进化");
+    expect(text).toContain("记忆候选");
+    expect(text).toContain("已确认记忆");
+    expect(text).toContain("岗位优化候选");
+    expect(shell.querySelector(".dreams__tab")).toBeNull();
+    expect(shell.querySelector(".dreams__lobster")).toBeNull();
+    expect(text).not.toContain("Dream Diary");
+    expect(text).not.toContain("openclaw");
   });
 
-  it("requires confirmation before sending dreaming restart patch", async () => {
+  it("keeps restart controls out of the primary memory and evolution page", async () => {
     const app = mountApp("/dreaming");
     const request = vi.fn(async (method: string) => {
       if (method === "config.schema.lookup") {
@@ -898,21 +966,10 @@ describe("control UI routing", () => {
     app.requestUpdate();
     await app.updateComplete;
 
-    const toggle = expectElement(app, ".dreams__phase-toggle--on", HTMLButtonElement);
-    toggle.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    await app.updateComplete;
-
+    expectElement(app, ".main-system-shell", HTMLElement);
+    expect(app.querySelector(".dreams__phase-toggle--on")).toBeNull();
+    expect(app.textContent).not.toContain("Confirm Restart");
     expect(request.mock.calls.some((call) => call[0] === "config.patch")).toBe(false);
-    const confirmRestart = expectButtonWithText(app, "Confirm Restart");
-    confirmRestart.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-
-    await nextFrame();
-    await app.updateComplete;
-
-    const patchCall = request.mock.calls.find((call) => call[0] === "config.patch") as
-      | [string, { baseHash?: string }]
-      | undefined;
-    expect(patchCall?.[1].baseHash).toBe("hash-1");
   });
 
   it("renders the refreshed top navigation shell", async () => {
@@ -1005,7 +1062,7 @@ describe("control UI routing", () => {
     expect(app.querySelector(".sidebar-brand__logo")).toBeNull();
 
     expectElement(app, ".sidebar-shell__footer", HTMLElement);
-    expectElement(app, ".sidebar-utility-link", HTMLElement);
+    expect(app.querySelector(".sidebar-utility-link")).toBeNull();
 
     const item = expectElement(app, ".sidebar .nav-item", HTMLElement);
     const header = expectElement(app, ".sidebar-shell__header", HTMLElement);
@@ -1018,13 +1075,100 @@ describe("control UI routing", () => {
     expectElement(header, ".nav-collapse-toggle", HTMLElement);
   });
 
+  it("shows only the final product entries in the primary sidebar", async () => {
+    const app = mountApp("/chat");
+    await app.updateComplete;
+
+    const nav = expectElement(app, ".sidebar-nav", HTMLElement);
+    const links = Array.from(nav.querySelectorAll<HTMLAnchorElement>("a.nav-item"));
+    expect(links.map((link) => link.textContent?.replace(/\s+/g, " ").trim())).toEqual([
+      "主对话",
+      "我的岗位",
+      "岗位任务",
+      "费用与授权",
+      "已安装工具",
+      "对话记录",
+      "记忆与进化",
+      "岗位商城",
+      "设置",
+    ]);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "/chat",
+      "/aics",
+      "/workboard",
+      "/usage",
+      "/skills",
+      "/sessions",
+      "/dreaming",
+      "/marketplace",
+      "/config",
+    ]);
+    const marketplaceLink = expectElement(
+      nav,
+      'a.nav-item[href="/marketplace"]',
+      HTMLAnchorElement,
+    );
+    expect(marketplaceLink.target).toBe("");
+    expect(marketplaceLink.rel).toBe("");
+    marketplaceLink.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await app.updateComplete;
+    expect(app.tab).toBe("marketplace");
+
+    for (const legacyHref of [
+      "/overview",
+      "/activity",
+      "/instances",
+      "/cron",
+      "/agents",
+      "/nodes",
+      "/debug",
+      "/logs",
+    ]) {
+      expect(links.some((link) => link.getAttribute("href") === legacyHref)).toBe(false);
+    }
+
+    const settingsLink = expectElement(nav, 'a.nav-item[href="/config"]', HTMLAnchorElement);
+    settingsLink.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await app.updateComplete;
+
+    const settingsNav = expectElement(app, ".settings-section-nav", HTMLElement);
+    const settingsText = settingsNav.textContent ?? "";
+    expect(settingsText).toContain("开发者工具");
+    expect(settingsText).toContain("高级诊断");
+    for (const routedHref of ["/cron", "/agents", "/nodes", "/debug", "/logs"]) {
+      expect(settingsNav.querySelector(`a[href="${routedHref}"]`)).toBeInstanceOf(
+        HTMLAnchorElement,
+      );
+    }
+  });
+
+  it("keeps legacy technical routes inside the settings section context", async () => {
+    const app = mountApp("/agents");
+    await app.updateComplete;
+
+    const primaryLinks = Array.from(
+      expectElement(app, ".sidebar-nav", HTMLElement).querySelectorAll<HTMLAnchorElement>(
+        "a.nav-item",
+      ),
+    );
+    expect(primaryLinks.some((link) => link.getAttribute("href") === "/agents")).toBe(false);
+
+    const settingsNav = expectElement(app, ".settings-section-nav", HTMLElement);
+    const developerGroup = settingsNav.textContent ?? "";
+    expect(developerGroup).toContain("开发者工具");
+    expect(settingsNav.querySelector('a[href="/agents"]')).toBeInstanceOf(HTMLAnchorElement);
+    expect(settingsNav.querySelector('a[href="/agents"]')?.classList).toContain(
+      "settings-section-nav__item--active",
+    );
+  });
+
   it("hides child nav items when the active group is collapsed", async () => {
     const app = mountApp("/chat");
     await app.updateComplete;
 
     app.applySettings({
       ...app.settings,
-      navGroupsCollapsed: { ...app.settings.navGroupsCollapsed, aics: true },
+      navGroupsCollapsed: { ...app.settings.navGroupsCollapsed, main: true },
     });
     await app.updateComplete;
 
@@ -1061,7 +1205,7 @@ describe("control UI routing", () => {
     ]) as typeof app.sessionsResult;
     await app.updateComplete;
 
-    const recent = Array.from(app.querySelectorAll<HTMLAnchorElement>(".sidebar-recent-session"));
+    const recent = Array.from(app.querySelectorAll<HTMLElement>(".sidebar-recent-session"));
     expect(recent.map((entry) => entry.textContent?.replace(/\s+/g, " ").trim())).toEqual([
       "Second workspace just now",
       "First workspace 5m ago",

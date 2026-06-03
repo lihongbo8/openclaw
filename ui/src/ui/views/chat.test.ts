@@ -635,7 +635,7 @@ describe("chat goal status", () => {
 });
 
 describe("chat composer workbench", () => {
-  it("renders session controls in the composer and workspace files in the rail", () => {
+  it("renders session controls without exposing workspace files", () => {
     const onRefresh = vi.fn();
     const onOpenFile = vi.fn();
     const container = renderChatView({
@@ -665,16 +665,11 @@ describe("chat composer workbench", () => {
     expect(
       container.querySelector(".agent-chat__composer-controls .test-composer-control"),
     ).not.toBeNull();
-    expect(container.querySelector(".chat-workspace-rail__path")?.textContent?.trim()).toBe(
-      "/workspace",
-    );
-    const file = container.querySelector<HTMLButtonElement>(".chat-workspace-rail__file");
-    expect(file?.textContent).toContain("AGENTS.md");
-    expect(file?.textContent).toContain("2 KB");
-
-    file?.click();
-
-    expect(onOpenFile).toHaveBeenCalledWith("AGENTS.md");
+    expect(container.querySelector(".chat-workspace-rail")).toBeNull();
+    expect(container.textContent).not.toContain("/workspace");
+    expect(container.textContent).not.toContain("AGENTS.md");
+    expect(onRefresh).not.toHaveBeenCalled();
+    expect(onOpenFile).not.toHaveBeenCalled();
   });
 });
 
@@ -1142,6 +1137,7 @@ describe("chat slash menu accessibility", () => {
 
     expect(onDraftChange).toHaveBeenCalledWith("plain first message");
     expect(onSend).toHaveBeenCalledTimes(1);
+    expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("");
   });
 
   it("commits local draft input before Enter sends", () => {
@@ -1154,6 +1150,7 @@ describe("chat slash menu accessibility", () => {
 
     expect(onDraftChange).toHaveBeenCalledWith("send from enter");
     expect(onSend).toHaveBeenCalledTimes(1);
+    expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("");
   });
 
   it("commits local draft input on blur", () => {
@@ -2532,7 +2529,7 @@ describe("chat session controls", () => {
     render(renderChatSessionSelect(state), container);
 
     const quota = container.querySelector<HTMLAnchorElement>('[data-chat-provider-usage="true"]');
-    expect(quota?.textContent?.replace(/\s+/g, " ").trim()).toBe("Usage 28%");
+    expect(quota?.textContent?.replace(/\s+/g, " ").trim()).toBe("Usage Records 28%");
     expect(quota?.getAttribute("href")).toBe("/usage");
     expect(quota?.getAttribute("title")).toContain("Codex · Week");
 

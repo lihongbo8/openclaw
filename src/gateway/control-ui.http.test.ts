@@ -782,6 +782,43 @@ describe("handleControlUiHttpRequest", () => {
     });
   });
 
+  it("serves a friendly recovery page when Control UI assets are missing", async () => {
+    const { res, end, setHeader } = makeMockHttpResponse();
+    const handled = await handleControlUiHttpRequest(
+      { url: "/", method: "GET" } as IncomingMessage,
+      res,
+      { root: { kind: "missing" } },
+    );
+
+    const body = responseBody(end);
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(503);
+    expect(setHeader).toHaveBeenCalledWith("Content-Type", "text/html; charset=utf-8");
+    expect(body).toContain("迭界AI 前端资源未构建");
+    expect(body).toContain("node scripts/ui.js build");
+    expect(body).toContain("node scripts/ui.js dev");
+    expect(body).toContain("pnpm ui:dev");
+    expect(body).toContain("Control UI assets not found");
+  });
+
+  it("escapes configured Control UI root in the recovery page", async () => {
+    const unsafePath = `/tmp/openclaw-control-ui-<script>alert("x")</script>`;
+    const { res, end, setHeader } = makeMockHttpResponse();
+    const handled = await handleControlUiHttpRequest(
+      { url: "/", method: "GET" } as IncomingMessage,
+      res,
+      { root: { kind: "invalid", path: unsafePath } },
+    );
+
+    const body = responseBody(end);
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(503);
+    expect(setHeader).toHaveBeenCalledWith("Content-Type", "text/html; charset=utf-8");
+    expect(body).toContain("当前配置路径");
+    expect(body).toContain("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;");
+    expect(body).not.toContain(unsafePath);
+  });
+
   it("serves bootstrap config JSON", async () => {
     await withControlUiRoot({
       fn: async (tmp) => {

@@ -6,6 +6,18 @@ import { getChatAttachmentDataUrl } from "./attachment-payload-store.ts";
 const STORAGE_KEY_PREFIX = "openclaw.control.chatComposer.v1:";
 const MAX_STORED_SESSIONS = 20;
 const MAX_STORED_QUEUE_ITEMS = 50;
+const AICS_CONVERSATION_STAGES = new Set([
+  "ready",
+  "idle",
+  "intake",
+  "clarifying",
+  "briefGenerated",
+  "awaitingBusinessConfirmation",
+  "buildingPackage",
+  "validatingPackage",
+  "readyToUpload",
+  "submittedForReview",
+]);
 export const INTERRUPTED_MODEL_WAIT_ERROR =
   "Model selection was interrupted. Review and retry when ready.";
 
@@ -201,6 +213,14 @@ function serializeQueueItem(item: ChatQueueItem): ChatQueueItem | null {
     ...(typeof item.refreshSessions === "boolean" ? { refreshSessions: item.refreshSessions } : {}),
     ...(item.localCommandArgs ? { localCommandArgs: item.localCommandArgs } : {}),
     ...(item.localCommandName ? { localCommandName: item.localCommandName } : {}),
+    ...(item.aicsContext?.mode === "developer"
+      ? {
+          aicsContext: {
+            mode: "developer" as const,
+            ...(item.aicsContext.stage ? { stage: item.aicsContext.stage } : {}),
+          },
+        }
+      : {}),
     ...(item.sessionKey ? { sessionKey: item.sessionKey } : {}),
     ...(item.agentId ? { agentId: item.agentId } : {}),
     ...(sendState ? { sendState } : {}),
@@ -234,6 +254,19 @@ function normalizeQueueItem(value: unknown): ChatQueueItem | null {
   const item: ChatQueueItem = { id, text, createdAt };
   if (entry.kind === "queued" || entry.kind === "steered") {
     item.kind = entry.kind;
+  }
+  const aicsContext =
+    entry.aicsContext && typeof entry.aicsContext === "object" && !Array.isArray(entry.aicsContext)
+      ? (entry.aicsContext as Record<string, unknown>)
+      : null;
+  if (aicsContext?.mode === "developer") {
+    const stage = typeof aicsContext.stage === "string" ? aicsContext.stage : undefined;
+    item.aicsContext = {
+      mode: "developer",
+      ...(stage && AICS_CONVERSATION_STAGES.has(stage)
+        ? { stage: stage as NonNullable<ChatQueueItem["aicsContext"]>["stage"] }
+        : {}),
+    };
   }
   if (attachments.length) {
     item.attachments = attachments;

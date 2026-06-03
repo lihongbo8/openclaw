@@ -1,6 +1,7 @@
 import { embeddedAgentLog } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  CODEX_DYNAMIC_DIJIE_ROLE_BUILDER_TOOL_TIMEOUT_MS,
   CODEX_DYNAMIC_IMAGE_TOOL_TIMEOUT_MS,
   CODEX_DYNAMIC_MESSAGE_TOOL_TIMEOUT_MS,
   CODEX_DYNAMIC_TOOL_MAX_TIMEOUT_MS,
@@ -53,6 +54,73 @@ describe("dynamic tool execution helpers", () => {
         config: undefined,
       }),
     ).toBe(CODEX_DYNAMIC_TOOL_TIMEOUT_MS);
+  });
+
+  it("uses a 300 second default for dijie_role_builder dynamic tool calls", () => {
+    const aicsInternalRoleBuilderDefaultTimeoutMs = 120_000;
+
+    expect(CODEX_DYNAMIC_DIJIE_ROLE_BUILDER_TOOL_TIMEOUT_MS).toBe(300_000);
+    expect(CODEX_DYNAMIC_DIJIE_ROLE_BUILDER_TOOL_TIMEOUT_MS).toBeGreaterThan(
+      aicsInternalRoleBuilderDefaultTimeoutMs,
+    );
+    expect(
+      resolveDynamicToolCallTimeoutMs({
+        call: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          callId: "call-dijie-role-builder-default",
+          namespace: null,
+          tool: "dijie_role_builder",
+          arguments: { requirement: "generate role" },
+        },
+        config: undefined,
+      }),
+    ).toBe(CODEX_DYNAMIC_DIJIE_ROLE_BUILDER_TOOL_TIMEOUT_MS);
+  });
+
+  it("lets explicit dijie_role_builder timeouts override the default with max clamp", () => {
+    expect(
+      resolveDynamicToolCallTimeoutMs({
+        call: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          callId: "call-dijie-role-builder-snake-timeout",
+          namespace: null,
+          tool: "dijie_role_builder",
+          arguments: { requirement: "generate role", timeout_ms: 180_000 },
+        },
+        config: undefined,
+      }),
+    ).toBe(180_000);
+    expect(
+      resolveDynamicToolCallTimeoutMs({
+        call: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          callId: "call-dijie-role-builder-camel-timeout",
+          namespace: null,
+          tool: "dijie_role_builder",
+          arguments: { requirement: "generate role", timeoutMs: 240_000 },
+        },
+        config: undefined,
+      }),
+    ).toBe(240_000);
+    expect(
+      resolveDynamicToolCallTimeoutMs({
+        call: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          callId: "call-dijie-role-builder-clamped-timeout",
+          namespace: null,
+          tool: "dijie_role_builder",
+          arguments: {
+            requirement: "generate role",
+            timeout_ms: CODEX_DYNAMIC_TOOL_MAX_TIMEOUT_MS + 1_000,
+          },
+        },
+        config: undefined,
+      }),
+    ).toBe(CODEX_DYNAMIC_TOOL_MAX_TIMEOUT_MS);
   });
 
   it("uses configured image generation timeouts for Codex dynamic tool calls", () => {

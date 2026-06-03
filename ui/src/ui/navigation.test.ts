@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   TAB_GROUPS,
+  SETTINGS_NAV_GROUPS,
   SETTINGS_TABS,
+  displayTitleForTab,
   iconForTab,
   inferBasePathFromPathname,
+  isPrimaryNavTab,
   isSettingsTab,
   normalizeBasePath,
   normalizePath,
@@ -28,6 +31,7 @@ describe("iconForTab", () => {
   it("returns stable icons for every tab", () => {
     expect(Object.fromEntries(ALL_TABS.map((tab) => [tab, iconForTab(tab)]))).toEqual({
       aics: "brain",
+      marketplace: "globe",
       chat: "messageSquare",
       overview: "barChart",
       activity: "activity",
@@ -65,6 +69,7 @@ describe("titleForTab", () => {
   it("returns expected titles for every tab", () => {
     expect(Object.fromEntries(ALL_TABS.map((tab) => [tab, titleForTab(tab)]))).toEqual({
       aics: "Role Workbench",
+      marketplace: "Role Marketplace",
       chat: "Main Chat",
       overview: "Overview",
       activity: "Activity",
@@ -90,12 +95,29 @@ describe("titleForTab", () => {
       logs: "Logs",
     });
   });
+
+  it("returns product-facing titles for the primary navigation", () => {
+    expect(
+      Object.fromEntries(TAB_GROUPS[0].tabs.map((tab) => [tab, displayTitleForTab(tab)])),
+    ).toEqual({
+      chat: "主对话",
+      aics: "我的岗位",
+      workboard: "岗位任务",
+      usage: "费用与授权",
+      skills: "已安装工具",
+      sessions: "对话记录",
+      dreams: "记忆与进化",
+      marketplace: "岗位商城",
+      config: "设置",
+    });
+  });
 });
 
 describe("subtitleForTab", () => {
   it("returns expected subtitles for every tab", () => {
     expect(Object.fromEntries(ALL_TABS.map((tab) => [tab, subtitleForTab(tab)]))).toEqual({
       aics: "Your roles, recent work, and usage records.",
+      marketplace: "Browse roles available for use.",
       chat: "Start work in natural language.",
       overview: "Status, entry points, health.",
       activity: "Browser-local tool activity summaries.",
@@ -164,6 +186,7 @@ describe("normalizePath", () => {
 describe("pathForTab", () => {
   it("returns correct path without base", () => {
     expect(pathForTab("aics")).toBe("/aics");
+    expect(pathForTab("marketplace")).toBe("/marketplace");
     expect(pathForTab("chat")).toBe("/chat");
     expect(pathForTab("overview")).toBe("/overview");
   });
@@ -178,6 +201,7 @@ describe("tabFromPath", () => {
   it("returns tab for valid path", () => {
     expect(tabFromPath("/chat")).toBe("chat");
     expect(tabFromPath("/aics")).toBe("aics");
+    expect(tabFromPath("/marketplace")).toBe("marketplace");
     expect(tabFromPath("/overview")).toBe("overview");
     expect(tabFromPath("/activity")).toBe("activity");
     expect(tabFromPath("/sessions")).toBe("sessions");
@@ -185,8 +209,8 @@ describe("tabFromPath", () => {
     expect(tabFromPath("/dreams")).toBe("dreams");
   });
 
-  it("returns AICS for root path", () => {
-    expect(tabFromPath("/")).toBe("aics");
+  it("returns main chat for root path", () => {
+    expect(tabFromPath("/")).toBe("chat");
   });
 
   it("handles base paths", () => {
@@ -211,6 +235,7 @@ describe("inferBasePathFromPathname", () => {
 
   it("returns empty string for direct tab path", () => {
     expect(inferBasePathFromPathname("/aics")).toBe("");
+    expect(inferBasePathFromPathname("/marketplace")).toBe("");
     expect(inferBasePathFromPathname("/chat")).toBe("");
     expect(inferBasePathFromPathname("/overview")).toBe("");
     expect(inferBasePathFromPathname("/dreaming")).toBe("");
@@ -229,8 +254,20 @@ describe("inferBasePathFromPathname", () => {
 });
 
 describe("TAB_GROUPS", () => {
-  it("contains all expected groups", () => {
-    expect(TAB_GROUPS.map((g) => g.label)).toEqual(["aics", "control", "agent", "settings"]);
+  it("contains only the product-facing primary sidebar group", () => {
+    expect(TAB_GROUPS.map((g) => g.label)).toEqual(["main"]);
+    expect(TAB_GROUPS[0].tabs).toEqual([
+      "chat",
+      "aics",
+      "workboard",
+      "usage",
+      "skills",
+      "sessions",
+      "dreams",
+      "marketplace",
+      "config",
+    ]);
+    expect(TAB_GROUPS[0].tabs.every((tab) => isPrimaryNavTab(tab))).toBe(true);
   });
 
   it("all tabs are unique", () => {
@@ -239,9 +276,12 @@ describe("TAB_GROUPS", () => {
     expect(uniqueTabs.size).toBe(allTabs.length);
   });
 
-  it("keeps detailed settings slices routed but out of the root sidebar", () => {
-    const settings = TAB_GROUPS.find((group) => group.label === "settings");
-    expect(settings?.tabs).toEqual(["config"]);
+  it("keeps technical slices routed under settings navigation groups", () => {
+    expect(SETTINGS_NAV_GROUPS.map((group) => group.label)).toEqual([
+      "基础设置",
+      "开发者工具",
+      "高级诊断",
+    ]);
     expect(SETTINGS_TABS).toEqual([
       "config",
       "channels",
@@ -251,6 +291,13 @@ describe("TAB_GROUPS", () => {
       "mcp",
       "infrastructure",
       "aiAgents",
+      "agents",
+      "skillWorkshop",
+      "nodes",
+      "cron",
+      "overview",
+      "activity",
+      "instances",
       "debug",
       "logs",
     ]);

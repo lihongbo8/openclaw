@@ -1,3 +1,5 @@
+import type { AicsConversationStage } from "./aics-conversation-mode.ts";
+
 export type ChatAttachment = {
   id: string;
   dataUrl?: string;
@@ -11,6 +13,10 @@ export type ChatQueueItem = {
   id: string;
   text: string;
   apiText?: string;
+  aicsContext?: {
+    mode: "developer";
+    stage?: AicsConversationStage;
+  };
   createdAt: number;
   kind?: "queued" | "steered";
   attachments?: ChatAttachment[];

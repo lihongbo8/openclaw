@@ -65,6 +65,7 @@ const CONTROL_UI_ASSISTANT_MEDIA_TICKET_SCOPE = "assistant-media";
 const CONTROL_UI_ASSISTANT_MEDIA_TICKET_TTL_MS = 5 * 60 * 1000;
 const CONTROL_UI_ASSETS_MISSING_MESSAGE =
   "Control UI assets not found. Build them with `pnpm ui:build` (auto-installs UI deps), or run `pnpm ui:dev` during development.";
+const CONTROL_UI_ASSETS_MISSING_TITLE = "迭界AI 前端资源未构建";
 const CONTROL_UI_OPERATOR_READ_SCOPE = "operator.read";
 const CONTROL_UI_OPERATOR_ROLE = "operator";
 const controlUiAssistantMediaTicketSecret = randomBytes(32);
@@ -194,19 +195,81 @@ function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.end(JSON.stringify(body));
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      default:
+        return "&#39;";
+    }
+  });
+}
+
+function buildControlUiAssetsUnavailableHtml(options?: { configuredRootPath?: string }): string {
+  const configuredRootPath = options?.configuredRootPath?.trim();
+  const diagnostic = configuredRootPath
+    ? `Control UI assets not found at ${configuredRootPath}.`
+    : CONTROL_UI_ASSETS_MISSING_MESSAGE;
+  const rootHint = configuredRootPath
+    ? `<p class="muted">当前配置路径：<code>${escapeHtml(configuredRootPath)}</code></p>`
+    : "";
+
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${CONTROL_UI_ASSETS_MISSING_TITLE}</title>
+  <style>
+    :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f7f7f8; color: #24242a; }
+    main { width: min(720px, calc(100vw - 40px)); border: 1px solid #dedee3; border-radius: 12px; background: #fff; padding: 28px; box-shadow: 0 14px 40px rgba(20, 20, 24, 0.08); }
+    h1 { margin: 0 0 10px; font-size: 24px; line-height: 1.25; }
+    p { margin: 8px 0; line-height: 1.7; }
+    ol { margin: 16px 0 0; padding-left: 22px; line-height: 1.8; }
+    code { border: 1px solid #dedee3; border-radius: 6px; background: #f1f1f3; padding: 2px 6px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .muted { color: #696974; }
+    .diagnostic { margin-top: 18px; font-size: 13px; color: #777782; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #17171b; color: #f4f4f5; }
+      main { border-color: #36363d; background: #202026; box-shadow: none; }
+      code { border-color: #3e3e46; background: #2a2a31; }
+      .muted, .diagnostic { color: #a6a6af; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>${CONTROL_UI_ASSETS_MISSING_TITLE}</h1>
+    <p>本机网关已经启动，但 Dashboard 静态资源还没有生成。</p>
+    ${rootHint}
+    <ol>
+      <li>在 OpenClaw 项目根目录运行 <code>node scripts/ui.js build</code>。</li>
+      <li>开发调试时运行 <code>node scripts/ui.js dev</code>，或使用项目的 <code>pnpm ui:dev</code>。</li>
+      <li>完成后刷新这个页面。</li>
+    </ol>
+    <p class="diagnostic">${escapeHtml(diagnostic)}</p>
+  </main>
+</body>
+</html>
+`;
+}
+
 function respondControlUiAssetsUnavailable(
   res: ServerResponse,
   options?: { configuredRootPath?: string },
 ) {
-  if (options?.configuredRootPath) {
-    respondPlainText(
-      res,
-      503,
-      `Control UI assets not found at ${options.configuredRootPath}. Build them with \`pnpm ui:build\` (auto-installs UI deps), or update gateway.controlUi.root.`,
-    );
-    return;
-  }
-  respondPlainText(res, 503, CONTROL_UI_ASSETS_MISSING_MESSAGE);
+  res.statusCode = 503;
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache");
+  res.end(buildControlUiAssetsUnavailableHtml(options));
 }
 
 function respondHeadForFile(req: IncomingMessage, res: ServerResponse, filePath: string): boolean {

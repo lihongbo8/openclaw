@@ -761,15 +761,14 @@
 
 .sidebar-recent-session {
   display: grid;
-  grid-template-columns: 8px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   min-height: 40px;
-  padding: 7px 9px;
+  padding: 4px;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   color: var(--muted);
-  text-decoration: none;
   transition:
     background var(--duration-fast) ease,
     border-color var(--duration-fast) ease,
@@ -780,13 +779,29 @@
   background: color-mix(in srgb, var(--bg-hover) 78%, transparent);
   border-color: color-mix(in srgb, var(--border) 70%, transparent);
   color: var(--text);
-  text-decoration: none;
 }
 
 .sidebar-recent-session--active {
   background: color-mix(in srgb, var(--accent-subtle) 68%, transparent);
   border-color: color-mix(in srgb, var(--accent) 18%, transparent);
   color: var(--text-strong);
+}
+
+.sidebar-recent-session__link {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 3px 5px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.sidebar-recent-session__link:hover {
+  color: inherit;
+  text-decoration: none;
 }
 
 .sidebar-recent-session__dot {
@@ -831,6 +846,49 @@
   border-radius: var(--radius-full);
   background: var(--ok);
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 12%, transparent);
+}
+
+.sidebar-recent-session__delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--duration-fast) ease,
+    background var(--duration-fast) ease,
+    color var(--duration-fast) ease;
+}
+
+.sidebar-recent-session:hover .sidebar-recent-session__delete,
+.sidebar-recent-session__delete:focus-visible {
+  opacity: 1;
+}
+
+.sidebar-recent-session__delete:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
+}
+
+.sidebar-recent-session__delete:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.sidebar-recent-session__delete svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.7px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .sidebar-nav::-webkit-scrollbar {
@@ -885,8 +943,8 @@
 
 .nav-section {
   display: grid;
-  gap: 6px;
-  margin-bottom: 16px;
+  gap: 4px;
+  margin-bottom: 12px;
 }
 
 .nav-section:last-child {
@@ -895,7 +953,7 @@
 
 .nav-section__items {
   display: grid;
-  gap: 4px;
+  gap: 2px;
 }
 
 .nav-section--collapsed .nav-section__items {
@@ -961,7 +1019,7 @@
   align-items: center;
   justify-content: flex-start;
   gap: 8px;
-  min-height: 40px;
+  min-height: 36px;
   padding: 0 9px;
   border-radius: var(--radius-md);
   border: 1px solid transparent;

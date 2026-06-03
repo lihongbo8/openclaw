@@ -74,6 +74,7 @@ export type SessionsProps = {
   onDeselectPage: (keys: string[]) => void;
   onDeselectAll: () => void;
   onDeleteSelected: () => void;
+  onDeleteSession: (key: string) => void;
   onNavigateToChat?: (sessionKey: string) => void;
   workboardSessionKeys?: Set<string>;
   workboardBusySessionKey?: string | null;
@@ -1050,23 +1051,37 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
         </select>
       </td>
       <td>
-        ${props.onAddToWorkboard && canLink
-          ? html`
-              <button
-                class="icon-btn"
-                title=${captured
-                  ? t("sessionsView.openWorkboardCard")
-                  : t("sessionsView.addToWorkboard")}
-                ?disabled=${props.loading || captureBusy}
-                @click=${(event: MouseEvent) => {
-                  event.stopPropagation();
-                  void props.onAddToWorkboard?.(row);
-                }}
-              >
-                ${captured ? icons.check : icons.plus}
-              </button>
-            `
-          : nothing}
+        <div class="session-row-actions">
+          ${props.onAddToWorkboard && canLink
+            ? html`
+                <button
+                  class="icon-btn"
+                  title=${captured
+                    ? t("sessionsView.openWorkboardCard")
+                    : t("sessionsView.addToWorkboard")}
+                  ?disabled=${props.loading || captureBusy}
+                  @click=${(event: MouseEvent) => {
+                    event.stopPropagation();
+                    void props.onAddToWorkboard?.(row);
+                  }}
+                >
+                  ${captured ? icons.check : icons.plus}
+                </button>
+              `
+            : nothing}
+          <button
+            class="icon-btn danger"
+            title="删除对话记录"
+            aria-label=${`删除对话记录：${row.label ?? row.displayName ?? row.key}`}
+            ?disabled=${props.loading}
+            @click=${(event: MouseEvent) => {
+              event.stopPropagation();
+              props.onDeleteSession(row.key);
+            }}
+          >
+            ${icons.trash}
+          </button>
+        </div>
       </td>
     </tr>`,
     ...(isExpanded && hasCheckpoints

@@ -27,7 +27,14 @@ import {
   syncSelectedSessionMessageSubscription,
 } from "./controllers/sessions.ts";
 import { icons } from "./icons.ts";
-import { iconForTab, isSettingsTab, pathForTab, titleForTab, type Tab } from "./navigation.ts";
+import {
+  displayTitleForTab,
+  iconForTab,
+  isPrimaryNavTab,
+  isSettingsTab,
+  pathForTab,
+  type Tab,
+} from "./navigation.ts";
 import { isCronSessionKey, parseSessionKey, resolveSessionDisplayName } from "./session-display.ts";
 import {
   isSessionKeyTiedToAgent,
@@ -202,8 +209,12 @@ const NEW_CHAT_CREATE_FAILED_MESSAGE =
 
 export function renderTab(state: AppViewState, tab: Tab, opts?: { collapsed?: boolean }) {
   const href = pathForTab(tab, state.basePath);
-  const isActive = tab === "config" ? isSettingsTab(state.tab) : state.tab === tab;
+  const isActive =
+    tab === "config"
+      ? state.tab === "config" || (isSettingsTab(state.tab) && !isPrimaryNavTab(state.tab))
+      : state.tab === tab;
   const collapsed = opts?.collapsed ?? state.settings.navCollapsed;
+  const title = displayTitleForTab(tab);
   return html`
     <a
       href=${href}
@@ -231,10 +242,10 @@ export function renderTab(state: AppViewState, tab: Tab, opts?: { collapsed?: bo
         }
         state.setTab(tab);
       }}
-      title=${titleForTab(tab)}
+      title=${title}
     >
       <span class="nav-item__icon" aria-hidden="true">${icons[iconForTab(tab)]}</span>
-      ${!collapsed ? html`<span class="nav-item__text">${titleForTab(tab)}</span>` : nothing}
+      ${!collapsed ? html`<span class="nav-item__text">${title}</span>` : nothing}
     </a>
   `;
 }
