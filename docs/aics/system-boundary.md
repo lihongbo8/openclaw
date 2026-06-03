@@ -510,7 +510,9 @@ developer opens 迭界AI main system / developer center
    one wrapper/adapter/example file, one validation/smoke material, and
    manifest.requiredCapabilities
 -> role_package/ must not ship browser/file/command/API/MCP implementation
-   tools; OpenClaw maps requiredCapabilities to local tools at execution time
+   tools or tool schemas; requiredCapabilities are interpreted through the
+   OpenClaw tools.catalog / tools.effective / tools.invoke protocol at
+   execution time
 -> validation/smoke status is visible in the local result
 -> developer downloads the generated role package
 -> developer uploads the role package to developer center for listing metadata,

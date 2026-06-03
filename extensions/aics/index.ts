@@ -19,6 +19,10 @@ import {
 } from "openclaw/plugin-sdk/core";
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { Type } from "typebox";
+import {
+  resolveAicsRoleRequiredCapabilities,
+  type AicsRoleCapabilityValidation,
+} from "./role-capabilities.js";
 
 type AicsConfig = {
   repoRoot: string;
@@ -142,6 +146,12 @@ type RolePackageFile = {
   sha256: string;
 };
 
+type RolePackageValidation = {
+  ok: boolean;
+  errors: string[];
+  capabilities: AicsRoleCapabilityValidation;
+};
+
 const DEFAULT_REPO_ROOT = "/Users/weizuo/Desktop/ai_gongsi_kekong_xitong";
 const DEFAULT_ROLE_PACKAGE_OUTPUT_ROOT =
   "/Users/weizuo/Documents/ai公司/openclaw-workspace/aics-role-packages";
@@ -168,11 +178,12 @@ const ROLE_PACKAGE_BUILT_IN_MATERIALS = [
   "- required files: role_package/manifest.json, role_package/listing.md, role_package/README.md。",
   "- role knowledge: 岗位包是人类岗位的业务脑子，必须沉淀岗位目标、适用场景、业务流程、判断规则、经验技巧、常见失败模式和验收样例。",
   "- local capabilities: manifest.requiredCapabilities 只声明本地 OpenClaw 抽象能力需求，例如 workspace.read、image.inspect、document.write、human.confirm。",
-  "- integration example: 至少提供一个 wrapper、adapter 或接入示例文件，用来说明能力映射和调用边界，不能实现或携带浏览器、文件、命令、API、MCP 等实施工具。",
+  "- OpenClaw tool protocol: requiredCapabilities 只是进入 OpenClaw tools.catalog/tools.effective/tools.invoke 前的产品语义，不是新工具协议。",
+  "- integration example: 至少提供一个 wrapper、adapter 或接入示例文件，用来说明业务流程到 requiredCapabilities 的边界，不能实现或携带浏览器、文件、命令、API、MCP 等实施工具。",
   "- validation material: 至少提供一个 validation 或 smoke test 说明/脚本。",
   "- platform handles: execution token、Gateway 调用、AuditSummary、RoleResult、审计上传、Token 计费和开发者结算由平台桥处理。",
   "- forbidden content: 不写 provider key 名称或值、secret/token 字段、cloud bearer、raw execution token、本地绝对路径、用户主对话完整历史或使用者模式私有记忆。",
-  "- forbidden tools: 不在 role_package/ 内打包实施工具、MCP server、API client 或本地工具实现；实施工具由 OpenClaw/迭界AI主系统按 requiredCapabilities 选择、授权、执行和审计。",
+  "- forbidden tools: 不在 role_package/ 内打包实施工具、MCP server、API client、本地工具实现或工具 schema；实施工具由 OpenClaw/迭界AI主系统通过 OpenClaw 工具协议选择、授权、调用和审计。",
   "- developer-center handoff: 包生成后交付可下载的 role_package/，由开发者中心负责上传、价格、Token 单价、审核和发布。",
 ].join("\n");
 
@@ -1146,18 +1157,35 @@ function isRolePackageToolImplementationPath(relativePath: string): boolean {
   return ROLE_PACKAGE_TOOL_IMPLEMENTATION_PATH_PATTERN.test(relativePath);
 }
 
-function validateRequiredCapabilities(value: unknown): string[] {
+function emptyRoleCapabilityValidation(): AicsRoleCapabilityValidation {
+  return {
+    required: [],
+    resolved: [],
+    missing: [],
+  };
+}
+
+function validateRequiredCapabilities(value: unknown): {
+  errors: string[];
+  capabilities: AicsRoleCapabilityValidation;
+} {
   if (!Array.isArray(value)) {
-    return ["role_package/manifest.json requiredCapabilities must be a non-empty array"];
+    return {
+      errors: ["role_package/manifest.json requiredCapabilities must be a non-empty array"],
+      capabilities: emptyRoleCapabilityValidation(),
+    };
   }
   const capabilities = value
     .filter((item): item is string => typeof item === "string")
     .map((item) => item.trim())
     .filter(Boolean);
   if (capabilities.length === 0) {
-    return [
-      "role_package/manifest.json requiredCapabilities must include local OpenClaw capability names",
-    ];
+    return {
+      errors: [
+        "role_package/manifest.json requiredCapabilities must include local OpenClaw capability names",
+      ],
+      capabilities: emptyRoleCapabilityValidation(),
+    };
   }
   const errors: string[] = [];
   for (const capability of capabilities) {
@@ -1177,7 +1205,16 @@ function validateRequiredCapabilities(value: unknown): string[] {
       break;
     }
   }
-  return errors;
+  const capabilityValidation = resolveAicsRoleRequiredCapabilities(capabilities);
+  for (const capability of capabilityValidation.missing) {
+    errors.push(
+      `role_package/manifest.json requiredCapabilities has no OpenClaw tool protocol bridge for ${capability.capability}`,
+    );
+  }
+  return {
+    errors,
+    capabilities: capabilityValidation,
+  };
 }
 
 function chooseRolePackageEntrypoint(files: RolePackageFile[]): string {
@@ -1237,6 +1274,25 @@ function readRoleBuildBriefRecord(roleBuildBriefJson: string): Record<string, un
   }
 }
 
+function readGeneratedRolePackageRequiredCapabilities(files: RolePackageFile[]): unknown {
+  const manifestFile = files.find((file) => file.relativePath === ROLE_PACKAGE_MANIFEST_PATH);
+  if (!manifestFile) {
+    return undefined;
+  }
+  try {
+    const manifest = asRecord(JSON.parse(readFileSync(manifestFile.absolutePath, "utf8")));
+    if ("requiredCapabilities" in manifest) {
+      return manifest.requiredCapabilities;
+    }
+    if ("required_capabilities" in manifest) {
+      return manifest.required_capabilities;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function slugifyRolePackageName(name: string): string {
   return name
     .normalize("NFKD")
@@ -1286,6 +1342,9 @@ function normalizeRolePackageManifest(params: {
   const version =
     safePublicManifestString(params.packageVersion) ?? DEFAULT_PUBLIC_ROLE_PACKAGE_VERSION;
   const entrypoint = chooseRolePackageEntrypoint(params.files);
+  const requiredCapabilities = readGeneratedRolePackageRequiredCapabilities(params.files) ?? [
+    ...DEFAULT_PUBLIC_ROLE_PACKAGE_REQUIRED_CAPABILITIES,
+  ];
   const files = params.files
     .filter(
       (file) =>
@@ -1305,7 +1364,7 @@ function normalizeRolePackageManifest(params: {
     name,
     entrypoint,
     permissions: [...DEFAULT_PUBLIC_ROLE_PACKAGE_PERMISSIONS],
-    requiredCapabilities: [...DEFAULT_PUBLIC_ROLE_PACKAGE_REQUIRED_CAPABILITIES],
+    requiredCapabilities,
     files,
   };
   writeFileSync(
@@ -1316,13 +1375,14 @@ function normalizeRolePackageManifest(params: {
 }
 
 function combineRolePackageValidation(
-  validation: { ok: boolean; errors: string[] },
+  validation: RolePackageValidation,
   additionalErrors: string[],
 ) {
   const errors = Array.from(new Set([...additionalErrors, ...validation.errors]));
   return {
     ok: errors.length === 0,
     errors,
+    capabilities: validation.capabilities,
   };
 }
 
@@ -1442,9 +1502,10 @@ function validateRolePackage(
     preflight: ReturnType<typeof verifyDijieExecutionPreflight> & { ok: true };
     executionToken: string;
   },
-) {
+): RolePackageValidation {
   const filePaths = new Set(files.map((file) => file.relativePath));
   const errors: string[] = [];
+  let capabilityValidation = emptyRoleCapabilityValidation();
   const requiredFiles = [
     ROLE_PACKAGE_MANIFEST_PATH,
     "role_package/listing.md",
@@ -1513,7 +1574,11 @@ function validateRolePackage(
       ) {
         errors.push("role_package/manifest.json permissions must use the public default");
       }
-      errors.push(...validateRequiredCapabilities(manifestRecord.requiredCapabilities));
+      const requiredCapabilityValidation = validateRequiredCapabilities(
+        manifestRecord.requiredCapabilities,
+      );
+      capabilityValidation = requiredCapabilityValidation.capabilities;
+      errors.push(...requiredCapabilityValidation.errors);
       if (!Array.isArray(manifestRecord.files)) {
         errors.push("role_package/manifest.json files must be an array");
       } else {
@@ -1574,7 +1639,7 @@ function validateRolePackage(
   for (const relativePath of rolePackageFiles) {
     if (isRolePackageToolImplementationPath(relativePath)) {
       errors.push(
-        `${relativePath} must not ship implementation tools; role packages declare requiredCapabilities and local OpenClaw executes tools`,
+        `${relativePath} must not ship implementation tools or tool schemas; role packages declare requiredCapabilities and local OpenClaw executes through tools.catalog/tools.effective/tools.invoke`,
       );
     }
   }
@@ -1619,6 +1684,7 @@ function validateRolePackage(
   return {
     ok: errors.length === 0,
     errors,
+    capabilities: capabilityValidation,
   };
 }
 

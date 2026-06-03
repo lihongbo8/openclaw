@@ -16,6 +16,10 @@ import plugin, {
   AICS_DEVELOPER_MODE_CONTEXT_DENYLIST,
   verifyDijieExecutionPreflight,
 } from "./index.js";
+import {
+  AICS_ROLE_CAPABILITY_GROUPS,
+  resolveAicsRoleRequiredCapabilities,
+} from "./role-capabilities.js";
 
 const keyPair = crypto.generateKeyPairSync("ed25519");
 const privateKeyPem = keyPair.privateKey.export({ format: "pem", type: "pkcs8" }).toString();
@@ -268,6 +272,101 @@ function registerRoleBuilder(
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("AICS role capabilities", () => {
+  it("lists the first local capability groups used by role packages", () => {
+    expect(AICS_ROLE_CAPABILITY_GROUPS.map((group) => group.id)).toEqual([
+      "workspace",
+      "code",
+      "browser",
+      "document",
+      "spreadsheet",
+      "presentation",
+      "image",
+      "network",
+      "audit",
+      "human",
+    ]);
+  });
+
+  it("bridges requiredCapabilities to the OpenClaw tool protocol and policy gates", () => {
+    const validation = resolveAicsRoleRequiredCapabilities([
+      "workspace.read",
+      "browser.use",
+      "image.inspect",
+      "document.write",
+      "human.confirm",
+    ]);
+
+    expect(validation.missing).toEqual([]);
+    expect(validation.resolved).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          capability: "workspace.read",
+          supported: true,
+          groupId: "workspace",
+          openClawTools: ["read"],
+        }),
+        expect.objectContaining({
+          capability: "browser.use",
+          supported: true,
+          groupId: "browser",
+          openClawTools: ["browser"],
+        }),
+        expect.objectContaining({
+          capability: "human.confirm",
+          supported: true,
+          groupId: "human",
+          policyGates: ["approval.required"],
+        }),
+      ]),
+    );
+  });
+
+  it("fails closed when tools.effective does not expose a required OpenClaw tool", () => {
+    const validation = resolveAicsRoleRequiredCapabilities(
+      ["workspace.read", "browser.use", "human.confirm"],
+      { effectiveToolNames: ["read"] },
+    );
+
+    expect(validation.missing).toEqual([
+      expect.objectContaining({
+        capability: "browser.use",
+        supported: false,
+        openClawTools: ["browser"],
+        missingReason:
+          "Required OpenClaw tool protocol entries are not present in tools.effective for this capability.",
+      }),
+    ]);
+    expect(validation.resolved).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          capability: "workspace.read",
+          supportSource: "openclaw-tool-protocol",
+          supported: true,
+        }),
+        expect.objectContaining({
+          capability: "human.confirm",
+          supportSource: "policy-gate",
+          supported: true,
+        }),
+      ]),
+    );
+  });
+
+  it("reports unknown local role capabilities as missing", () => {
+    const validation = resolveAicsRoleRequiredCapabilities(["calendar.write"]);
+
+    expect(validation.missing).toEqual([
+      expect.objectContaining({
+        capability: "calendar.write",
+        supported: false,
+        missingReason:
+          "No OpenClaw tool protocol bridge or policy gate is registered for this capability.",
+      }),
+    ]);
+  });
 });
 
 describe("Dijie execution preflight", () => {
@@ -947,6 +1046,22 @@ describe("Dijie execution preflight", () => {
       },
       toolUsage: result.details.roleFeedbackPacket.toolUsage,
     });
+    expect(result.details.rolePackageValidation.capabilities).toMatchObject({
+      required: ["workspace.read", "workspace.write", "human.confirm"],
+      missing: [],
+      resolved: expect.arrayContaining([
+        expect.objectContaining({
+          capability: "workspace.read",
+          openClawTools: ["read"],
+          supported: true,
+        }),
+        expect.objectContaining({
+          capability: "human.confirm",
+          policyGates: ["approval.required"],
+          supported: true,
+        }),
+      ]),
+    });
     expect(existsSync(path.join(outputRoot, "role_package", "manifest.json"))).toBe(true);
     expect(result.details.localExecutor.command[0]).toBe(fakeExecutor);
   });
@@ -1524,9 +1639,58 @@ describe("Dijie execution preflight", () => {
     });
     expect(result.details.rolePackageValidation.errors).toEqual(
       expect.arrayContaining([
-        "role_package/tools/browser-tool.ts must not ship implementation tools; role packages declare requiredCapabilities and local OpenClaw executes tools",
+        "role_package/tools/browser-tool.ts must not ship implementation tools or tool schemas; role packages declare requiredCapabilities and local OpenClaw executes through tools.catalog/tools.effective/tools.invoke",
       ]),
     );
+  });
+
+  it("fails role_package validation when requiredCapabilities are not locally mapped", async () => {
+    const outputRoot = mkdtempSync(path.join(os.tmpdir(), "dijie-role-output-"));
+    const manifest = JSON.parse(rolePackageManifest("missing-capability-role"));
+    manifest.requiredCapabilities = ["workspace.read", "calendar.write"];
+    const roleBuilderTool = registerRoleBuilder({
+      rolePackageOutputRoot: outputRoot,
+      localExecutorCommand: createFakeLocalExecutorBinary({
+        files: {
+          "role_package/manifest.json": JSON.stringify(manifest, null, 2),
+          "role_package/listing.md": "# Missing capability role package\n",
+          "role_package/README.md": "# Role package\n",
+          "role_package/knowledge/business-workflow.md":
+            "# 业务流程\n岗位包声明能力需求，缺少本地能力时必须失败。\n",
+          "role_package/adapters/openclaw-adapter.ts":
+            "export const capabilityMapping = ['workspace.read', 'calendar.write'];\n",
+          "role_package/validation/smoke-test.md": "# Smoke test\n",
+        },
+      }),
+    });
+
+    const result = await roleBuilderTool.execute("call-1", toolParams());
+
+    expect(result.details).toMatchObject({
+      ok: false,
+      status: "failed",
+      summary: "迭界AI role-builder local executor failed or produced an invalid role_package",
+      rolePackageValidation: {
+        ok: false,
+        capabilities: {
+          required: ["workspace.read", "calendar.write"],
+          missing: [
+            expect.objectContaining({
+              capability: "calendar.write",
+              supported: false,
+            }),
+          ],
+        },
+      },
+    });
+    expect(result.details.rolePackageValidation.errors).toEqual(
+      expect.arrayContaining([
+        "role_package/manifest.json requiredCapabilities has no OpenClaw tool protocol bridge for calendar.write",
+      ]),
+    );
+    expect(readRolePackageManifest(outputRoot)).toMatchObject({
+      requiredCapabilities: ["workspace.read", "calendar.write"],
+    });
   });
 
   it("applies role_package forbidden material scanning to OpenClaw-native output", async () => {
