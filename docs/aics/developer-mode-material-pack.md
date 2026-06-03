@@ -78,6 +78,8 @@ role_package/
   manifest.json
   listing.md
   README.md
+  knowledge/
+    business-workflow.md
   adapters/
     openclaw-adapter.ts
   validation/
@@ -86,10 +88,11 @@ role_package/
 
 最低要求：
 
-- `manifest.json` 是机器可读清单，包含岗位包 ID、版本、入口、能力、输入输出、权限和验证信息。
+- `manifest.json` 是机器可读清单，包含岗位包 ID、版本、入口、权限、`requiredCapabilities`、文件清单和验证信息。`requiredCapabilities` 只能声明本地 OpenClaw 抽象能力需求，例如 `workspace.read`、`image.inspect`、`document.write`、`human.confirm`。
 - `listing.md` 是开发者中心审核和展示用说明。
-- `README.md` 说明本岗位包如何运行、输入输出是什么、如何验证。
-- `adapters/` 或同级示例文件说明主系统如何调用岗位包。
+- `README.md` 说明本岗位包的业务目标、输入输出、执行流程和验证方式。
+- `knowledge/` 或同级业务材料沉淀人类岗位流程、判断规则、经验技巧、常见失败模式和验收样例。
+- `adapters/` 或同级示例文件说明岗位包如何把业务流程映射到本地能力需求，不能携带浏览器、文件、命令、API、MCP server 或其他实施工具实现。
 - `validation/` 说明 smoke test 或验收步骤。
 
 ## Platform-Owned Details
@@ -104,8 +107,9 @@ role_package/
 - RoleResult / AuditSummary 外层上传协议
 - Token 计费、开发者应收、平台应收
 - 开发者中心上传、审核、发布状态机
+- 浏览器、文件、命令、API、MCP server 和其他本地实施工具的选择、授权、执行、确认、风险检查和审计
 
-岗位包只负责岗位业务逻辑、必要适配层和验证材料。
+岗位包只负责岗位业务逻辑、岗位经验、能力需求声明、必要适配说明和验证材料。实施工具调用继续使用本地 OpenClaw 工具协议。
 
 ## Security Rules
 

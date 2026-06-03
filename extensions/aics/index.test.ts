@@ -111,6 +111,7 @@ function rolePackageManifest(name: string) {
       name,
       entrypoint: "role_package/adapters/openclaw-adapter.ts",
       permissions: ["workspace.read", "workspace.write"],
+      requiredCapabilities: ["workspace.read", "workspace.write", "human.confirm"],
       files: [
         {
           path: "role_package/manifest.json",
@@ -145,6 +146,8 @@ function createFakeLocalExecutorBinary(
     "role_package/manifest.json": rolePackageManifest("role-builder"),
     "role_package/listing.md": "# 主系统岗位包生成\n",
     "role_package/README.md": "# Role package\n",
+    "role_package/knowledge/business-workflow.md":
+      "# 业务流程\n开发者只提供业务逻辑和岗位经验，OpenClaw 本地端负责工具执行。\n",
     "role_package/adapters/openclaw-adapter.ts": "export const adapter = 'openclaw';\n",
     "role_package/validation/smoke-test.md": "# Smoke test\n",
   };
@@ -190,6 +193,8 @@ function createFakeNativeRuntime(options: { files?: Record<string, string> } = {
       "role_package/manifest.json": rolePackageManifest("native-role-builder"),
       "role_package/listing.md": "# Native role package\n",
       "role_package/README.md": "# Role package\n",
+      "role_package/knowledge/business-workflow.md":
+        "# 业务流程\n岗位包声明能力需求，本地 OpenClaw 工具层执行。\n",
       "role_package/adapters/openclaw-native-adapter.ts":
         "export const adapter = 'openclaw-native';\n",
       "role_package/validation/smoke-test.md": "# Smoke test\n",
@@ -870,7 +875,7 @@ describe("Dijie execution preflight", () => {
         shellCommands: 1,
         testsRun: 1,
         filesRead: 0,
-        filesChanged: 5,
+        filesChanged: 6,
       },
       result: {
         executionId: "exec_123",
@@ -890,6 +895,7 @@ describe("Dijie execution preflight", () => {
         changedFiles: [
           "role_package/README.md",
           "role_package/adapters/openclaw-adapter.ts",
+          "role_package/knowledge/business-workflow.md",
           "role_package/listing.md",
           "role_package/manifest.json",
           "role_package/validation/smoke-test.md",
@@ -916,7 +922,7 @@ describe("Dijie execution preflight", () => {
           shellCommands: 1,
           testsRun: 1,
           filesRead: 0,
-          filesChanged: 5,
+          filesChanged: 6,
         },
         modelProxyUsage: {
           requestCount: 0,
@@ -989,6 +995,7 @@ describe("Dijie execution preflight", () => {
         changedFiles: [
           "role_package/README.md",
           "role_package/adapters/openclaw-adapter.ts",
+          "role_package/knowledge/business-workflow.md",
           "role_package/listing.md",
           "role_package/manifest.json",
           "role_package/validation/smoke-test.md",
@@ -1007,7 +1014,7 @@ describe("Dijie execution preflight", () => {
           shellCommands: 1,
           testsRun: 1,
           filesRead: 0,
-          filesChanged: 5,
+          filesChanged: 6,
         },
         modelProxyUsage: {
           requestCount: 0,
@@ -1040,6 +1047,7 @@ describe("Dijie execution preflight", () => {
       "name",
       "entrypoint",
       "permissions",
+      "requiredCapabilities",
       "files",
     ]);
     expect(result.details.roleFeedbackPacket.role.packageId).toBe(manifest.rolePackageId);
@@ -1048,6 +1056,7 @@ describe("Dijie execution preflight", () => {
       name: "主系统岗位包生成",
       entrypoint: "role_package/adapters/openclaw-adapter.ts",
       permissions: ["workspace.read", "workspace.write"],
+      requiredCapabilities: ["workspace.read", "workspace.write", "human.confirm"],
     });
     expect(manifest.files.map((file: { path: string }) => file.path)).not.toContain(
       "role_package/manifest.json",
@@ -1118,6 +1127,7 @@ describe("Dijie execution preflight", () => {
         changedFiles: [
           "role_package/README.md",
           "role_package/adapters/openclaw-native-adapter.ts",
+          "role_package/knowledge/business-workflow.md",
           "role_package/listing.md",
           "role_package/manifest.json",
           "role_package/validation/smoke-test.md",
@@ -1165,6 +1175,8 @@ describe("Dijie execution preflight", () => {
         ),
         "role_package/listing.md": "# Native legacy role\n",
         "role_package/README.md": "# Role package\n",
+        "role_package/knowledge/business-workflow.md":
+          "# 业务流程\n岗位包保存业务逻辑和经验，不保存工具实现。\n",
         "role_package/adapters/openclaw-native-adapter.ts":
           "export const adapter = 'openclaw-native';\n",
         "role_package/validation/smoke-test.md": "# Smoke test\n",
@@ -1222,6 +1234,7 @@ describe("Dijie execution preflight", () => {
       "name",
       "entrypoint",
       "permissions",
+      "requiredCapabilities",
       "files",
     ]);
     expect(manifest).toMatchObject({
@@ -1231,6 +1244,7 @@ describe("Dijie execution preflight", () => {
       name: "platform normalized role",
       entrypoint: "role_package/adapters/openclaw-native-adapter.ts",
       permissions: ["workspace.read", "workspace.write"],
+      requiredCapabilities: ["workspace.read", "workspace.write", "human.confirm"],
     });
     expect(JSON.stringify(manifest)).not.toContain("schema_version");
     expect(JSON.stringify(manifest)).not.toContain("role_name");
@@ -1453,6 +1467,8 @@ describe("Dijie execution preflight", () => {
           ),
           "role_package/listing.md": "# Unsafe entrypoint role package\n",
           "role_package/README.md": "# Role package\n",
+          "role_package/knowledge/business-workflow.md":
+            "# 业务流程\n岗位包保存业务逻辑和经验，工具由本地端执行。\n",
           "role_package/adapters/openclaw-adapter.ts":
             "export const adapter = 'openclaw-native';\n",
           "role_package/validation/smoke-test.md": "# Smoke test\n",
@@ -1474,7 +1490,43 @@ describe("Dijie execution preflight", () => {
       manifestVersion: 1,
       entrypoint: "role_package/adapters/openclaw-adapter.ts",
       permissions: ["workspace.read", "workspace.write"],
+      requiredCapabilities: ["workspace.read", "workspace.write", "human.confirm"],
     });
+  });
+
+  it("rejects role_package artifacts that include implementation tool files", async () => {
+    const outputRoot = mkdtempSync(path.join(os.tmpdir(), "dijie-role-output-"));
+    const roleBuilderTool = registerRoleBuilder({
+      rolePackageOutputRoot: outputRoot,
+      localExecutorCommand: createFakeLocalExecutorBinary({
+        files: {
+          "role_package/manifest.json": rolePackageManifest("tool-implementation-role"),
+          "role_package/listing.md": "# Tool implementation role package\n",
+          "role_package/README.md": "# Role package\n",
+          "role_package/knowledge/business-workflow.md":
+            "# 业务流程\n岗位包只声明业务逻辑、经验和 requiredCapabilities。\n",
+          "role_package/adapters/openclaw-adapter.ts":
+            "export const capabilityMapping = ['workspace.read', 'human.confirm'];\n",
+          "role_package/tools/browser-tool.ts":
+            "export async function browserTool() { return 'implementation lives locally'; }\n",
+          "role_package/validation/smoke-test.md": "# Smoke test\n",
+        },
+      }),
+    });
+
+    const result = await roleBuilderTool.execute("call-1", toolParams());
+
+    expect(result.details).toMatchObject({
+      ok: false,
+      status: "failed",
+      summary: "迭界AI role-builder local executor failed or produced an invalid role_package",
+      rolePackageValidation: { ok: false },
+    });
+    expect(result.details.rolePackageValidation.errors).toEqual(
+      expect.arrayContaining([
+        "role_package/tools/browser-tool.ts must not ship implementation tools; role packages declare requiredCapabilities and local OpenClaw executes tools",
+      ]),
+    );
   });
 
   it("applies role_package forbidden material scanning to OpenClaw-native output", async () => {
@@ -1726,7 +1778,7 @@ describe("Dijie execution preflight", () => {
         platformFeeBps: 0,
       },
       modelProxyUsage: { requestCount: 0, inputTokens: 0, outputTokens: 0 },
-      toolUsage: { shellCommands: 1, testsRun: 1, filesRead: 0, filesChanged: 5 },
+      toolUsage: { shellCommands: 1, testsRun: 1, filesRead: 0, filesChanged: 6 },
       result: {
         executionId: "exec_123",
         roleListingId: "prod_role_developer_agent",
@@ -1802,12 +1854,13 @@ describe("Dijie execution preflight", () => {
           "role_package/manifest.json entrypoint is required",
           "missing role_package wrapper, adapter, or integration example file",
           "missing role_package validation or smoke test material",
+          "missing role_package business knowledge, workflow, experience, or example material",
         ],
       },
       result: {
         status: "failed",
         error:
-          "role_package validation failed: missing role_package/listing.md; missing role_package/README.md; role_package/manifest.json entrypoint is required; missing role_package wrapper, adapter, or integration example file; missing role_package validation or smoke test material",
+          "role_package validation failed: missing role_package/listing.md; missing role_package/README.md; role_package/manifest.json entrypoint is required; missing role_package wrapper, adapter, or integration example file; missing role_package validation or smoke test material; missing role_package business knowledge, workflow, experience, or example material",
       },
     });
   });

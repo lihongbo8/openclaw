@@ -166,10 +166,13 @@ const ROLE_PACKAGE_BUILT_IN_MATERIALS = [
   "内置资料包：",
   "- package contract: 岗位包必须输出到 role_package/。",
   "- required files: role_package/manifest.json, role_package/listing.md, role_package/README.md。",
-  "- integration example: 至少提供一个 wrapper、adapter 或接入示例文件。",
+  "- role knowledge: 岗位包是人类岗位的业务脑子，必须沉淀岗位目标、适用场景、业务流程、判断规则、经验技巧、常见失败模式和验收样例。",
+  "- local capabilities: manifest.requiredCapabilities 只声明本地 OpenClaw 抽象能力需求，例如 workspace.read、image.inspect、document.write、human.confirm。",
+  "- integration example: 至少提供一个 wrapper、adapter 或接入示例文件，用来说明能力映射和调用边界，不能实现或携带浏览器、文件、命令、API、MCP 等实施工具。",
   "- validation material: 至少提供一个 validation 或 smoke test 说明/脚本。",
   "- platform handles: execution token、Gateway 调用、AuditSummary、RoleResult、审计上传、Token 计费和开发者结算由平台桥处理。",
   "- forbidden content: 不写 provider key 名称或值、secret/token 字段、cloud bearer、raw execution token、本地绝对路径、用户主对话完整历史或使用者模式私有记忆。",
+  "- forbidden tools: 不在 role_package/ 内打包实施工具、MCP server、API client 或本地工具实现；实施工具由 OpenClaw/迭界AI主系统按 requiredCapabilities 选择、授权、执行和审计。",
   "- developer-center handoff: 包生成后交付可下载的 role_package/，由开发者中心负责上传、价格、Token 单价、审核和发布。",
 ].join("\n");
 
@@ -277,6 +280,16 @@ const ROLE_PACKAGE_MANIFEST_PATH = "role_package/manifest.json";
 const DEFAULT_PUBLIC_ROLE_PACKAGE_NAME = "Dijie Role Package";
 const DEFAULT_PUBLIC_ROLE_PACKAGE_VERSION = "1.0.0";
 const DEFAULT_PUBLIC_ROLE_PACKAGE_PERMISSIONS = ["workspace.read", "workspace.write"] as const;
+const DEFAULT_PUBLIC_ROLE_PACKAGE_REQUIRED_CAPABILITIES = [
+  "workspace.read",
+  "workspace.write",
+  "human.confirm",
+] as const;
+const REQUIRED_CAPABILITY_PATTERN = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/u;
+const ROLE_PACKAGE_TOOL_IMPLEMENTATION_PATH_PATTERN =
+  /(^|\/)(tool-?implementations?|tools?|mcp-?servers?|browser-?tools?|command-?tools?|api-?clients?)(\/|[-_.])/iu;
+const ROLE_PACKAGE_KNOWLEDGE_PATH_PATTERN =
+  /(^|\/)(business|knowledge|playbooks?|sops?|workflows?|experience|failure-modes?|examples?)(\/|[-_.])|[-_.](business|knowledge|playbook|sop|workflow|experience|failure-mode|example)\./iu;
 
 const DijieExecutionPreflightParamsSchema = Type.Object(
   {
@@ -743,7 +756,8 @@ function buildLocalExecutorRoleBuilderPrompt(params: {
     "- `role_package/manifest.json`",
     "- `role_package/listing.md`",
     "- `role_package/README.md`",
-    "- 至少一个 wrapper/adapter 或接入示例文件",
+    "- 至少一个 business/knowledge/playbook/workflow/experience/example 业务知识材料文件",
+    "- 至少一个 wrapper/adapter 或接入示例文件，只说明 requiredCapabilities 到本地 OpenClaw 工具层的映射边界",
     "- 至少一个 validation 或 smoke test 说明/脚本",
     "",
     "隔离 workspace：当前工作目录就是本次岗位包生成的唯一工作区；只使用 `role_package/` 相对路径，不写本地绝对路径。",
@@ -1128,6 +1142,44 @@ function isRolePackageEntrypointCandidate(relativePath: string): boolean {
   );
 }
 
+function isRolePackageToolImplementationPath(relativePath: string): boolean {
+  return ROLE_PACKAGE_TOOL_IMPLEMENTATION_PATH_PATTERN.test(relativePath);
+}
+
+function validateRequiredCapabilities(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return ["role_package/manifest.json requiredCapabilities must be a non-empty array"];
+  }
+  const capabilities = value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (capabilities.length === 0) {
+    return [
+      "role_package/manifest.json requiredCapabilities must include local OpenClaw capability names",
+    ];
+  }
+  const errors: string[] = [];
+  for (const capability of capabilities) {
+    if (!REQUIRED_CAPABILITY_PATTERN.test(capability)) {
+      errors.push(
+        "role_package/manifest.json requiredCapabilities entries must be stable names like workspace.read or human.confirm",
+      );
+      break;
+    }
+    if (
+      PROVIDER_KEY_NAME_PATTERN.test(capability) ||
+      PROVIDER_KEY_VALUE_PATTERN.test(capability) ||
+      CLOUD_BEARER_PATTERN.test(capability) ||
+      SECRET_FIELD_PATTERN.test(capability)
+    ) {
+      errors.push("role_package/manifest.json requiredCapabilities must not contain secrets");
+      break;
+    }
+  }
+  return errors;
+}
+
 function chooseRolePackageEntrypoint(files: RolePackageFile[]): string {
   return (
     files
@@ -1253,6 +1305,7 @@ function normalizeRolePackageManifest(params: {
     name,
     entrypoint,
     permissions: [...DEFAULT_PUBLIC_ROLE_PACKAGE_PERMISSIONS],
+    requiredCapabilities: [...DEFAULT_PUBLIC_ROLE_PACKAGE_REQUIRED_CAPABILITIES],
     files,
   };
   writeFileSync(
@@ -1460,6 +1513,7 @@ function validateRolePackage(
       ) {
         errors.push("role_package/manifest.json permissions must use the public default");
       }
+      errors.push(...validateRequiredCapabilities(manifestRecord.requiredCapabilities));
       if (!Array.isArray(manifestRecord.files)) {
         errors.push("role_package/manifest.json files must be an array");
       } else {
@@ -1517,6 +1571,13 @@ function validateRolePackage(
   const rolePackageFiles = files
     .map((file) => file.relativePath)
     .filter((relativePath) => relativePath.startsWith("role_package/"));
+  for (const relativePath of rolePackageFiles) {
+    if (isRolePackageToolImplementationPath(relativePath)) {
+      errors.push(
+        `${relativePath} must not ship implementation tools; role packages declare requiredCapabilities and local OpenClaw executes tools`,
+      );
+    }
+  }
   const hasWrapperAdapterOrExample = rolePackageFiles.some((relativePath) =>
     /(^|\/)(wrappers?|adapters?|examples?|samples?|integrations?)(\/|[-_.])|[-_.](wrapper|adapter|example|sample|integration)\./i.test(
       relativePath,
@@ -1531,6 +1592,15 @@ function validateRolePackage(
   );
   if (!hasValidationOrSmoke) {
     errors.push("missing role_package validation or smoke test material");
+  }
+
+  const hasBusinessKnowledge = rolePackageFiles.some((relativePath) =>
+    ROLE_PACKAGE_KNOWLEDGE_PATH_PATTERN.test(relativePath),
+  );
+  if (!hasBusinessKnowledge) {
+    errors.push(
+      "missing role_package business knowledge, workflow, experience, or example material",
+    );
   }
 
   errors.push(

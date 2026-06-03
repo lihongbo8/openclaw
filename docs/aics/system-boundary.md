@@ -502,10 +502,15 @@ developer opens 迭界AI main system / developer center
 -> isolated role-package workspace is created
 -> main system starts OpenClaw main-system local execution with only
    RoleBuildContext through the package-only role-builder path
--> role_package/ is generated as a complete program package for the job role,
-   not only a text description or listing stub
+-> role_package/ is generated as the job role's business brain: human job
+   process, business logic, experience, judgment rules, failure modes,
+   acceptance examples, and abstract local capability needs
 -> local validator requires role_package/manifest.json, listing.md, README.md,
-   one wrapper/adapter/example file, and one validation/smoke material
+   one business knowledge/workflow/experience material,
+   one wrapper/adapter/example file, one validation/smoke material, and
+   manifest.requiredCapabilities
+-> role_package/ must not ship browser/file/command/API/MCP implementation
+   tools; OpenClaw maps requiredCapabilities to local tools at execution time
 -> validation/smoke status is visible in the local result
 -> developer downloads the generated role package
 -> developer uploads the role package to developer center for listing metadata,
