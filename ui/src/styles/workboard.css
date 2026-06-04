@@ -619,6 +619,482 @@
   line-height: 1.35;
 }
 
+.role-task-board {
+  display: grid;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+}
+
+.role-task-board__heading {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.role-task-board__heading h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: 1.28rem;
+  font-weight: 760;
+  letter-spacing: 0;
+  line-height: 1.2;
+}
+
+.role-task-board__heading p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.role-task-board__bar,
+.role-task-board__signals,
+.role-task-board__actions,
+.role-task-board-card__meta,
+.role-task-board-card__top,
+.role-task-board-card__labels {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.role-task-board__bar {
+  justify-content: space-between;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+}
+
+.role-task-board__signals {
+  flex-wrap: wrap;
+}
+
+.role-task-board__signal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--bg) 76%, transparent);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.role-task-board__signal svg,
+.role-task-board__button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.role-task-board__signal--active {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+  color: var(--accent);
+}
+
+.role-task-board__actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.role-task-board__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid color-mix(in srgb, var(--border-strong) 80%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--bg-elevated) 78%, var(--bg) 22%);
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.role-task-board__button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--border-strong));
+  background: color-mix(in srgb, var(--bg-elevated) 92%, var(--accent) 8%);
+}
+
+.role-task-board__button:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
+.role-task-board__button--primary {
+  border-color: color-mix(in srgb, var(--accent) 46%, var(--border));
+  background: color-mix(in srgb, var(--accent) 13%, var(--bg));
+  color: var(--accent);
+}
+
+.role-task-board__notice {
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 90%, transparent);
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.role-task-board__notice--error {
+  border-color: color-mix(in srgb, var(--danger) 28%, var(--border));
+  background: color-mix(in srgb, var(--danger) 8%, var(--panel));
+  color: var(--danger);
+}
+
+.role-task-board__notice--info {
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--border));
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+  color: color-mix(in srgb, var(--accent) 70%, var(--text));
+}
+
+.role-task-board__metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(112px, 1fr));
+  gap: 10px;
+}
+
+.role-task-board__metric {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  min-height: 104px;
+  padding: 13px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 90%, transparent);
+}
+
+.role-task-board__metric::before {
+  content: "";
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 38%, transparent);
+}
+
+.role-task-board__metric--active::before {
+  background: var(--accent);
+}
+
+.role-task-board__metric--review::before {
+  background: color-mix(in srgb, var(--warning) 80%, var(--accent));
+}
+
+.role-task-board__metric--danger::before {
+  background: var(--danger);
+}
+
+.role-task-board__metric span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.role-task-board__metric strong {
+  color: var(--text);
+  font-size: 2rem;
+  font-weight: 760;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.role-task-board__metric small {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.25;
+}
+
+.role-task-board__main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  gap: 12px;
+  min-height: 360px;
+}
+
+.role-task-board__columns {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(180px, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.role-task-board-column,
+.role-task-board__status,
+.role-task-board__recent {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+}
+
+.role-task-board-column {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.role-task-board-column > header,
+.role-task-board__status > header,
+.role-task-board__recent > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 11px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.role-task-board-column > header span,
+.role-task-board__recent > header span,
+.role-task-board__status > header span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.role-task-board-column > header strong {
+  color: var(--text);
+  font-size: 0.86rem;
+}
+
+.role-task-board-column__cards {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  flex: 1;
+  min-height: 0;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+.role-task-board-card {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--border) 52%, transparent);
+}
+
+.role-task-board-card__top {
+  justify-content: space-between;
+}
+
+.role-task-board-card__top strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role-task-board-card__top span,
+.role-task-board-card__labels span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.role-task-board-card p {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.role-task-board-card__meta {
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.role-task-board-card__meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role-task-board-card__labels {
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.role-task-board-card__labels span {
+  background: color-mix(in srgb, var(--border) 62%, transparent);
+  color: var(--muted);
+}
+
+.role-task-board__empty {
+  display: grid;
+  place-items: center;
+  min-height: 104px;
+  padding: 14px;
+  border: 1px dashed color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.role-task-board__empty--wide {
+  min-height: 64px;
+  margin: 10px;
+}
+
+.role-task-board__status {
+  align-self: stretch;
+  overflow: hidden;
+}
+
+.role-task-board__status h2,
+.role-task-board__recent h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.92rem;
+  line-height: 1.25;
+}
+
+.role-task-board__status dl {
+  display: grid;
+  margin: 0;
+}
+
+.role-task-board__status dl > div {
+  display: grid;
+  grid-template-columns: minmax(80px, 0.9fr) minmax(0, 1.1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 58px;
+  padding: 0 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+}
+
+.role-task-board__status dl > div:last-child {
+  border-bottom: 0;
+}
+
+.role-task-board__status dt {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.role-task-board__status dd {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.3;
+  text-align: right;
+}
+
+.role-task-board__recent {
+  overflow: hidden;
+}
+
+.role-task-board__recent ol {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.role-task-board__recent li {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+.role-task-board__recent li:last-child {
+  border-bottom: 0;
+}
+
+.role-task-board__recent time {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.role-task-board__recent li span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1180px) {
+  .role-task-board__metrics {
+    grid-template-columns: repeat(3, minmax(120px, 1fr));
+  }
+
+  .role-task-board__main {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .role-task-board__bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .role-task-board__actions {
+    justify-content: flex-start;
+  }
+
+  .role-task-board__columns {
+    grid-template-columns: repeat(2, minmax(180px, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .role-task-board__metrics,
+  .role-task-board__columns {
+    grid-template-columns: 1fr;
+  }
+
+  .role-task-board__button {
+    flex: 1 1 100%;
+  }
+}
+
 .workboard textarea.input.workboard-detail__note {
   width: 100%;
   min-height: 84px;

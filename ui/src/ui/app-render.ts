@@ -111,6 +111,9 @@ import {
   captureSessionToWorkboard,
   getWorkboardState,
   loadWorkboard,
+  type WorkboardCard,
+  type WorkboardEvent,
+  type WorkboardTaskSummary,
 } from "./controllers/workboard.ts";
 import { getCronJobPayload } from "./cron-payload.ts";
 import { buildExternalLinkRel, EXTERNAL_LINK_TARGET } from "./external-link.ts";
@@ -242,6 +245,202 @@ function roleTaskStatusLabel(status: string) {
     default:
       return "待同步";
   }
+}
+
+type RoleTaskColumnId = "queued" | "running" | "review" | "failed";
+
+type RoleTaskBoardCard = {
+  id: string;
+  title: string;
+  status: string;
+  detail: string;
+  source: string;
+  meta: string;
+  labels: string[];
+};
+
+const ROLE_TASK_COLUMNS: Array<{
+  id: RoleTaskColumnId;
+  title: string;
+  empty: string;
+}> = [
+  { id: "queued", title: "排队中", empty: "暂无排队任务" },
+  { id: "running", title: "运行中", empty: "暂无运行任务" },
+  { id: "review", title: "待确认", empty: "暂无待确认任务" },
+  { id: "failed", title: "已失败", empty: "暂无失败任务" },
+];
+
+function roleTaskColumnIdForStatus(label: string): RoleTaskColumnId | null {
+  switch (label) {
+    case "排单中":
+    case "待同步":
+      return "queued";
+    case "运行中":
+      return "running";
+    case "待确认":
+      return "review";
+    case "已失败":
+    case "已阻塞":
+      return "failed";
+    default:
+      return null;
+  }
+}
+
+function isRoleTaskFailureLabel(label: string) {
+  return label === "已失败" || label === "已阻塞";
+}
+
+function roleTaskMetricCount(
+  cards: readonly WorkboardCard[],
+  tasksByCardId: ReadonlyMap<string, WorkboardTaskSummary>,
+  predicate: (label: string) => boolean,
+) {
+  return cards.filter((card) => {
+    const task = tasksByCardId.get(card.id);
+    return predicate(roleTaskStatusLabel(task?.status ?? card.status));
+  }).length;
+}
+
+function roleTaskWorkboardNotice(error: string | null | undefined) {
+  const message = normalizeOptionalString(error);
+  if (!message) {
+    return null;
+  }
+  if (/unknown method:\s*workboard\.cards\.list/i.test(message)) {
+    return { tone: "info", message: "调度数据待接入，当前仅展示看板结构。" };
+  }
+  return { tone: "error", message };
+}
+
+function roleTaskCardSource(card: WorkboardCard) {
+  if (card.sourceUrl) {
+    return "来源：外部链接";
+  }
+  if (card.sessionKey) {
+    return "来源：主对话";
+  }
+  return "来源：调度层";
+}
+
+function roleTaskCardDetail(card: WorkboardCard, task: WorkboardTaskSummary | undefined) {
+  const detail =
+    normalizeOptionalString(task?.progressSummary) ??
+    normalizeOptionalString(task?.terminalSummary) ??
+    normalizeOptionalString(task?.error) ??
+    normalizeOptionalString(card.notes);
+  if (!detail) {
+    return "等待调度层处理";
+  }
+  return detail.split(/\r?\n/)[0]?.trim() || "等待调度层处理";
+}
+
+function roleTaskBoardCardFromWorkboard(
+  card: WorkboardCard,
+  task: WorkboardTaskSummary | undefined,
+): RoleTaskBoardCard {
+  const status = roleTaskStatusLabel(task?.status ?? card.status);
+  const labels = card.labels.slice(0, 2);
+  if (card.priority === "urgent" || card.priority === "high") {
+    labels.unshift(card.priority === "urgent" ? "紧急" : "高优先级");
+  }
+  return {
+    id: card.id,
+    title: card.title || "未命名岗位任务",
+    status,
+    detail: roleTaskCardDetail(card, task),
+    source: roleTaskCardSource(card),
+    meta: card.updatedAt ? `更新 ${formatRelativeTimestamp(card.updatedAt)}` : "待同步",
+    labels,
+  };
+}
+
+function roleTaskEventTitle(event: WorkboardEvent, card: WorkboardCard) {
+  switch (event.kind) {
+    case "created":
+      return `${card.title} 已加入队列`;
+    case "moved":
+      return `${card.title} 状态更新为 ${roleTaskStatusLabel(event.toStatus ?? card.status)}`;
+    case "dispatch":
+      return `${card.title} 已进入调度`;
+    case "execution_updated":
+    case "attempt_updated":
+      return `${card.title} 执行状态已更新`;
+    case "comment_added":
+      return `${card.title} 新增确认记录`;
+    case "archived":
+      return `${card.title} 已归档`;
+    default:
+      return `${card.title} 调度记录已更新`;
+  }
+}
+
+function roleTaskEventTime(value: number | undefined) {
+  if (!Number.isFinite(value)) {
+    return "待同步";
+  }
+  return new Date(value ?? 0).toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function renderRoleTaskMetric(params: {
+  label: string;
+  value: string | number;
+  title: string;
+  tone?: "normal" | "active" | "review" | "danger";
+}) {
+  return html`
+    <article class="role-task-board__metric role-task-board__metric--${params.tone ?? "normal"}">
+      <span>${params.label}</span>
+      <strong>${params.value}</strong>
+      <small>${params.title}</small>
+    </article>
+  `;
+}
+
+function renderRoleTaskBoardCard(card: RoleTaskBoardCard) {
+  return html`
+    <article class="role-task-board-card">
+      <div class="role-task-board-card__top">
+        <strong>${card.title}</strong>
+        <span>${card.status}</span>
+      </div>
+      <p>${card.detail}</p>
+      <div class="role-task-board-card__meta">
+        <span>${card.source}</span>
+        <span>${card.meta}</span>
+      </div>
+      ${card.labels.length
+        ? html`
+            <div class="role-task-board-card__labels">
+              ${card.labels.map((label) => html`<span>${label}</span>`)}
+            </div>
+          `
+        : nothing}
+    </article>
+  `;
+}
+
+function renderRoleTaskColumn(
+  column: (typeof ROLE_TASK_COLUMNS)[number],
+  cards: readonly RoleTaskBoardCard[],
+) {
+  return html`
+    <section class="role-task-board-column" aria-label=${column.title}>
+      <header>
+        <span>${column.title}</span>
+        <strong>${cards.length}</strong>
+      </header>
+      <div class="role-task-board-column__cards">
+        ${cards.length
+          ? cards.map(renderRoleTaskBoardCard)
+          : html`<div class="role-task-board__empty">${column.empty}</div>`}
+      </div>
+    </section>
+  `;
 }
 
 function runUiTask<Args extends unknown[]>(
@@ -417,51 +616,211 @@ function renderRoleTasksProductPage(
     });
   }
   const cards = workboardState.cards.filter((card) => !card.metadata?.archivedAt);
-  const items: MainSystemItem[] = cards.slice(0, 8).map((card) => {
+  const authorizedRoles = state.aicsMarketplace.roles.filter(
+    (role) => role.entitlementId || roleStatusLabel(role) === "已授权",
+  ).length;
+  const queuedCount = roleTaskMetricCount(
+    cards,
+    workboardState.tasksByCardId,
+    (label) => label === "排单中" || label === "待同步",
+  );
+  const runningCount = roleTaskMetricCount(
+    cards,
+    workboardState.tasksByCardId,
+    (label) => label === "运行中",
+  );
+  const reviewCount = roleTaskMetricCount(
+    cards,
+    workboardState.tasksByCardId,
+    (label) => label === "待确认",
+  );
+  const failedCount = roleTaskMetricCount(cards, workboardState.tasksByCardId, (label) =>
+    isRoleTaskFailureLabel(label),
+  );
+  const boardCards = new Map<RoleTaskColumnId, RoleTaskBoardCard[]>(
+    ROLE_TASK_COLUMNS.map((column) => [column.id, []]),
+  );
+
+  for (const card of cards) {
     const task = workboardState.tasksByCardId.get(card.id);
     const status = roleTaskStatusLabel(task?.status ?? card.status);
-    return {
-      title: card.title,
-      status,
-      meta: card.updatedAt ? formatRelativeTimestamp(card.updatedAt) : undefined,
-      icon: status === "运行中" ? "activity" : status === "已完成" ? "check" : "folder",
-    };
-  });
-  const countByStatus = (label: string) =>
-    cards.filter((card) => roleTaskStatusLabel(card.status) === label).length;
-  return renderMainSystemShell({
-    title: "岗位任务",
-    status: pluginEnabled ? (hasOperatorWriteAccess(auth) ? "已接入" : "只读") : "待接入",
-    icon: "folder",
-    loading: pluginEnabled && workboardState.loading,
-    error: pluginEnabled ? workboardState.error : null,
-    emptyLabel: pluginEnabled ? "暂无岗位任务" : "岗位任务待接入",
-    metrics: [
-      {
-        label: "排单中",
-        value: countByStatus("排单中"),
-        title: "等待调度的岗位任务。",
-      },
-      {
-        label: "运行中",
-        value: countByStatus("运行中"),
-        title: "正在执行的岗位任务。",
-      },
-      {
-        label: "待确认",
-        value: countByStatus("待确认"),
-        title: "等待人工确认的岗位任务。",
-      },
-      {
-        label: "已失败",
-        value: countByStatus("已失败"),
-        title: "失败或阻塞后需要处理的岗位任务。",
-      },
-    ],
-    items,
-    actions: [],
-    onNavigate,
-  });
+    const columnId = roleTaskColumnIdForStatus(status);
+    if (columnId) {
+      boardCards.get(columnId)?.push(roleTaskBoardCardFromWorkboard(card, task));
+    }
+  }
+
+  const recentEvents = cards
+    .flatMap((card) =>
+      (card.events ?? []).map((event) => ({
+        id: `${card.id}:${event.id}`,
+        at: event.at,
+        title: roleTaskEventTitle(event, card),
+      })),
+    )
+    .sort((left, right) => (right.at ?? 0) - (left.at ?? 0))
+    .slice(0, 6);
+  const authorizationStatus = state.aicsMarketplace.loading
+    ? "同步中"
+    : state.aicsMarketplace.error
+      ? "同步异常"
+      : "云端授权已同步";
+  const workboardStatus = pluginEnabled
+    ? hasOperatorWriteAccess(auth)
+      ? "调度就绪"
+      : "只读"
+    : "待接入";
+  const workboardNotice = roleTaskWorkboardNotice(workboardState.error);
+  const dataNotice =
+    workboardNotice ??
+    (!pluginEnabled ? { tone: "info", message: "调度数据待接入，当前仅展示看板结构。" } : null);
+
+  return html`
+    <section class="role-task-board" aria-label="岗位任务">
+      <header class="role-task-board__heading">
+        <h1>岗位任务</h1>
+        <p>调度看板，集中查看岗位队列、执行状态、确认点与授权同步。</p>
+      </header>
+      <div class="role-task-board__bar">
+        <div class="role-task-board__signals">
+          <span class="role-task-board__signal role-task-board__signal--active">
+            ${icons.folder} 调度看板
+          </span>
+          <span class="role-task-board__signal">${workboardStatus}</span>
+          <span class="role-task-board__signal">${authorizationStatus}</span>
+        </div>
+        <div class="role-task-board__actions">
+          <button
+            class="role-task-board__button role-task-board__button--primary"
+            type="button"
+            title="从主对话发起岗位任务。"
+            @click=${() => onNavigate("chat")}
+          >
+            ${icons.messageSquare} 发起任务
+          </button>
+          <button
+            class="role-task-board__button"
+            type="button"
+            title="同步云端授权。"
+            ?disabled=${state.aicsMarketplace.loading}
+            @click=${() => state.refreshAicsMarketplaceRoles()}
+          >
+            ${icons.loader} 同步云端授权
+          </button>
+          <button
+            class="role-task-board__button"
+            type="button"
+            title="查看对话和执行记录。"
+            @click=${() => onNavigate("sessions")}
+          >
+            ${icons.fileText} 查看执行记录
+          </button>
+        </div>
+      </div>
+
+      ${dataNotice
+        ? html`<div class="role-task-board__notice role-task-board__notice--${dataNotice.tone}">
+            ${dataNotice.message}
+          </div>`
+        : nothing}
+      ${state.aicsMarketplace.error
+        ? html`<div class="role-task-board__notice role-task-board__notice--error">
+            ${state.aicsMarketplace.error}
+          </div>`
+        : nothing}
+
+      <div class="role-task-board__metrics">
+        ${renderRoleTaskMetric({
+          label: "已授权岗位",
+          value: authorizedRoles,
+          title: "可被调度的岗位数量",
+          tone: "active",
+        })}
+        ${renderRoleTaskMetric({
+          label: "排队中",
+          value: queuedCount,
+          title: "等待分配或等待资源",
+        })}
+        ${renderRoleTaskMetric({
+          label: "运行中",
+          value: runningCount,
+          title: "正在执行任务",
+          tone: "active",
+        })}
+        ${renderRoleTaskMetric({
+          label: "待确认",
+          value: reviewCount,
+          title: "需要你确认后继续",
+          tone: "review",
+        })}
+        ${renderRoleTaskMetric({
+          label: "已失败",
+          value: failedCount,
+          title: "需要复核或重试",
+          tone: "danger",
+        })}
+      </div>
+
+      <div class="role-task-board__main">
+        <div class="role-task-board__columns">
+          ${ROLE_TASK_COLUMNS.map((column) =>
+            renderRoleTaskColumn(column, boardCards.get(column.id) ?? []),
+          )}
+        </div>
+        <aside class="role-task-board__status" aria-label="调度状态">
+          <header>
+            <h2>调度状态</h2>
+            <span>${workboardState.loading ? "同步中" : "实时"}</span>
+          </header>
+          <dl>
+            <div>
+              <dt>授权状态</dt>
+              <dd>${authorizationStatus}</dd>
+            </div>
+            <div>
+              <dt>任务队列</dt>
+              <dd>${cards.length} 个任务等待或执行中</dd>
+            </div>
+            <div>
+              <dt>执行中</dt>
+              <dd>${runningCount} 个岗位正在运行</dd>
+            </div>
+            <div>
+              <dt>需确认</dt>
+              <dd>${reviewCount} 个确认点</dd>
+            </div>
+            <div>
+              <dt>费用预估</dt>
+              <dd>今日预计 ¥0.00</dd>
+            </div>
+          </dl>
+        </aside>
+      </div>
+
+      <section class="role-task-board__recent" aria-label="最近调度">
+        <header>
+          <h2>最近调度</h2>
+          <span>${recentEvents.length ? `${recentEvents.length} 条` : "暂无"}</span>
+        </header>
+        ${recentEvents.length
+          ? html`
+              <ol>
+                ${recentEvents.map(
+                  (event) => html`
+                    <li>
+                      <time>${roleTaskEventTime(event.at)}</time>
+                      <span>${event.title}</span>
+                    </li>
+                  `,
+                )}
+              </ol>
+            `
+          : html`<div class="role-task-board__empty role-task-board__empty--wide">
+              暂无调度记录
+            </div>`}
+      </section>
+    </section>
+  `;
 }
 
 function renderMemoryEvolutionProductPage(state: AppViewState, onNavigate: (tab: Tab) => void) {

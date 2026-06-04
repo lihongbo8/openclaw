@@ -430,7 +430,7 @@ export const zh_CN: TranslationMap = {
     agents: "工作区、工具、身份。",
     activity: "浏览器本地工具活动摘要。",
     overview: "状态、入口点、健康。",
-    workboard: "智能体工作队列和会话交接。",
+    workboard: "调度看板，集中查看岗位队列、执行状态、确认点与授权同步。",
     channels: "频道和设置。",
     instances: "已连接客户端和节点。",
     sessions: "活动会话和默认设置。",
