@@ -191,7 +191,9 @@ function createFakeLocalExecutorBinary(
   return binary;
 }
 
-function createFakeNativeRuntime(options: { files?: Record<string, string> } = {}) {
+function createFakeNativeRuntime(
+  options: { files?: Record<string, string>; outputText?: string } = {},
+) {
   const runEmbeddedAgent = vi.fn(async (params: { workspaceDir: string; prompt: string }) => {
     const files = options.files ?? {
       "role_package/manifest.json": rolePackageManifest("native-role-builder"),
@@ -211,15 +213,17 @@ function createFakeNativeRuntime(options: { files?: Record<string, string> } = {
     return {
       payloads: [
         {
-          text: JSON.stringify({
-            type: "fake-openclaw-native-event",
-            receivedBrief: params.prompt.includes("RoleBuildBrief"),
-          }),
+          text:
+            options.outputText ??
+            JSON.stringify({
+              type: "fake-openclaw-native-event",
+              receivedBrief: params.prompt.includes("RoleBuildBrief"),
+            }),
         },
       ],
       meta: {
         durationMs: 25,
-        finalAssistantVisibleText: "Native role package generated.",
+        finalAssistantVisibleText: options.outputText ?? "Native role package generated.",
         agentMeta: {
           usage: {
             input: 1200,
@@ -227,7 +231,14 @@ function createFakeNativeRuntime(options: { files?: Record<string, string> } = {
           },
         },
         executionTrace: {
-          attempts: [{ provider: "openclaw", model: "native", result: "success" }],
+          attempts: [
+            {
+              provider: "openclaw",
+              model: "native",
+              result: "success",
+              toolCalls: [{ name: "read" }],
+            },
+          ],
         },
       },
     };
@@ -517,7 +528,10 @@ describe("Dijie execution preflight", () => {
       expect.any(Function),
       { scope: "operator.read" },
     );
-    expect(registerTool).toHaveBeenCalledTimes(5);
+    expect(registerGatewayMethod).toHaveBeenCalledWith("dijie.roleTask.run", expect.any(Function), {
+      scope: "operator.write",
+    });
+    expect(registerTool).toHaveBeenCalledTimes(6);
 
     const handler = registerGatewayMethod.mock.calls.find(
       (call) => call[0] === "dijie.roleBuilder.run",
@@ -527,6 +541,121 @@ describe("Dijie execution preflight", () => {
       ok: false,
       summary: "迭界AI role-builder request failed before local execution could complete",
       error: "confirm_brief requires aics.allowWrites=true in OpenClaw config",
+    });
+  });
+
+  it("runs role tasks through the OpenClaw-native embedded agent with the open tool pool", async () => {
+    const registerGatewayMethod = vi.fn();
+    const registerTool = vi.fn();
+    const workspaceDir = mkdtempSync(path.join(os.tmpdir(), "dijie-role-task-"));
+    const { runtime, runEmbeddedAgent } = createFakeNativeRuntime({
+      files: {},
+      outputText: "商品图检查完成，建议人工确认边缘案例。",
+    });
+
+    plugin.register({
+      pluginConfig: { executionTokenPublicKeyPem: publicKeyPem },
+      config: {},
+      runtime,
+      registerGatewayMethod,
+      registerTool,
+    } as never);
+
+    const handler = registerGatewayMethod.mock.calls.find(
+      (call) => call[0] === "dijie.roleTask.run",
+    )?.[1];
+    const response = await handler({
+      params: {
+        role_listing_id: "role_image_review",
+        entitlement_id: "ent_role_image_review",
+        role_title: "商品图检查岗位",
+        role_summary: "检查商品图是否清晰、是否符合公开展示要求。",
+        required_capabilities: ["workspace.read", "image.inspect", "human.confirm"],
+        task_text: "检查这批商品图片是否可以上架。",
+        workspace_dir: workspaceDir,
+      },
+      respond: vi.fn(),
+    });
+
+    expect(runEmbeddedAgent).toHaveBeenCalledTimes(1);
+    expect(runEmbeddedAgent.mock.calls[0][0]).toMatchObject({
+      workspaceDir: realpathSync(workspaceDir),
+      cwd: realpathSync(workspaceDir),
+      messageChannel: "dijie-role-task",
+      disableMessageTool: true,
+      cleanupBundleMcpOnRunEnd: true,
+    });
+    const prompt = runEmbeddedAgent.mock.calls[0]?.[0]?.prompt ?? "";
+    expect(prompt).toContain("工具开放使用");
+    expect(prompt).toContain("岗位无需工具授权");
+    expect(prompt).toContain("不要新增岗位专属的工具准入流程");
+    expect(prompt).toContain("商品图检查岗位");
+    expect(prompt).toContain("workspace.read, image.inspect, human.confirm");
+    expect(response).toMatchObject({
+      ok: true,
+      status: "completed",
+      roleListingId: "role_image_review",
+      entitlementId: "ent_role_image_review",
+      executionEngine: "openclaw-native",
+      modelProxyUsage: {
+        requestCount: 1,
+        inputTokens: 1200,
+        outputTokens: 300,
+      },
+      toolUsage: {
+        openToolPool: true,
+        invocationPath: "openclaw-native-embedded-agent",
+        toolCallCount: 1,
+      },
+      capabilityValidation: {
+        missing: [],
+      },
+      roleResult: {
+        status: "completed",
+        output: expect.stringContaining("商品图检查完成"),
+      },
+      auditSummary: {
+        roleListingId: "role_image_review",
+        entitlementId: "ent_role_image_review",
+        status: "completed",
+      },
+      workboardEvent: {
+        type: "role_task.completed",
+        roleListingId: "role_image_review",
+        entitlementId: "ent_role_image_review",
+        status: "completed",
+      },
+    });
+  });
+
+  it("fails role tasks closed when OpenClaw-native execution is unavailable", async () => {
+    const registerGatewayMethod = vi.fn();
+    const registerTool = vi.fn();
+
+    plugin.register({
+      pluginConfig: { executionTokenPublicKeyPem: publicKeyPem },
+      config: {},
+      registerGatewayMethod,
+      registerTool,
+    } as never);
+
+    const handler = registerGatewayMethod.mock.calls.find(
+      (call) => call[0] === "dijie.roleTask.run",
+    )?.[1];
+    const response = await handler({
+      params: {
+        role_listing_id: "role_image_review",
+        entitlement_id: "ent_role_image_review",
+        task_text: "检查这批商品图片是否可以上架。",
+        workspace_dir: os.tmpdir(),
+      },
+      respond: vi.fn(),
+    });
+
+    expect(response).toMatchObject({
+      ok: false,
+      summary: "迭界AI role task failed before OpenClaw-native execution could complete",
+      error: expect.stringContaining("requires OpenClaw-native runEmbeddedAgent"),
     });
   });
 
@@ -1352,7 +1481,7 @@ describe("Dijie execution preflight", () => {
         "role_package/listing.md": "# Native legacy role\n",
         "role_package/README.md": "# Role package\n",
         "role_package/knowledge/business-workflow.md":
-          "# 业务流程\n岗位包保存业务逻辑和经验，不保存工具实现。\n",
+          "# 业务流程\n岗位包保存公开业务逻辑和通用经验，不保存工具实现、运行库或工作记忆。\n",
         "role_package/adapters/openclaw-native-adapter.ts":
           "export const adapter = 'openclaw-native';\n",
         "role_package/validation/smoke-test.md": "# Smoke test\n",
@@ -1644,7 +1773,7 @@ describe("Dijie execution preflight", () => {
           "role_package/listing.md": "# Unsafe entrypoint role package\n",
           "role_package/README.md": "# Role package\n",
           "role_package/knowledge/business-workflow.md":
-            "# 业务流程\n岗位包保存业务逻辑和经验，工具由本地端执行。\n",
+            "# 业务流程\n岗位包保存公开业务逻辑和通用经验，工具由本地端开放调用。\n",
           "role_package/adapters/openclaw-adapter.ts":
             "export const adapter = 'openclaw-native';\n",
           "role_package/validation/smoke-test.md": "# Smoke test\n",

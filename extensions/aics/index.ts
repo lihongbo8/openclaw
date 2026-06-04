@@ -79,6 +79,14 @@ type DijieToolUsage = {
   filesChanged: number;
 };
 
+type DijieRoleTaskToolUsage = {
+  openToolPool: true;
+  invocationPath: "openclaw-native-embedded-agent";
+  toolCallCount: number;
+};
+
+type DijieRoleTaskStatus = "completed" | "failed" | "cancelled" | "timed_out";
+
 type DijieRoleArtifact = {
   id: string;
   type: string;
@@ -176,14 +184,14 @@ const ROLE_PACKAGE_BUILT_IN_MATERIALS = [
   "内置资料包：",
   "- package contract: 岗位包必须输出到 role_package/。",
   "- required files: role_package/manifest.json, role_package/listing.md, role_package/README.md。",
-  "- role knowledge: 岗位包是人类岗位的业务脑子，必须沉淀岗位目标、适用场景、业务流程、判断规则、经验技巧、常见失败模式和验收样例。",
+  "- role knowledge: 岗位包是无状态岗位能力模板，只保存公开业务逻辑、通用岗位经验、业务流程、判断规则、常见失败模式和验收样例。",
   "- local capabilities: manifest.requiredCapabilities 只声明本地 OpenClaw 抽象能力需求，例如 workspace.read、image.inspect、document.write、human.confirm。",
   "- OpenClaw tool protocol: requiredCapabilities 只是进入 OpenClaw tools.catalog/tools.effective/tools.invoke 前的产品语义，不是新工具协议。",
   "- integration example: 至少提供一个 wrapper、adapter 或接入示例文件，用来说明业务流程到 requiredCapabilities 的边界，不能实现或携带浏览器、文件、命令、API、MCP 等实施工具。",
   "- validation material: 至少提供一个 validation 或 smoke test 说明/脚本。",
   "- platform handles: execution token、Gateway 调用、AuditSummary、RoleResult、审计上传、Token 计费和开发者结算由平台桥处理。",
-  "- forbidden content: 不写 provider key 名称或值、secret/token 字段、cloud bearer、raw execution token、本地绝对路径、用户主对话完整历史或使用者模式私有记忆。",
-  "- forbidden tools: 不在 role_package/ 内打包实施工具、MCP server、API client、本地工具实现或工具 schema；实施工具由 OpenClaw/迭界AI主系统通过 OpenClaw 工具协议选择、授权、调用和审计。",
+  "- forbidden content: 不写 provider key 名称或值、secret/token 字段、cloud bearer、raw execution token、本地绝对路径、用户主对话完整历史、使用者模式私有记忆、岗位实例运行库、岗位实例工作记忆或记忆候选原文。",
+  "- forbidden tools: 不在 role_package/ 内打包实施工具、MCP server、API client、本地工具实现或工具 schema；实施工具由 OpenClaw/迭界AI主系统通过 OpenClaw 工具协议开放调用、确认和审计。",
   "- developer-center handoff: 包生成后交付可下载的 role_package/，由开发者中心负责上传、价格、Token 单价、审核和发布。",
 ].join("\n");
 
@@ -353,6 +361,34 @@ const RoleBuilderParamsSchema = Type.Object(
     local_gateway_id: Type.Optional(Type.String({ minLength: 1 })),
     developer_id: Type.Optional(Type.String({ minLength: 1 })),
     output_root: Type.Optional(Type.String({ minLength: 1 })),
+    timeout_ms: Type.Optional(Type.Integer({ minimum: 1000, maximum: 300000 })),
+  },
+  { additionalProperties: false },
+);
+
+const RoleTaskRunParamsSchema = Type.Object(
+  {
+    role_listing_id: Type.String({
+      minLength: 1,
+      description: "Marketplace role listing id selected by the user.",
+    }),
+    entitlement_id: Type.String({
+      minLength: 1,
+      description: "User entitlement id proving the role is available to this account.",
+    }),
+    task_text: Type.String({
+      minLength: 1,
+      description: "Natural-language task request for the selected role.",
+    }),
+    role_title: Type.Optional(Type.String({ minLength: 1 })),
+    role_summary: Type.Optional(Type.String({ minLength: 1 })),
+    required_capabilities: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+    workspace_dir: Type.String({
+      minLength: 1,
+      description: "Local workspace directory where the role task should execute.",
+    }),
+    workspace_ref: Type.Optional(Type.String({ minLength: 1 })),
+    local_gateway_id: Type.Optional(Type.String({ minLength: 1 })),
     timeout_ms: Type.Optional(Type.Integer({ minimum: 1000, maximum: 300000 })),
   },
   { additionalProperties: false },
@@ -1082,6 +1118,216 @@ async function runOpenClawNativeRoleBuilder(params: {
     stderr: stderr.text,
     truncated: stdout.truncated || stderr.truncated,
     modelProxyUsage: extractOpenClawNativeModelProxyUsage(result),
+  };
+}
+
+function normalizeRequiredCapabilities(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return Array.from(
+    new Set(value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean)),
+  );
+}
+
+function safeRoleTaskSlug(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "role-task";
+}
+
+function buildRoleTaskPrompt(params: {
+  roleListingId: string;
+  entitlementId: string;
+  taskText: string;
+  roleTitle?: string;
+  roleSummary?: string;
+  requiredCapabilities: string[];
+}) {
+  const roleTitle = params.roleTitle?.trim() || params.roleListingId;
+  const roleSummary = params.roleSummary?.trim()
+    ? redactForbiddenDeveloperModeContextText(params.roleSummary.trim())
+    : "当前仅有岗位摘要，后续可接入完整 role_package。";
+  const requiredCapabilities =
+    params.requiredCapabilities.length > 0
+      ? params.requiredCapabilities.join(", ")
+      : "未声明，按任务需要使用当前 OpenClaw 已接入工具。";
+
+  return [
+    "你正在以迭界AI岗位任务执行器身份处理一个已授权岗位任务。",
+    "",
+    "产品边界：",
+    "- 工具开放使用，岗位任务可以直接调用当前 OpenClaw 已接入工具。",
+    "- 岗位无需工具授权，不要新增岗位专属的工具准入流程，不要把岗位和工具做成绑定关系。",
+    "- requiredCapabilities 只描述岗位能力需求，不是工具授权表。",
+    "- 通过 OpenClaw 本地工具池完成必要读取、编辑、浏览、执行或确认动作，并遵守现有安全策略。",
+    "- 高风险、不可逆、费用、外部发布或人工判断动作必须请求人工确认。",
+    "- 不输出 raw metadata、token、secret、本地绝对路径、平台内部协议或完整私有对话历史。",
+    "",
+    "岗位信息：",
+    `- roleListingId: ${params.roleListingId}`,
+    `- entitlementId: ${params.entitlementId}`,
+    `- title: ${roleTitle}`,
+    `- requiredCapabilities: ${requiredCapabilities}`,
+    "",
+    "岗位摘要：",
+    roleSummary,
+    "",
+    "用户任务：",
+    params.taskText.trim(),
+    "",
+    "完成后请用简洁中文输出：执行结果、关键依据、已使用的能力或工具类别、需要人工确认的事项、下一步建议。",
+  ].join("\n");
+}
+
+function statusFromEmbeddedAgentResult(
+  result: Awaited<ReturnType<PluginRuntime["agent"]["runEmbeddedAgent"]>>,
+): DijieRoleTaskStatus {
+  if (result.meta.timeoutPhase) {
+    return "timed_out";
+  }
+  if (result.meta.aborted === true) {
+    return "cancelled";
+  }
+  if (
+    result.meta.error ||
+    result.meta.failureSignal ||
+    result.payloads?.some((payload) => payload.isError)
+  ) {
+    return "failed";
+  }
+  return "completed";
+}
+
+function countEmbeddedAgentToolCalls(value: unknown): number {
+  const seen = new Set<unknown>();
+  let count = 0;
+
+  function visit(node: unknown) {
+    if (!node || typeof node !== "object" || seen.has(node)) {
+      return;
+    }
+    seen.add(node);
+    if (Array.isArray(node)) {
+      for (const item of node) {
+        visit(item);
+      }
+      return;
+    }
+    for (const [key, child] of Object.entries(node)) {
+      if ((key === "toolCalls" || key === "tool_calls") && Array.isArray(child)) {
+        count += child.length;
+      }
+      visit(child);
+    }
+  }
+
+  visit(value);
+  return count;
+}
+
+async function runOpenClawNativeRoleTask(params: {
+  runtime: Pick<PluginRuntime, "agent">;
+  runtimeConfig: OpenClawConfig;
+  workspaceDir: string;
+  roleListingId: string;
+  entitlementId: string;
+  taskText: string;
+  roleTitle?: string;
+  roleSummary?: string;
+  requiredCapabilities: string[];
+  timeoutMs: number;
+  maxOutputChars: number;
+}) {
+  const workspaceDir = realpathSync(params.workspaceDir);
+  const startedAt = new Date().toISOString();
+  const runId = `dijie-role-task-${safeRoleTaskSlug(params.roleListingId)}-${Date.now()}`;
+  const sessionId = `dijie-role-task-${safeRoleTaskSlug(params.entitlementId)}`;
+  const sessionFile = path.join(workspaceDir, ".dijie_role_task_session.json");
+  const prompt = buildRoleTaskPrompt(params);
+
+  const result = await params.runtime.agent.runEmbeddedAgent({
+    sessionId,
+    sessionKey: sessionId,
+    sandboxSessionKey: sessionId,
+    sessionFile,
+    workspaceDir,
+    cwd: workspaceDir,
+    config: params.runtimeConfig,
+    prompt,
+    transcriptPrompt: "Run the selected Dijie role task with OpenClaw tools.",
+    timeoutMs: params.timeoutMs,
+    runId,
+    trigger: "manual",
+    messageChannel: "dijie-role-task",
+    disableMessageTool: true,
+    cleanupBundleMcpOnRunEnd: true,
+  });
+
+  const endedAt = new Date().toISOString();
+  const status = statusFromEmbeddedAgentResult(result);
+  const output = truncateOutput(collectEmbeddedAgentText(result), params.maxOutputChars);
+  const error = truncateOutput(embeddedAgentErrorText(result), params.maxOutputChars);
+  const modelProxyUsage = extractOpenClawNativeModelProxyUsage(result);
+  const toolUsage: DijieRoleTaskToolUsage = {
+    openToolPool: true,
+    invocationPath: "openclaw-native-embedded-agent",
+    toolCallCount: countEmbeddedAgentToolCalls(result.meta),
+  };
+  const capabilityValidation = resolveAicsRoleRequiredCapabilities(params.requiredCapabilities);
+  const roleResult = {
+    runId,
+    roleListingId: params.roleListingId,
+    entitlementId: params.entitlementId,
+    status,
+    startedAt,
+    endedAt,
+    summary:
+      status === "completed"
+        ? "迭界AI岗位任务执行完成。"
+        : status === "timed_out"
+          ? "迭界AI岗位任务执行超时。"
+          : status === "cancelled"
+            ? "迭界AI岗位任务已取消。"
+            : "迭界AI岗位任务执行失败。",
+    output: output.text,
+    ...(error.text ? { error: error.text } : {}),
+  };
+  const auditSummary = {
+    runId,
+    roleListingId: params.roleListingId,
+    entitlementId: params.entitlementId,
+    status,
+    startedAt,
+    endedAt,
+    modelProxyUsage,
+    toolUsage,
+    requiredCapabilities: params.requiredCapabilities,
+    capabilityValidation,
+    result: roleResult,
+  };
+
+  return {
+    ok: status === "completed",
+    summary: roleResult.summary,
+    status,
+    roleListingId: params.roleListingId,
+    entitlementId: params.entitlementId,
+    runId,
+    roleResult,
+    auditSummary,
+    workboardEvent: {
+      type: `role_task.${status}`,
+      runId,
+      roleListingId: params.roleListingId,
+      entitlementId: params.entitlementId,
+      status,
+      startedAt,
+      endedAt,
+    },
+    modelProxyUsage,
+    toolUsage,
+    requiredCapabilities: params.requiredCapabilities,
+    capabilityValidation,
+    executionEngine: "openclaw-native",
   };
 }
 
@@ -2410,6 +2656,52 @@ function resolveRoleBuilderExecutor(params: {
   return subprocessAvailable ? "subprocess" : undefined;
 }
 
+function createRoleTaskRunTool(
+  config: AicsConfig,
+  runtime: NativeRoleBuilderRuntime,
+  runtimeConfig: OpenClawConfig,
+): AnyAgentTool {
+  return {
+    name: "dijie_role_task_run",
+    label: "迭界AI Role Task Run",
+    description:
+      "Run an authorized Dijie marketplace role task through the OpenClaw-native embedded agent and the open local tool pool. Roles do not require separate tool grants.",
+    parameters: RoleTaskRunParamsSchema,
+    execute: async (_toolCallId, rawParams) => {
+      if (!canRunOpenClawNativeExecutor(runtime)) {
+        throw new Error(
+          "dijie.roleTask.run requires OpenClaw-native runEmbeddedAgent so role tasks can use the local OpenClaw tool pool.",
+        );
+      }
+      const params = asRecord(rawParams);
+      const roleListingId = requireStringParam(params, "role_listing_id");
+      const entitlementId = requireStringParam(params, "entitlement_id");
+      const taskText = requireStringParam(params, "task_text");
+      const workspaceDir = requireStringParam(params, "workspace_dir");
+      const timeoutMs =
+        typeof params.timeout_ms === "number" && Number.isInteger(params.timeout_ms)
+          ? params.timeout_ms
+          : 120000;
+
+      const result = await runOpenClawNativeRoleTask({
+        runtime,
+        runtimeConfig,
+        workspaceDir,
+        roleListingId,
+        entitlementId,
+        taskText,
+        roleTitle: stringField(params, "role_title"),
+        roleSummary: stringField(params, "role_summary"),
+        requiredCapabilities: normalizeRequiredCapabilities(params.required_capabilities),
+        timeoutMs,
+        maxOutputChars: config.maxOutputChars,
+      });
+
+      return jsonResult(result);
+    },
+  };
+}
+
 function createRoleBuilderTool(
   config: AicsConfig,
   runtime: NativeRoleBuilderRuntime,
@@ -2676,8 +2968,22 @@ async function runRoleBuilderGatewayRequest(
   params: unknown,
   failureSummary = "迭界AI role-builder request failed before local execution could complete",
 ): Promise<Record<string, unknown>> {
+  return await runAicsGatewayToolRequest(
+    tool,
+    params,
+    failureSummary,
+    "gateway-dijie-role-builder",
+  );
+}
+
+async function runAicsGatewayToolRequest(
+  tool: AnyAgentTool,
+  params: unknown,
+  failureSummary: string,
+  toolCallId: string,
+): Promise<Record<string, unknown>> {
   try {
-    const result = await tool.execute("gateway-dijie-role-builder", params);
+    const result = await tool.execute(toolCallId, params);
     const details = readToolResultDetails(result);
     return {
       ok: details.ok !== false,
@@ -2701,6 +3007,7 @@ export default definePluginEntry({
     const executionAuditReadTool = createExecutionAuditReadTool(config);
     const executionTokenRequestTool = createExecutionTokenRequestTool(config);
     const marketplaceInstalledRolesTool = createMarketplaceInstalledRolesTool(config);
+    const roleTaskRunTool = createRoleTaskRunTool(config, api.runtime, api.config);
     const roleBuilderTool = createRoleBuilderTool(config, api.runtime, api.config);
     api.registerGatewayMethod(
       "dijie.execution.preflight",
@@ -2744,10 +3051,22 @@ export default definePluginEntry({
         ),
       { scope: "operator.read" },
     );
+    api.registerGatewayMethod(
+      "dijie.roleTask.run",
+      async ({ params }) =>
+        await runAicsGatewayToolRequest(
+          roleTaskRunTool,
+          params,
+          "迭界AI role task failed before OpenClaw-native execution could complete",
+          "gateway-dijie-role-task-run",
+        ),
+      { scope: "operator.write" },
+    );
     api.registerTool(createStatusTool(config));
     api.registerTool(executionAuditReadTool);
     api.registerTool(executionTokenRequestTool);
     api.registerTool(marketplaceInstalledRolesTool);
+    api.registerTool(roleTaskRunTool);
     api.registerTool(roleBuilderTool);
   },
 });

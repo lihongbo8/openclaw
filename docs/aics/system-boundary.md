@@ -354,6 +354,13 @@ Rules:
   then starts OpenClaw main-system local execution in an isolated role-package
   workspace.
 - Gateway starts the local OpenClaw runtime work and streams execution events.
+- Role packages and cloud listings are stateless capability templates. They must not
+  contain user files, local role-instance runtime stores, role-instance working
+  memory, memory candidate source text, or private session history.
+- Before a role task starts, the local scheduler may assemble a local role runtime
+  context from the current workspace, role-instance runtime store, and
+  role-instance working memory. That context is injected into the local runtime;
+  it is not written into the role package or cloud listing metadata.
 - The current local AICS implementation can call OpenClaw-native
   `api.runtime.agent.runEmbeddedAgent` for confirmed role-builder execution.
   This is the preferred product direction because it uses the OpenClaw-derived
@@ -386,6 +393,10 @@ Rules:
   success when the cloud audit sink rejects or cannot persist the summary.
 - The marketplace never writes OpenClaw runtime tables directly.
 - OpenClaw never writes marketplace orders, entitlement, or review state directly.
+- Cloud audit/readback only receives safe summaries and sanitized artifact
+  metadata. Local private materials, role-instance runtime stores, working memory,
+  and raw memory candidates stay local unless a later explicit confirmation flow
+  promotes a safe summary.
 
 Minimum bridge context:
 

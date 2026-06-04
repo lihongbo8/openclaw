@@ -43,11 +43,11 @@ cloudBaseUrl:
 
 - 开发者没有被要求填写 execution token、Gateway、RoleResult、AuditSummary、entitlement、审计上传、结算协议或云端 API。
 - 输入、输出、规则、验收标准、包结构、OpenClaw 工具协议边界、验证材料和上传标准由开发者模式资料包生成。
-- `role_package/` 是岗位业务脑子和经验包，可下载或导出，并至少包含 `manifest.json`、`listing.md`、`README.md`、业务知识/流程/经验材料、adapter/wrapper 能力边界说明、validation/smoke 材料。
+- `role_package/` 是无状态岗位能力模板，可下载或导出，并至少包含 `manifest.json`、`listing.md`、`README.md`、公开业务知识/流程/通用经验材料、adapter/wrapper 能力边界说明、validation/smoke 材料。
 - `role_package/manifest.json` 是公开包清单，只能包含 `manifestVersion`、`rolePackageId`、`version`、`name`、`entrypoint`、`permissions`、`requiredCapabilities` 和 `files` 等公开包字段；`entrypoint` 必须是 `role_package/` 内的相对路径，不能包含 `roleListingId` 或任何云端执行事实。
 - `requiredCapabilities` 只能声明抽象本地能力需求，例如 `workspace.read`、`image.inspect`、`document.write`、`human.confirm`；它不是新工具协议，本地 OpenClaw/迭界AI主系统必须通过 OpenClaw `tools.catalog` / `tools.effective` / `tools.invoke` 发现、确认和调用真实工具。
 - 本地端第一批能力目录覆盖 `workspace`、`code`、`browser`、`document`、`spreadsheet`、`presentation`、`image`、`network`、`audit`、`human`；没有 OpenClaw 工具协议 bridge 或 `tools.effective` 不支持的能力必须在执行前失败关闭并返回缺失能力摘要。
-- 包内不包含 raw execution token、cloud bearer、provider key、secret 字段、本地绝对路径、使用者模式私有历史、订单/钱包/审核/结算状态。
+- 包内不包含 raw execution token、cloud bearer、provider key、secret 字段、本地绝对路径、使用者模式私有历史、岗位实例运行库、岗位实例工作记忆、记忆候选原文、订单/钱包/审核/结算状态。
 - 包内不包含浏览器、文件、命令、API、MCP server、工具 schema 或其他实施工具实现；工具协议和工具调用继续由本地端 OpenClaw 控制，缺工具时必须失败提示，不能伪装成功。
 - 开发者模式确认业务规格后必须走 `dijie_role_builder` 的 `confirm_brief=true` + `package_only=true` 路径生成公开包；这一阶段发生在创建商品和购买执行之前，不能要求或传入 execution token、entitlement、订单、钱包、device、workspace、Gateway、审计或结算字段。
 
@@ -89,7 +89,7 @@ billingBeneficiaryRef:
 
 1. 开发者进入 OpenClaw 主对话的开发者模式，只描述业务逻辑。
 2. 主系统生成并确认业务规格，内部沉淀 `RoleBuildBrief`。
-3. 主系统用 package-only 路径生成只包含业务逻辑、岗位经验、能力需求和验收材料的 `role_package/`，本地 scanner 通过。
+3. 主系统用 package-only 路径生成只包含公开业务逻辑、通用岗位经验、能力需求和验收材料的无状态 `role_package/`，本地 scanner 通过。
 4. 开发者上传岗位包到 developer center，平台校验目录后回填岗位包身份，开发者只填写公开 listing 和价格。
 5. admin 审核并发布。
 6. buyer 购买或授权岗位。
@@ -103,7 +103,7 @@ billingBeneficiaryRef:
 出现以下任一情况，停止 smoke 并回到对应任务修复：
 
 - 开发者模式要求内部开发者填写平台协议字段。
-- `role_package/` 包含 token、bearer、provider auth、secret、本地绝对路径或平台后端状态。
+- `role_package/` 包含 token、bearer、provider auth、secret、本地绝对路径、岗位实例运行库、岗位实例工作记忆、记忆候选原文或平台后端状态。
 - `role_package/` 包含实施工具、MCP server、API client、本地工具实现，或缺少业务知识材料 / `requiredCapabilities`。
 - 本地端无法通过 OpenClaw `tools.effective` 支持 `requiredCapabilities` 却继续报告成功。
 - 未购买或错误 buyer 能拿到 execution token。
