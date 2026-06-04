@@ -874,6 +874,67 @@ describe("Dijie execution preflight", () => {
     expect(JSON.stringify(response)).not.toContain("cloud_customer_token");
   });
 
+  it("reads top-level safe execution audit projections from the local marketplace API", async () => {
+    const registerGatewayMethod = vi.fn();
+    const registerTool = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              ok: true,
+              roleListingId: "prod_role_developer_agent",
+              packageId: "pkg_developer_agent",
+              status: "completed",
+              billingSummary: {
+                source: "role_usage",
+                developerReceivableCents: 1,
+                platformReceivableCents: 0,
+              },
+              authorization: "Bearer cloud_customer_token",
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+
+    plugin.register({
+      pluginConfig: {
+        cloudExecutionReadUrl: "https://dijie-cloud.test/dijie/executions",
+      },
+      registerGatewayMethod,
+      registerTool,
+    } as never);
+
+    const handler = registerGatewayMethod.mock.calls.find(
+      (call) => call[0] === "dijie.executionAudit.read",
+    )?.[1];
+    const response = await handler({
+      params: {
+        cloud_access_token: "cloud_customer_token",
+        execution_id: "exec_cloud_123",
+      },
+      respond: vi.fn(),
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      summary: "迭界AI cloud execution audit read completed",
+      execution: {
+        ok: true,
+        roleListingId: "prod_role_developer_agent",
+        status: "completed",
+        authorization: "[redacted_cloud_access_token]",
+        billingSummary: {
+          developerReceivableCents: 1,
+          platformReceivableCents: 0,
+        },
+      },
+    });
+    expect(JSON.stringify(response)).not.toContain("cloud_customer_token");
+  });
+
   it("redacts cloud access tokens from rejected cloud execution audit reads", async () => {
     const registerGatewayMethod = vi.fn();
     const registerTool = vi.fn();

@@ -69,19 +69,23 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every(isNonEmptyString);
 }
 
+function isIntegerNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value);
+}
+
 function isOneTimePricing(value: unknown): value is DijieExecutionTokenPricing {
   if (!isRecord(value) || value.kind !== "one_time_authorization") {
     return false;
   }
 
   return (
-    Number.isInteger(value.authorizationFeeCents) &&
-    Number(value.authorizationFeeCents) >= 0 &&
+    isIntegerNumber(value.authorizationFeeCents) &&
+    value.authorizationFeeCents >= 0 &&
     isNonEmptyString(value.currency) &&
-    Number.isInteger(value.platformFeeBps) &&
-    Number(value.platformFeeBps) === 0 &&
-    Number.isInteger(value.developerReceivableCents) &&
-    Number(value.developerReceivableCents) === Number(value.authorizationFeeCents)
+    isIntegerNumber(value.platformFeeBps) &&
+    value.platformFeeBps === 0 &&
+    isIntegerNumber(value.developerReceivableCents) &&
+    value.developerReceivableCents === value.authorizationFeeCents
   );
 }
 
@@ -91,15 +95,15 @@ function isRoleTokenPricing(value: unknown): value is DijieRoleTokenPricing {
   }
 
   return (
-    Number.isInteger(value.inputTokenCentsPerMillion) &&
-    Number(value.inputTokenCentsPerMillion) >= 0 &&
-    Number.isInteger(value.outputTokenCentsPerMillion) &&
-    Number(value.outputTokenCentsPerMillion) >= 0 &&
+    isIntegerNumber(value.inputTokenCentsPerMillion) &&
+    value.inputTokenCentsPerMillion >= 0 &&
+    isIntegerNumber(value.outputTokenCentsPerMillion) &&
+    value.outputTokenCentsPerMillion >= 0 &&
     isNonEmptyString(value.currency) &&
-    Number.isInteger(value.developerReceivableBps) &&
-    Number(value.developerReceivableBps) === 10000 &&
-    Number.isInteger(value.platformFeeBps) &&
-    Number(value.platformFeeBps) === 0
+    isIntegerNumber(value.developerReceivableBps) &&
+    value.developerReceivableBps === 10000 &&
+    isIntegerNumber(value.platformFeeBps) &&
+    value.platformFeeBps === 0
   );
 }
 
@@ -126,8 +130,8 @@ function normalizeClaims(value: unknown): DijieExecutionTokenClaims | undefined 
     !isStringArray(value.scopes) ||
     !isOneTimePricing(value.pricing) ||
     !isRoleTokenPricing(value.roleTokenPricing) ||
-    !Number.isInteger(value.iat) ||
-    !Number.isInteger(value.exp)
+    !isIntegerNumber(value.iat) ||
+    !isIntegerNumber(value.exp)
   ) {
     return undefined;
   }

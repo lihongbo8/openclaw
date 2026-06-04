@@ -2251,7 +2251,10 @@ function createExecutionAuditReadTool(config: AicsConfig): AnyAgentTool {
       return jsonResult({
         ok: true,
         summary: "迭界AI cloud execution audit read completed",
-        execution: redactCloudAccessTokenValue(payload.execution, cloudAccessToken),
+        execution: redactCloudAccessTokenValue(
+          payload.execution === undefined ? payload : payload.execution,
+          cloudAccessToken,
+        ),
       });
     },
   };
