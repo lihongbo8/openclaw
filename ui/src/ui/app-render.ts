@@ -560,17 +560,21 @@ function renderRoleMarketplaceProductPage(state: AppViewState, onNavigate: (tab:
 
   return renderMainSystemShell({
     title: "岗位商城",
-    status: state.aicsMarketplace.loading ? "同步中" : "待同步",
+    status: state.aicsMarketplace.loading ? "同步中" : "同一账号",
     icon: "globe",
     loading: false,
     error: state.aicsMarketplace.error,
     emptyLabel: "",
     metrics: [
-      { label: "云端商城", value: "可打开", title: BUYER_STOREFRONT_URL },
-      { label: "已同步", value: syncedRoles, title: "已同步到本机的岗位。" },
+      {
+        label: "账号体系",
+        value: "通用",
+        title: "使用同一迭界AI账号访问本地端、使用者中心、开发者中心和岗位商城。",
+      },
+      { label: "已同步授权", value: syncedRoles, title: "当前账号已同步到本机的岗位授权。" },
     ],
     items: [
-      { title: "打开云端商城", status: "跳转", icon: "externalLink" },
+      { title: "打开岗位商城", status: "同一账号", icon: "externalLink" },
       {
         title: "同步授权",
         status: state.aicsMarketplace.loading ? "同步中" : "待同步",
@@ -579,8 +583,8 @@ function renderRoleMarketplaceProductPage(state: AppViewState, onNavigate: (tab:
     ],
     actions: [
       {
-        label: "打开云端",
-        title: "打开云端岗位商城。",
+        label: "打开商城",
+        title: "打开岗位商城，使用同一迭界AI账号继续浏览或授权岗位。",
         icon: "externalLink",
         onClick: () =>
           window.open(BUYER_STOREFRONT_URL, EXTERNAL_LINK_TARGET, "noopener,noreferrer"),

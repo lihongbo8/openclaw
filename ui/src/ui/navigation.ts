@@ -81,7 +81,7 @@ export const SETTINGS_TABS = [
   ...SETTINGS_DIAGNOSTIC_TABS,
 ] as const satisfies readonly Tab[];
 
-export const BUYER_STOREFRONT_URL = "http://127.0.0.1:8000/categories";
+export const BUYER_STOREFRONT_URL = "http://127.0.0.1:3026/us";
 
 const DISPLAY_TAB_TITLES: Partial<Record<Tab, string>> = {
   chat: "主对话",

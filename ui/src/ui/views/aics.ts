@@ -234,7 +234,7 @@ export function renderAicsMarketplace(props: AicsDashboardProps) {
         <div class="aics-hero__main">
           <div class="aics-kicker">迭界AI</div>
           <h1 id="aics-marketplace-title">
-            ${renderTitleWithHelp("岗位商城", "在云端商城浏览和购买岗位。")}
+            ${renderTitleWithHelp("岗位商城", "使用同一迭界AI账号浏览和授权岗位。")}
           </h1>
           <div class="aics-hero__meta">
             ${renderStatusPill(props.connected)}

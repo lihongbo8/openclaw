@@ -451,7 +451,7 @@ describe("control UI routing", () => {
     await app.updateComplete;
 
     expect(request).not.toHaveBeenCalled();
-    expect(app.aicsMarketplace.error).toContain("需要先连接岗位商城账号");
+    expect(app.aicsMarketplace.error).toContain("当前本地端还没有可用的迭界AI账号会话");
     expect(app.aicsMarketplace.roles).toEqual([]);
   });
 
@@ -487,7 +487,7 @@ describe("control UI routing", () => {
     await app.updateComplete;
 
     expect(request).toHaveBeenCalledWith("dijie.marketplace.roles.list", expect.any(Object));
-    expect(app.aicsMarketplace.error).toBe("岗位同步失败，请检查岗位商城连接状态。");
+    expect(app.aicsMarketplace.error).toBe("岗位同步失败，请检查同一迭界AI账号的登录状态。");
     expect(app.aicsMarketplace.roles).toEqual([]);
   });
 

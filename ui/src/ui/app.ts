@@ -1157,7 +1157,7 @@ export class OpenClawApp extends LitElement {
     if (!cloudAccessToken) {
       this.aicsMarketplace = {
         ...this.aicsMarketplace,
-        error: "需要先连接岗位商城账号，才能同步已授权岗位。",
+        error: "当前本地端还没有可用的迭界AI账号会话，暂时不能同步已授权岗位。",
       };
       return;
     }
@@ -1190,11 +1190,11 @@ export class OpenClawApp extends LitElement {
           resultRecord.ok === false
             ? toAicsUserErrorMessage(
                 resultRecord.error ?? resultRecord.summary,
-                "岗位同步失败，请检查岗位商城连接状态。",
+                "岗位同步失败，请检查同一迭界AI账号的登录状态。",
               )
             : roles.length > 0
               ? null
-              : "岗位商城没有返回可显示的岗位。",
+              : "当前迭界AI账号没有返回可显示的已授权岗位。",
       };
     } catch (error) {
       this.aicsMarketplace = {
@@ -1202,7 +1202,7 @@ export class OpenClawApp extends LitElement {
         loading: false,
         error: toAicsUserErrorMessage(
           error instanceof Error ? error.message : String(error),
-          "岗位同步失败，请检查岗位商城连接状态。",
+          "岗位同步失败，请检查同一迭界AI账号的登录状态。",
         ),
       };
     }
@@ -1222,7 +1222,7 @@ export class OpenClawApp extends LitElement {
 
     const form = this.aicsRoleBuilder.form;
     const requiredFields: Array<[keyof AicsRoleBuilderForm, string]> = [
-      ["cloudAccessToken", "云端授权凭证不能为空；需要岗位商城登录态对应的授权。"],
+      ["cloudAccessToken", "账号授权凭证不能为空；需要当前迭界AI账号对应的岗位授权。"],
       ["roleListingId", "岗位编号不能为空。"],
       ["entitlementId", "授权编号不能为空。"],
       ["deviceId", "设备编号不能为空。"],
@@ -1317,7 +1317,7 @@ export class OpenClawApp extends LitElement {
     if (!cloudAccessToken) {
       this.aicsRoleBuilder = {
         ...this.aicsRoleBuilder,
-        error: "云端授权凭证不能为空；需要岗位商城登录态对应的授权。",
+        error: "账号授权凭证不能为空；需要当前迭界AI账号对应的岗位授权。",
       };
       return;
     }

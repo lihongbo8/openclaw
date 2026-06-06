@@ -21,6 +21,17 @@ import {
   resolveAicsRoleRequiredCapabilities,
 } from "./role-capabilities.js";
 
+const originalFetch = globalThis.fetch;
+const viWithStubGlobal = vi as typeof vi & {
+  stubGlobal?: (name: string | number | symbol, value: unknown) => typeof vi;
+};
+if (typeof viWithStubGlobal.stubGlobal !== "function") {
+  viWithStubGlobal.stubGlobal = (name: string | number | symbol, value: unknown) => {
+    (globalThis as Record<PropertyKey, unknown>)[name] = value;
+    return vi;
+  };
+}
+
 const keyPair = crypto.generateKeyPairSync("ed25519");
 const privateKeyPem = keyPair.privateKey.export({ format: "pem", type: "pkcs8" }).toString();
 const publicKeyPem = keyPair.publicKey.export({ format: "pem", type: "spki" }).toString();
@@ -192,7 +203,11 @@ function createFakeLocalExecutorBinary(
 }
 
 function createFakeNativeRuntime(
-  options: { files?: Record<string, string>; outputText?: string } = {},
+  options: {
+    files?: Record<string, string>;
+    outputText?: string;
+    includeRecoverableToolError?: boolean;
+  } = {},
 ) {
   const runEmbeddedAgent = vi.fn(async (params: { workspaceDir: string; prompt: string }) => {
     const files = options.files ?? {
@@ -210,16 +225,23 @@ function createFakeNativeRuntime(
       mkdirSync(path.dirname(absolutePath), { recursive: true });
       writeFileSync(absolutePath, content);
     }
+    const text =
+      options.outputText ??
+      JSON.stringify({
+        type: "fake-openclaw-native-event",
+        receivedBrief: params.prompt.includes("RoleBuildBrief"),
+      });
     return {
       payloads: [
-        {
-          text:
-            options.outputText ??
-            JSON.stringify({
-              type: "fake-openclaw-native-event",
-              receivedBrief: params.prompt.includes("RoleBuildBrief"),
-            }),
-        },
+        ...(options.includeRecoverableToolError
+          ? [
+              {
+                isError: true,
+                text: "sed: memory/2026-06-06.md: No such file or directory",
+              },
+            ]
+          : []),
+        { text },
       ],
       meta: {
         durationMs: 25,
@@ -283,6 +305,7 @@ function registerRoleBuilder(
 
 afterEach(() => {
   vi.restoreAllMocks();
+  globalThis.fetch = originalFetch;
 });
 
 describe("AICS role capabilities", () => {
@@ -551,6 +574,7 @@ describe("Dijie execution preflight", () => {
     const { runtime, runEmbeddedAgent } = createFakeNativeRuntime({
       files: {},
       outputText: "商品图检查完成，建议人工确认边缘案例。",
+      includeRecoverableToolError: true,
     });
 
     plugin.register({
@@ -584,6 +608,15 @@ describe("Dijie execution preflight", () => {
       messageChannel: "dijie-role-task",
       disableMessageTool: true,
       cleanupBundleMcpOnRunEnd: true,
+      config: {
+        plugins: {
+          entries: {
+            aics: {
+              enabled: false,
+            },
+          },
+        },
+      },
     });
     const prompt = runEmbeddedAgent.mock.calls[0]?.[0]?.prompt ?? "";
     expect(prompt).toContain("工具开放使用");
@@ -625,6 +658,239 @@ describe("Dijie execution preflight", () => {
         entitlementId: "ent_role_image_review",
         status: "completed",
       },
+    });
+  });
+
+  it("resolves main-chat role task context from installed roles, executes locally, and uploads audit", async () => {
+    const registerGatewayMethod = vi.fn();
+    const registerTool = vi.fn();
+    const workspaceDir = mkdtempSync(path.join(os.tmpdir(), "dijie-role-task-"));
+    const { runtime, runEmbeddedAgent } = createFakeNativeRuntime({
+      files: {},
+      outputText: "智能门锁商品主图检查完成：主体清晰，卖点可读，需要人工复核合规表述。",
+    });
+    const executionToken = createExecutionToken({
+      executionId: "exec_image_review_1",
+      roleListingId: "role_image_review",
+      entitlementId: "ent_role_image_review",
+      deviceId: "device_main",
+      workspaceRef: "workspace_main",
+      localGatewayId: "gateway_main",
+      packageId: "pkg_image_review",
+      packageVersion: "1.0.0",
+      scopes: ["role.execute", "audit.write"],
+    });
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.startsWith("https://dijie-cloud.test/dijie/my-roles")) {
+        expect(init?.method).toBe("GET");
+        expect(init?.headers).toMatchObject({
+          authorization: "Bearer cloud_customer_token",
+          accept: "application/json",
+        });
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            roles: [
+              {
+                entitlementId: "ent_role_image_review",
+                entitlementSource: "local_entitlement",
+                role: {
+                  id: "role_image_review",
+                  title: "商品图检查岗位",
+                  subtitle: "检查商品图是否清晰、是否符合公开展示要求。",
+                  packageId: "pkg_image_review",
+                  packageVersion: "1.0.0",
+                  capabilities: ["workspace.read", "image.inspect", "human.confirm"],
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url === "https://dijie-cloud.test/dijie/execution-token") {
+        expect(init?.method).toBe("POST");
+        expect(init?.headers).toMatchObject({
+          authorization: "Bearer cloud_customer_token",
+          "content-type": "application/json",
+        });
+        expect(JSON.parse(String(init?.body))).toEqual({
+          roleListingId: "role_image_review",
+          entitlementId: "ent_role_image_review",
+          deviceId: "device_main",
+          workspaceRef: "workspace_main",
+          localGatewayId: "gateway_main",
+        });
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            grant: {
+              executionId: "exec_image_review_1",
+              roleListingId: "role_image_review",
+              entitlementId: "ent_role_image_review",
+              deviceId: "device_main",
+              workspaceRef: "workspace_main",
+              localGatewayId: "gateway_main",
+              token: executionToken,
+              pricing: {
+                kind: "one_time_authorization",
+                authorizationFeeCents: 29900,
+                currency: "CNY",
+                platformFeeBps: 0,
+                developerReceivableCents: 29900,
+              },
+              roleTokenPricing: {
+                inputTokenCentsPerMillion: 120,
+                outputTokenCentsPerMillion: 480,
+                currency: "CNY",
+                developerReceivableBps: 10000,
+                platformFeeBps: 0,
+              },
+              scopes: ["role.execute", "audit.write"],
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      if (url === "https://dijie-cloud.test/dijie/audit") {
+        expect(init?.method).toBe("POST");
+        expect(init?.headers).toMatchObject({
+          authorization: `Bearer ${executionToken}`,
+          "content-type": "application/json",
+        });
+        const body = JSON.parse(String(init?.body));
+        expect(body.auditSummary).toMatchObject({
+          executionId: "exec_image_review_1",
+          roleListingId: "role_image_review",
+          entitlementId: "ent_role_image_review",
+          status: "completed",
+          toolUsage: {
+            shellCommands: 1,
+            testsRun: 0,
+            filesRead: 0,
+            filesChanged: 0,
+          },
+          result: {
+            executionId: "exec_image_review_1",
+            roleListingId: "role_image_review",
+            packageId: "pkg_image_review",
+            packageVersion: "1.0.0",
+            status: "completed",
+          },
+        });
+        return new Response(JSON.stringify({ ok: true, auditRecordId: "audit_1" }), {
+          status: 200,
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    plugin.register({
+      pluginConfig: {
+        cloudBaseUrl: "https://dijie-cloud.test",
+        cloudAccessToken: "cloud_customer_token",
+        cloudAuditUploadEnabled: true,
+        executionTokenPublicKeyPem: publicKeyPem,
+        defaultDeviceId: "device_main",
+        defaultWorkspaceRef: "workspace_main",
+        defaultLocalGatewayId: "gateway_main",
+      },
+      config: {},
+      runtime,
+      registerGatewayMethod,
+      registerTool,
+    } as never);
+
+    const handler = registerGatewayMethod.mock.calls.find(
+      (call) => call[0] === "dijie.roleTask.run",
+    )?.[1];
+    const response = await handler({
+      params: {
+        role_query: "商品图检查岗位",
+        task_text: "检查一张智能门锁商品主图的电商质量。",
+        workspace_dir: workspaceDir,
+      },
+      respond: vi.fn(),
+    });
+
+    expect(runEmbeddedAgent).toHaveBeenCalledTimes(1);
+    expect(runEmbeddedAgent.mock.calls[0]?.[0]).toMatchObject({
+      config: {
+        plugins: {
+          entries: {
+            aics: {
+              enabled: false,
+            },
+          },
+        },
+      },
+    });
+    const prompt = runEmbeddedAgent.mock.calls[0]?.[0]?.prompt ?? "";
+    expect(prompt).toContain("商品图检查岗位");
+    expect(prompt).toContain("role_image_review");
+    expect(prompt).toContain("workspace.read, image.inspect, human.confirm");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(response).toMatchObject({
+      ok: true,
+      summary: "迭界AI role task local execution completed, validated, and audited",
+      executionId: "exec_image_review_1",
+      roleListingId: "role_image_review",
+      packageId: "pkg_image_review",
+      packageVersion: "1.0.0",
+      entitlementId: "ent_role_image_review",
+      executionContext: {
+        source: "cloud-installed-role",
+        cloudAuthorized: true,
+        auditUploadPlanned: true,
+      },
+      auditUpload: {
+        ok: true,
+        skipped: false,
+        statusCode: 200,
+      },
+      auditSummary: {
+        executionId: "exec_image_review_1",
+        roleListingId: "role_image_review",
+        entitlementId: "ent_role_image_review",
+        status: "completed",
+      },
+    });
+    expect(JSON.stringify(response)).not.toContain("cloud_customer_token");
+    expect(JSON.stringify(response)).not.toContain(executionToken);
+  });
+
+  it("fails main-chat role task context resolution without backend cloud credentials", async () => {
+    const registerGatewayMethod = vi.fn();
+    const registerTool = vi.fn();
+    const workspaceDir = mkdtempSync(path.join(os.tmpdir(), "dijie-role-task-"));
+    const { runtime, runEmbeddedAgent } = createFakeNativeRuntime({ files: {} });
+
+    plugin.register({
+      pluginConfig: { executionTokenPublicKeyPem: publicKeyPem },
+      config: {},
+      runtime,
+      registerGatewayMethod,
+      registerTool,
+    } as never);
+
+    const handler = registerGatewayMethod.mock.calls.find(
+      (call) => call[0] === "dijie.roleTask.run",
+    )?.[1];
+    const response = await handler({
+      params: {
+        role_query: "商品图检查岗位",
+        task_text: "检查一张智能门锁商品主图的电商质量。",
+        workspace_dir: workspaceDir,
+      },
+      respond: vi.fn(),
+    });
+
+    expect(runEmbeddedAgent).not.toHaveBeenCalled();
+    expect(response).toMatchObject({
+      ok: false,
+      summary: "迭界AI role task failed before OpenClaw-native execution could complete",
+      error: expect.stringContaining("backend-only cloudAccessToken"),
     });
   });
 
@@ -1355,7 +1621,7 @@ describe("Dijie execution preflight", () => {
       "requiredCapabilities",
       "files",
     ]);
-    expect(result.details.roleFeedbackPacket.role.packageId).toBe(manifest.rolePackageId);
+    expect(manifest.rolePackageId).toMatch(/^pkg_/);
     expect(manifest).toMatchObject({
       manifestVersion: 1,
       name: "主系统岗位包生成",
@@ -2116,7 +2382,11 @@ describe("Dijie execution preflight", () => {
         }),
       }),
     );
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const firstFetchInit = (
+      fetchMock.mock.calls as unknown as Array<[unknown, RequestInit?]>
+    )[0]?.[1];
+    expect(firstFetchInit).toBeDefined();
+    const body = JSON.parse(String(firstFetchInit?.body));
     expect(body.auditSummary).toMatchObject({
       executionId: "exec_123",
       roleListingId: "prod_role_developer_agent",

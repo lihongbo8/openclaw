@@ -12,6 +12,7 @@
       "dijie_execution_token_request",
       "dijie_execution_audit_read",
       "dijie_marketplace_roles_list",
+      "dijie_role_task_run",
       "dijie_role_builder"
     ],
     "gatewayMethods": [
@@ -19,6 +20,7 @@
       "dijie.executionToken.request",
       "dijie.executionAudit.read",
       "dijie.marketplace.roles.list",
+      "dijie.roleTask.run",
       "dijie.roleBuilder.run"
     ]
   },
@@ -107,6 +109,19 @@
         "type": "string"
       },
       "cloudAuditPath": {
+        "type": "string"
+      },
+      "cloudAccessToken": {
+        "type": "string",
+        "description": "Backend-only Dijie cloud customer bearer token for resolving installed roles and requesting execution tokens. Never paste this into chat."
+      },
+      "defaultDeviceId": {
+        "type": "string"
+      },
+      "defaultWorkspaceRef": {
+        "type": "string"
+      },
+      "defaultLocalGatewayId": {
         "type": "string"
       },
       "cloudAuditUploadEnabled": {

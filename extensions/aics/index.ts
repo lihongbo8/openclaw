@@ -41,6 +41,10 @@ type AicsConfig = {
   cloudExecutionReadUrl?: string;
   cloudMarketplaceInstalledRolesUrl?: string;
   cloudAuditUrl?: string;
+  cloudAccessToken?: string;
+  defaultDeviceId?: string;
+  defaultWorkspaceRef?: string;
+  defaultLocalGatewayId?: string;
   cloudAuditUploadEnabled: boolean;
   cloudAuditUploadRequired: boolean;
 };
@@ -64,6 +68,34 @@ type DijieRoleTokenPricing = {
   currency: string;
   developerReceivableBps: number;
   platformFeeBps: number;
+};
+
+type DijieExecutionTokenPricing = {
+  kind: "one_time_authorization";
+  authorizationFeeCents: number;
+  currency: string;
+  platformFeeBps: number;
+  developerReceivableCents: number;
+};
+
+type DijieExecutionPreflightOk = {
+  ok: true;
+  executionId: string;
+  actorId: string;
+  roleListingId: string;
+  packageId: string;
+  packageVersion: string;
+  developerRef: string;
+  listingOwnerRef: string;
+  billingBeneficiaryRef: string;
+  entitlementId: string;
+  deviceId: string;
+  workspaceRef: string;
+  localGatewayId: string;
+  pricing: DijieExecutionTokenPricing;
+  roleTokenPricing: DijieRoleTokenPricing;
+  scopes: string[];
+  expiresAt: string;
 };
 
 type DijieModelProxyUsage = {
@@ -368,14 +400,27 @@ const RoleBuilderParamsSchema = Type.Object(
 
 const RoleTaskRunParamsSchema = Type.Object(
   {
-    role_listing_id: Type.String({
-      minLength: 1,
-      description: "Marketplace role listing id selected by the user.",
-    }),
-    entitlement_id: Type.String({
-      minLength: 1,
-      description: "User entitlement id proving the role is available to this account.",
-    }),
+    role_listing_id: Type.Optional(
+      Type.String({
+        minLength: 1,
+        description:
+          "Optional explicit marketplace role listing id. Main chat should normally provide role_title or role_query instead.",
+      }),
+    ),
+    entitlement_id: Type.Optional(
+      Type.String({
+        minLength: 1,
+        description:
+          "Optional explicit user entitlement id. Main chat should not ask the user to provide this.",
+      }),
+    ),
+    role_query: Type.Optional(
+      Type.String({
+        minLength: 1,
+        description:
+          "Natural-language role name or selection hint from the user, for example 商品图检查岗位.",
+      }),
+    ),
     task_text: Type.String({
       minLength: 1,
       description: "Natural-language task request for the selected role.",
@@ -388,6 +433,7 @@ const RoleTaskRunParamsSchema = Type.Object(
       description: "Local workspace directory where the role task should execute.",
     }),
     workspace_ref: Type.Optional(Type.String({ minLength: 1 })),
+    device_id: Type.Optional(Type.String({ minLength: 1 })),
     local_gateway_id: Type.Optional(Type.String({ minLength: 1 })),
     timeout_ms: Type.Optional(Type.Integer({ minimum: 1000, maximum: 300000 })),
   },
@@ -577,6 +623,28 @@ function readPluginConfig(raw: unknown): AicsConfig {
     cloudAuditUploadRequired ||
     record.cloudAuditUploadEnabled === true ||
     record.auditUploadEnabled === true;
+  const cloudAccessToken =
+    typeof record.cloudAccessToken === "string" && record.cloudAccessToken.trim()
+      ? record.cloudAccessToken.trim()
+      : undefined;
+  const defaultDeviceId =
+    typeof record.defaultDeviceId === "string" && record.defaultDeviceId.trim()
+      ? record.defaultDeviceId.trim()
+      : typeof record.deviceId === "string" && record.deviceId.trim()
+        ? record.deviceId.trim()
+        : undefined;
+  const defaultWorkspaceRef =
+    typeof record.defaultWorkspaceRef === "string" && record.defaultWorkspaceRef.trim()
+      ? record.defaultWorkspaceRef.trim()
+      : typeof record.workspaceRef === "string" && record.workspaceRef.trim()
+        ? record.workspaceRef.trim()
+        : undefined;
+  const defaultLocalGatewayId =
+    typeof record.defaultLocalGatewayId === "string" && record.defaultLocalGatewayId.trim()
+      ? record.defaultLocalGatewayId.trim()
+      : typeof record.localGatewayId === "string" && record.localGatewayId.trim()
+        ? record.localGatewayId.trim()
+        : undefined;
 
   return {
     repoRoot: path.resolve(repoRoot),
@@ -595,6 +663,10 @@ function readPluginConfig(raw: unknown): AicsConfig {
     cloudExecutionReadUrl,
     cloudMarketplaceInstalledRolesUrl,
     cloudAuditUrl,
+    cloudAccessToken,
+    defaultDeviceId,
+    defaultWorkspaceRef,
+    defaultLocalGatewayId,
     cloudAuditUploadEnabled,
     cloudAuditUploadRequired,
   };
@@ -681,6 +753,20 @@ export function verifyDijieExecutionPreflight(
     scopes: verified.claims.scopes,
     expiresAt: new Date(verified.claims.exp * 1000).toISOString(),
   };
+}
+
+function assertDijieExecutionPreflightOk(
+  preflight: ReturnType<typeof verifyDijieExecutionPreflight>,
+): asserts preflight is DijieExecutionPreflightOk {
+  if (preflight.ok === true) {
+    return;
+  }
+  const failure = asRecord(preflight);
+  throw new Error(
+    `dijie.execution.preflight failed: ${stringField(failure, "code") ?? "invalid_execution_token"}: ${
+      stringField(failure, "error") ?? "execution token preflight failed"
+    }`,
+  );
 }
 
 function requireStringParam(
@@ -958,12 +1044,18 @@ function runCommand(
         }, options.timeoutMs)
       : null;
 
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => {
+    const childStdout = child.stdout;
+    const childStderr = child.stderr;
+    if (!childStdout || !childStderr) {
+      reject(new Error("failed to open subprocess stdout/stderr pipes"));
+      return;
+    }
+    childStdout.setEncoding("utf8");
+    childStderr.setEncoding("utf8");
+    childStdout.on("data", (chunk) => {
       stdout += String(chunk);
     });
-    child.stderr.on("data", (chunk) => {
+    childStderr.on("data", (chunk) => {
       stderr += String(chunk);
     });
     child.on("error", reject);
@@ -1073,7 +1165,7 @@ async function runOpenClawNativeRoleBuilder(params: {
   workspaceRoot: string;
   timeoutMs: number;
   maxOutputChars: number;
-  preflight?: ReturnType<typeof verifyDijieExecutionPreflight> & { ok: true };
+  preflight?: DijieExecutionPreflightOk;
 }): Promise<CommandResult> {
   const sessionId = params.preflight
     ? `dijie-role-builder-${String(params.preflight.executionId)}`
@@ -1187,10 +1279,12 @@ function statusFromEmbeddedAgentResult(
   if (result.meta.aborted === true) {
     return "cancelled";
   }
+  if (result.meta.error || result.meta.failureSignal) {
+    return "failed";
+  }
   if (
-    result.meta.error ||
-    result.meta.failureSignal ||
-    result.payloads?.some((payload) => payload.isError)
+    result.payloads?.some((payload) => payload.isError) &&
+    !collectEmbeddedAgentText(result).trim()
   ) {
     return "failed";
   }
@@ -1224,6 +1318,22 @@ function countEmbeddedAgentToolCalls(value: unknown): number {
   return count;
 }
 
+function buildRoleTaskRuntimeConfig(runtimeConfig: OpenClawConfig): OpenClawConfig {
+  return {
+    ...runtimeConfig,
+    plugins: {
+      ...runtimeConfig.plugins,
+      entries: {
+        ...runtimeConfig.plugins?.entries,
+        aics: {
+          ...runtimeConfig.plugins?.entries?.aics,
+          enabled: false,
+        },
+      },
+    },
+  };
+}
+
 async function runOpenClawNativeRoleTask(params: {
   runtime: Pick<PluginRuntime, "agent">;
   runtimeConfig: OpenClawConfig;
@@ -1251,7 +1361,7 @@ async function runOpenClawNativeRoleTask(params: {
     sessionFile,
     workspaceDir,
     cwd: workspaceDir,
-    config: params.runtimeConfig,
+    config: buildRoleTaskRuntimeConfig(params.runtimeConfig),
     prompt,
     transcriptPrompt: "Run the selected Dijie role task with OpenClaw tools.",
     timeoutMs: params.timeoutMs,
@@ -1328,6 +1438,173 @@ async function runOpenClawNativeRoleTask(params: {
     requiredCapabilities: params.requiredCapabilities,
     capabilityValidation,
     executionEngine: "openclaw-native",
+  };
+}
+
+async function resolveRoleTaskExecutionContext(
+  config: AicsConfig,
+  params: Record<string, unknown>,
+): Promise<DijieRoleTaskExecutionContext> {
+  const taskText = requireStringParam(params, "task_text");
+  const explicitRoleListingId = stringField(params, "role_listing_id");
+  const explicitEntitlementId = stringField(params, "entitlement_id");
+  const roleQuery = stringField(params, "role_query");
+  const roleTitle = stringField(params, "role_title");
+  const requiredCapabilities = normalizeRequiredCapabilities(params.required_capabilities);
+  const deviceId = stringField(params, "device_id") ?? config.defaultDeviceId;
+  const workspaceRef = stringField(params, "workspace_ref") ?? config.defaultWorkspaceRef;
+  const localGatewayId = stringField(params, "local_gateway_id") ?? config.defaultLocalGatewayId;
+
+  let context: DijieInstalledRoleContext | undefined;
+  const hasExplicitContext = Boolean(explicitRoleListingId && explicitEntitlementId);
+  if (hasExplicitContext) {
+    context = {
+      roleListingId: explicitRoleListingId!,
+      entitlementId: explicitEntitlementId!,
+      ...(roleTitle ? { roleTitle } : {}),
+      ...(stringField(params, "role_summary")
+        ? { roleSummary: stringField(params, "role_summary") }
+        : {}),
+      requiredCapabilities,
+      source: "explicit-params",
+    };
+  } else {
+    if (!config.cloudAccessToken) {
+      throw new Error(
+        "AICS main-chat execution context requires a backend-only cloudAccessToken; do not ask the user to paste bearer tokens into chat.",
+      );
+    }
+    const roles = await readCloudInstalledRoles({
+      config,
+      cloudAccessToken: config.cloudAccessToken,
+      ...(workspaceRef ? { workspaceRef } : {}),
+      ...(deviceId ? { deviceId } : {}),
+    });
+    context = selectInstalledRoleContext(roles, {
+      ...(explicitRoleListingId ? { roleListingId: explicitRoleListingId } : {}),
+      ...(explicitEntitlementId ? { entitlementId: explicitEntitlementId } : {}),
+      ...(roleQuery ? { roleQuery } : {}),
+      ...(roleTitle ? { roleTitle } : {}),
+      taskText,
+    });
+    if (!context) {
+      throw new Error(
+        "AICS main-chat execution context could not match the requested role from installed roles. Ask the user to choose one installed role by name, not by token or entitlement.",
+      );
+    }
+  }
+
+  const mergedRequiredCapabilities =
+    requiredCapabilities.length > 0 ? requiredCapabilities : context.requiredCapabilities;
+  const resolvedContext = {
+    ...context,
+    requiredCapabilities: mergedRequiredCapabilities,
+  };
+
+  if (!config.cloudAccessToken && hasExplicitContext) {
+    return {
+      ...resolvedContext,
+      auditUploadPlanned: false,
+    };
+  }
+  if (!config.cloudAccessToken || !deviceId || !workspaceRef || !localGatewayId) {
+    if (hasExplicitContext) {
+      return {
+        ...resolvedContext,
+        auditUploadPlanned: false,
+      };
+    }
+    throw new Error(
+      "AICS main-chat execution context requires backend cloudAccessToken, defaultDeviceId, defaultWorkspaceRef, and defaultLocalGatewayId.",
+    );
+  }
+
+  const grant = await requestCloudExecutionGrant({
+    config,
+    cloudAccessToken: config.cloudAccessToken,
+    roleListingId: resolvedContext.roleListingId,
+    entitlementId: resolvedContext.entitlementId,
+    deviceId,
+    workspaceRef,
+    localGatewayId,
+  });
+  const preflight = verifyDijieExecutionPreflight(config, {
+    executionToken: grant.token,
+    roleListingId: grant.roleListingId,
+    entitlementId: grant.entitlementId,
+    deviceId: grant.deviceId,
+    workspaceRef: grant.workspaceRef,
+    localGatewayId: grant.localGatewayId,
+  });
+  assertDijieExecutionPreflightOk(preflight);
+
+  return {
+    ...resolvedContext,
+    roleListingId: preflight.roleListingId,
+    entitlementId: preflight.entitlementId,
+    executionToken: grant.token,
+    preflight,
+    auditUploadPlanned: config.cloudAuditUploadEnabled,
+  };
+}
+
+function buildRoleTaskCloudToolUsage(toolUsage: DijieRoleTaskToolUsage): DijieToolUsage {
+  return {
+    shellCommands: toolUsage.toolCallCount,
+    testsRun: 0,
+    filesRead: 0,
+    filesChanged: 0,
+  };
+}
+
+function buildDijieRoleTaskCloudAuditSummary(params: {
+  preflight: DijieExecutionPreflightOk;
+  roleTaskResult: Awaited<ReturnType<typeof runOpenClawNativeRoleTask>>;
+}) {
+  const modelProxyUsage = params.roleTaskResult.modelProxyUsage ?? zeroModelProxyUsage();
+  const toolUsage = buildRoleTaskCloudToolUsage(params.roleTaskResult.toolUsage);
+  const summary =
+    params.roleTaskResult.roleResult.output || params.roleTaskResult.roleResult.summary;
+  const roleResult = {
+    executionId: params.preflight.executionId,
+    roleListingId: params.preflight.roleListingId,
+    packageId: params.preflight.packageId,
+    packageVersion: params.preflight.packageVersion,
+    developerRef: params.preflight.developerRef,
+    listingOwnerRef: params.preflight.listingOwnerRef,
+    billingBeneficiaryRef: params.preflight.billingBeneficiaryRef,
+    status: params.roleTaskResult.status,
+    startedAt: params.roleTaskResult.roleResult.startedAt,
+    endedAt: params.roleTaskResult.roleResult.endedAt,
+    roleTokenPricing: params.preflight.roleTokenPricing,
+    modelProxyUsage,
+    summary,
+    changedFiles: [],
+    artifacts: [],
+    ...(params.roleTaskResult.roleResult.error
+      ? { error: params.roleTaskResult.roleResult.error }
+      : {}),
+  };
+
+  return {
+    executionId: params.preflight.executionId,
+    deviceId: params.preflight.deviceId,
+    workspaceRef: params.preflight.workspaceRef,
+    roleListingId: params.preflight.roleListingId,
+    packageId: params.preflight.packageId,
+    packageVersion: params.preflight.packageVersion,
+    developerRef: params.preflight.developerRef,
+    listingOwnerRef: params.preflight.listingOwnerRef,
+    billingBeneficiaryRef: params.preflight.billingBeneficiaryRef,
+    entitlementId: params.preflight.entitlementId,
+    localGatewayId: params.preflight.localGatewayId,
+    status: params.roleTaskResult.status,
+    startedAt: params.roleTaskResult.roleResult.startedAt,
+    endedAt: params.roleTaskResult.roleResult.endedAt,
+    roleTokenPricing: params.preflight.roleTokenPricing,
+    modelProxyUsage,
+    toolUsage,
+    result: roleResult,
   };
 }
 
@@ -1643,7 +1920,7 @@ function uniqueNonEmptyStrings(values: Array<unknown>): string[] {
 }
 
 function buildForbiddenArtifactExactValues(params: {
-  preflight: ReturnType<typeof verifyDijieExecutionPreflight> & { ok: true };
+  preflight: DijieExecutionPreflightOk;
   executionToken: string;
 }): string[] {
   return uniqueNonEmptyStrings([
@@ -1713,7 +1990,7 @@ function scanRolePackageArtifactContent(params: {
 function scanRolePackageArtifacts(params: {
   workspaceRoot: string;
   files: RolePackageFile[];
-  preflight?: ReturnType<typeof verifyDijieExecutionPreflight> & { ok: true };
+  preflight?: DijieExecutionPreflightOk;
   executionToken?: string;
 }): string[] {
   const forbiddenExactValues =
@@ -1745,7 +2022,7 @@ function validateRolePackage(
   workspaceRoot: string,
   files: RolePackageFile[],
   scanContext?: {
-    preflight: ReturnType<typeof verifyDijieExecutionPreflight> & { ok: true };
+    preflight: DijieExecutionPreflightOk;
     executionToken: string;
   },
 ): RolePackageValidation {
@@ -1812,13 +2089,16 @@ function validateRolePackage(
       }
       if (!Array.isArray(manifestRecord.permissions)) {
         errors.push("role_package/manifest.json permissions must be an array");
-      } else if (
-        manifestRecord.permissions.length !== DEFAULT_PUBLIC_ROLE_PACKAGE_PERMISSIONS.length ||
-        !DEFAULT_PUBLIC_ROLE_PACKAGE_PERMISSIONS.every(
-          (permission, index) => manifestRecord.permissions[index] === permission,
-        )
-      ) {
-        errors.push("role_package/manifest.json permissions must use the public default");
+      } else {
+        const permissions = manifestRecord.permissions;
+        if (
+          permissions.length !== DEFAULT_PUBLIC_ROLE_PACKAGE_PERMISSIONS.length ||
+          !DEFAULT_PUBLIC_ROLE_PACKAGE_PERMISSIONS.every(
+            (permission, index) => permissions[index] === permission,
+          )
+        ) {
+          errors.push("role_package/manifest.json permissions must use the public default");
+        }
       }
       const requiredCapabilityValidation = validateRequiredCapabilities(
         manifestRecord.requiredCapabilities,
@@ -2022,7 +2302,7 @@ function estimateDijieTokenCostCents(
 }
 
 function buildRoleFeedbackPacketId(params: {
-  preflight?: ReturnType<typeof verifyDijieExecutionPreflight> & { ok: true };
+  preflight?: DijieExecutionPreflightOk;
   mode: "developer_package" | "authorized_execution";
   packageId: string;
   packageVersion: string;
@@ -2056,7 +2336,7 @@ function buildDijieRoleFeedbackPacket(params: {
   endedAt: string;
   files: RolePackageFile[];
   validation: { ok: boolean; errors: string[] };
-  preflight?: ReturnType<typeof verifyDijieExecutionPreflight> & { ok: true };
+  preflight?: DijieExecutionPreflightOk;
 }): DijieRoleFeedbackPacket {
   const changedFiles = params.files.map((file) => file.relativePath);
   const artifacts = rolePackageArtifacts(params.files);
@@ -2146,7 +2426,7 @@ function buildDijieRoleFeedbackPacket(params: {
 }
 
 function buildDijieAuditSummary(params: {
-  preflight: ReturnType<typeof verifyDijieExecutionPreflight> & { ok: true };
+  preflight: DijieExecutionPreflightOk;
   roleFeedbackPacket: DijieRoleFeedbackPacket;
 }) {
   const modelProxyUsage = params.roleFeedbackPacket.modelProxyUsage ?? zeroModelProxyUsage();
@@ -2318,6 +2598,289 @@ function marketplaceInstalledRolesUrl(
     url.searchParams.set("deviceId", params.deviceId);
   }
   return url.toString();
+}
+
+type DijieInstalledRoleContext = {
+  roleListingId: string;
+  entitlementId: string;
+  roleTitle?: string;
+  roleSummary?: string;
+  requiredCapabilities: string[];
+  source: "explicit-params" | "cloud-installed-role";
+};
+
+type DijieExecutionGrant = {
+  executionId: string;
+  roleListingId: string;
+  entitlementId: string;
+  deviceId: string;
+  workspaceRef: string;
+  localGatewayId: string;
+  token: string;
+  roleTokenPricing: DijieRoleTokenPricing;
+};
+
+type DijieRoleTaskExecutionContext = DijieInstalledRoleContext & {
+  executionToken?: string;
+  preflight?: DijieExecutionPreflightOk;
+  auditUploadPlanned: boolean;
+};
+
+function stringArrayField(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean);
+}
+
+function normalizeRoleMatchText(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, "");
+}
+
+function parseInstalledRoleContext(value: unknown): DijieInstalledRoleContext | undefined {
+  const record = asRecord(value);
+  const role = asRecord(record.role);
+  const roleListingId =
+    stringField(role, "id") ??
+    stringField(role, "roleListingId") ??
+    stringField(record, "roleListingId") ??
+    stringField(record, "role_listing_id");
+  const entitlementId =
+    stringField(record, "entitlementId") ??
+    stringField(record, "entitlement_id") ??
+    stringField(record, "id");
+  if (!roleListingId || !entitlementId) {
+    return undefined;
+  }
+
+  const roleTitle = stringField(role, "title") ?? stringField(record, "title");
+  const roleSummary =
+    stringField(role, "subtitle") ??
+    stringField(role, "description") ??
+    stringField(record, "description");
+  const requiredCapabilities =
+    stringArrayField(role.capabilities).length > 0
+      ? stringArrayField(role.capabilities)
+      : stringArrayField(role.requiredCapabilities);
+
+  return {
+    roleListingId,
+    entitlementId,
+    ...(roleTitle ? { roleTitle } : {}),
+    ...(roleSummary ? { roleSummary } : {}),
+    requiredCapabilities,
+    source: "cloud-installed-role",
+  };
+}
+
+function scoreInstalledRoleMatch(
+  role: DijieInstalledRoleContext,
+  params: {
+    roleListingId?: string;
+    entitlementId?: string;
+    roleQuery?: string;
+    roleTitle?: string;
+    taskText: string;
+  },
+): number {
+  let score = 0;
+  if (params.roleListingId && role.roleListingId === params.roleListingId) {
+    score += 100;
+  }
+  if (params.entitlementId && role.entitlementId === params.entitlementId) {
+    score += 100;
+  }
+  const query = normalizeRoleMatchText(params.roleQuery ?? params.roleTitle ?? "");
+  const taskText = normalizeRoleMatchText(params.taskText);
+  const title = normalizeRoleMatchText(role.roleTitle ?? "");
+  const id = normalizeRoleMatchText(role.roleListingId);
+  if (query) {
+    if (title === query || id === query) {
+      score += 60;
+    } else if (title.includes(query) || query.includes(title) || id.includes(query)) {
+      score += 35;
+    }
+  }
+  if (title && taskText.includes(title)) {
+    score += 20;
+  }
+  return score;
+}
+
+function selectInstalledRoleContext(
+  roles: unknown[],
+  params: {
+    roleListingId?: string;
+    entitlementId?: string;
+    roleQuery?: string;
+    roleTitle?: string;
+    taskText: string;
+  },
+): DijieInstalledRoleContext | undefined {
+  const candidates = roles
+    .map(parseInstalledRoleContext)
+    .filter((role): role is DijieInstalledRoleContext => Boolean(role));
+  if (candidates.length === 0) {
+    return undefined;
+  }
+  const scored = candidates
+    .map((role) => ({ role, score: scoreInstalledRoleMatch(role, params) }))
+    .sort((a, b) => b.score - a.score);
+  if (scored[0]?.score && scored[0].score > 0) {
+    return scored[0].role;
+  }
+  return candidates.length === 1 ? candidates[0] : undefined;
+}
+
+async function readCloudInstalledRoles(params: {
+  config: AicsConfig;
+  cloudAccessToken: string;
+  workspaceRef?: string;
+  deviceId?: string;
+}): Promise<unknown[]> {
+  if (!params.config.cloudMarketplaceInstalledRolesUrl) {
+    throw new Error(
+      "cloudMarketplaceInstalledRolesUrl or cloudBaseUrl is required before resolving main-chat installed roles.",
+    );
+  }
+  if (typeof globalThis.fetch !== "function") {
+    throw new Error("global fetch is unavailable for Dijie installed role reads.");
+  }
+
+  let response: Response;
+  try {
+    response = await globalThis.fetch(
+      marketplaceInstalledRolesUrl(params.config.cloudMarketplaceInstalledRolesUrl, {
+        workspaceRef: params.workspaceRef,
+        deviceId: params.deviceId,
+      }),
+      {
+        method: "GET",
+        headers: {
+          authorization: `Bearer ${params.cloudAccessToken}`,
+          accept: "application/json",
+        },
+      },
+    );
+  } catch (error) {
+    throw new Error(
+      `迭界AI installed-role resolver failed: ${redactCloudAccessTokenText(
+        error instanceof Error ? error.message : String(error),
+        params.cloudAccessToken,
+      )}`,
+    );
+  }
+
+  const responseText = await response.text();
+  const payload = responseText ? asRecord(parseAuditUploadResponse(responseText)) : {};
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(
+      redactCloudAccessTokenText(
+        stringField(payload, "error") ??
+          stringField(payload, "reason") ??
+          `Dijie marketplace returned HTTP ${response.status}`,
+        params.cloudAccessToken,
+      ),
+    );
+  }
+  const roles = Array.isArray(payload.roles)
+    ? payload.roles
+    : Array.isArray(payload.installedRoles)
+      ? payload.installedRoles
+      : undefined;
+  if (!roles) {
+    throw new Error("迭界AI installed-role resolver response did not include roles.");
+  }
+  return roles;
+}
+
+async function requestCloudExecutionGrant(params: {
+  config: AicsConfig;
+  cloudAccessToken: string;
+  roleListingId: string;
+  entitlementId: string;
+  deviceId: string;
+  workspaceRef: string;
+  localGatewayId: string;
+}): Promise<DijieExecutionGrant> {
+  if (!params.config.cloudExecutionTokenUrl) {
+    throw new Error(
+      "cloudExecutionTokenUrl or cloudBaseUrl is required before requesting Dijie execution tokens.",
+    );
+  }
+  if (typeof globalThis.fetch !== "function") {
+    throw new Error("global fetch is unavailable for Dijie execution token requests.");
+  }
+
+  let response: Response;
+  try {
+    response = await globalThis.fetch(params.config.cloudExecutionTokenUrl, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${params.cloudAccessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        roleListingId: params.roleListingId,
+        entitlementId: params.entitlementId,
+        deviceId: params.deviceId,
+        workspaceRef: params.workspaceRef,
+        localGatewayId: params.localGatewayId,
+      }),
+    });
+  } catch (error) {
+    throw new Error(
+      `迭界AI execution-token resolver failed: ${redactCloudAccessTokenText(
+        error instanceof Error ? error.message : String(error),
+        params.cloudAccessToken,
+      )}`,
+    );
+  }
+
+  const responseText = await response.text();
+  const payload = responseText ? asRecord(parseAuditUploadResponse(responseText)) : {};
+  if (!response.ok || payload.ok !== true) {
+    throw new Error(
+      redactCloudAccessTokenText(
+        stringField(payload, "error") ??
+          stringField(payload, "reason") ??
+          `Dijie cloud returned HTTP ${response.status}`,
+        params.cloudAccessToken,
+      ),
+    );
+  }
+
+  const grant = asRecord(payload.grant);
+  const token = stringField(grant, "token");
+  const executionId = stringField(grant, "executionId");
+  const roleListingId = stringField(grant, "roleListingId");
+  const entitlementId = stringField(grant, "entitlementId");
+  const deviceId = stringField(grant, "deviceId");
+  const workspaceRef = stringField(grant, "workspaceRef");
+  const localGatewayId = stringField(grant, "localGatewayId");
+  if (
+    !token ||
+    !executionId ||
+    !roleListingId ||
+    !entitlementId ||
+    !deviceId ||
+    !workspaceRef ||
+    !localGatewayId ||
+    !isRoleTokenPricing(grant.roleTokenPricing)
+  ) {
+    throw new Error("迭界AI execution-token resolver response did not include a valid grant.");
+  }
+
+  return {
+    executionId,
+    roleListingId,
+    entitlementId,
+    deviceId,
+    workspaceRef,
+    localGatewayId,
+    token,
+    roleTokenPricing: grant.roleTokenPricing,
+  };
 }
 
 function createExecutionTokenRequestTool(config: AicsConfig): AnyAgentTool {
@@ -2674,8 +3237,7 @@ function createRoleTaskRunTool(
         );
       }
       const params = asRecord(rawParams);
-      const roleListingId = requireStringParam(params, "role_listing_id");
-      const entitlementId = requireStringParam(params, "entitlement_id");
+      const executionContext = await resolveRoleTaskExecutionContext(config, params);
       const taskText = requireStringParam(params, "task_text");
       const workspaceDir = requireStringParam(params, "workspace_dir");
       const timeoutMs =
@@ -2687,17 +3249,69 @@ function createRoleTaskRunTool(
         runtime,
         runtimeConfig,
         workspaceDir,
-        roleListingId,
-        entitlementId,
+        roleListingId: executionContext.roleListingId,
+        entitlementId: executionContext.entitlementId,
         taskText,
-        roleTitle: stringField(params, "role_title"),
-        roleSummary: stringField(params, "role_summary"),
-        requiredCapabilities: normalizeRequiredCapabilities(params.required_capabilities),
+        roleTitle: stringField(params, "role_title") ?? executionContext.roleTitle,
+        roleSummary: stringField(params, "role_summary") ?? executionContext.roleSummary,
+        requiredCapabilities: executionContext.requiredCapabilities,
         timeoutMs,
         maxOutputChars: config.maxOutputChars,
       });
 
-      return jsonResult(result);
+      if (!executionContext.preflight || !executionContext.executionToken) {
+        return jsonResult({
+          ...result,
+          executionContext: {
+            source: executionContext.source,
+            cloudAuthorized: false,
+            auditUploadPlanned: false,
+          },
+          auditUpload: { ok: true, skipped: true, required: false },
+        });
+      }
+
+      const auditSummary = buildDijieRoleTaskCloudAuditSummary({
+        preflight: executionContext.preflight,
+        roleTaskResult: result,
+      });
+      const auditUpload = await uploadDijieAudit({
+        config,
+        executionToken: executionContext.executionToken,
+        auditSummary,
+      });
+      const executionOk = auditSummary.status === "completed" && auditUpload.ok;
+
+      return jsonResult({
+        ...result,
+        ok: executionOk,
+        summary: executionOk
+          ? auditUpload.skipped
+            ? "迭界AI role task local execution completed and validated"
+            : "迭界AI role task local execution completed, validated, and audited"
+          : auditSummary.status !== "completed"
+            ? result.summary
+            : "迭界AI role task audit upload failed",
+        executionId: executionContext.preflight.executionId,
+        roleListingId: executionContext.preflight.roleListingId,
+        packageId: executionContext.preflight.packageId,
+        packageVersion: executionContext.preflight.packageVersion,
+        developerRef: executionContext.preflight.developerRef,
+        listingOwnerRef: executionContext.preflight.listingOwnerRef,
+        billingBeneficiaryRef: executionContext.preflight.billingBeneficiaryRef,
+        entitlementId: executionContext.preflight.entitlementId,
+        deviceId: executionContext.preflight.deviceId,
+        workspaceRef: executionContext.preflight.workspaceRef,
+        localGatewayId: executionContext.preflight.localGatewayId,
+        roleTokenPricing: executionContext.preflight.roleTokenPricing,
+        auditSummary,
+        auditUpload,
+        executionContext: {
+          source: executionContext.source,
+          cloudAuthorized: true,
+          auditUploadPlanned: executionContext.auditUploadPlanned,
+        },
+      });
     },
   };
 }
@@ -2748,10 +3362,8 @@ function createRoleBuilderTool(
         const preflight = packageOnly
           ? undefined
           : verifyDijieExecutionPreflight(config, buildPreflightParams(params));
-        if (preflight && !preflight.ok) {
-          throw new Error(
-            `dijie.execution.preflight failed: ${preflight.code}: ${preflight.error}`,
-          );
+        if (preflight) {
+          assertDijieExecutionPreflightOk(preflight);
         }
         mkdirSync(outputRoot, { recursive: true });
         const workspaceRoot = realpathSync(outputRoot);
@@ -3018,48 +3630,48 @@ export default definePluginEntry({
     );
     api.registerGatewayMethod(
       "dijie.roleBuilder.run",
-      async ({ params }) => await runRoleBuilderGatewayRequest(roleBuilderTool, params),
+      async ({ params }) => (await runRoleBuilderGatewayRequest(roleBuilderTool, params)) as never,
       { scope: "operator.write" },
     );
     api.registerGatewayMethod(
       "dijie.executionToken.request",
       async ({ params }) =>
-        await runRoleBuilderGatewayRequest(
+        (await runRoleBuilderGatewayRequest(
           executionTokenRequestTool,
           params,
           "迭界AI execution token request failed before cloud authorization could complete",
-        ),
+        )) as never,
       { scope: "operator.write" },
     );
     api.registerGatewayMethod(
       "dijie.executionAudit.read",
       async ({ params }) =>
-        await runRoleBuilderGatewayRequest(
+        (await runRoleBuilderGatewayRequest(
           executionAuditReadTool,
           params,
           "迭界AI execution audit read failed before cloud read could complete",
-        ),
+        )) as never,
       { scope: "operator.read" },
     );
     api.registerGatewayMethod(
       "dijie.marketplace.roles.list",
       async ({ params }) =>
-        await runRoleBuilderGatewayRequest(
+        (await runRoleBuilderGatewayRequest(
           marketplaceInstalledRolesTool,
           params,
           "迭界AI marketplace installed roles read failed before marketplace read could complete",
-        ),
+        )) as never,
       { scope: "operator.read" },
     );
     api.registerGatewayMethod(
       "dijie.roleTask.run",
       async ({ params }) =>
-        await runAicsGatewayToolRequest(
+        (await runAicsGatewayToolRequest(
           roleTaskRunTool,
           params,
           "迭界AI role task failed before OpenClaw-native execution could complete",
           "gateway-dijie-role-task-run",
-        ),
+        )) as never,
       { scope: "operator.write" },
     );
     api.registerTool(createStatusTool(config));
