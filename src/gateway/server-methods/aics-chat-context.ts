@@ -11,25 +11,81 @@ const AICS_DEVELOPER_STAGE_LABELS: Record<string, { label: string; detail: strin
   submittedForReview: { label: "等待审核", detail: "岗位资料已提交，等待审核。" },
 };
 
-export type ChatSendAicsContext = {
-  mode: "developer";
-  stage?: string;
+const AICS_MAIN_WORKFLOW_STAGE_LABELS: Record<string, { label: string; detail: string }> = {
+  ready: { label: "可执行", detail: "可以理解用户目标、选择已授权岗位并进入执行确认。" },
+  idle: { label: "等待任务", detail: "等待用户说明业务目标或岗位使用意图。" },
+  goalIntake: { label: "理解目标", detail: "把用户的自然语言目标整理成可执行任务。" },
+  planning: { label: "执行规划", detail: "匹配已安装岗位、确认工作区和人工确认点。" },
+  awaitingConfirmation: { label: "等待确认", detail: "需要用户确认任务、岗位和费用归属后再执行。" },
+  dispatching: { label: "调度岗位", detail: "通过 gateway 调用本地岗位 executor。" },
+  running: { label: "执行中", detail: "岗位任务正在本地 OpenClaw 工具池中运行。" },
+  completed: { label: "已完成", detail: "执行完成后回读结果、费用和 audit 摘要。" },
+  failed: { label: "执行失败", detail: "解释失败原因并给出可恢复步骤。" },
 };
+
+type AicsExecutionChannel = "local_openclaw" | "cloud_user_center";
+
+export type ChatSendAicsContext =
+  | {
+      mode: "developer";
+      stage?: string;
+    }
+  | {
+      mode: "user" | "openclaw_main";
+      stage?: string;
+      executionChannel?: AicsExecutionChannel;
+      roleListingId?: string;
+      roleTitle?: string;
+      roleQuery?: string;
+      workspaceDir?: string;
+    };
+
+function trimmedStringField(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function normalizeExecutionChannel(value: unknown): AicsExecutionChannel | undefined {
+  return value === "local_openclaw" || value === "cloud_user_center" ? value : undefined;
+}
 
 export function normalizeChatSendAicsContext(value: unknown): ChatSendAicsContext | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
   const record = value as Record<string, unknown>;
-  if (record.mode !== "developer") {
-    return null;
+  if (record.mode === "developer") {
+    return {
+      mode: "developer",
+      ...(trimmedStringField(record, "stage")
+        ? { stage: trimmedStringField(record, "stage") }
+        : {}),
+    };
   }
-  return {
-    mode: "developer",
-    ...(typeof record.stage === "string" && record.stage.trim()
-      ? { stage: record.stage.trim() }
-      : {}),
-  };
+  if (record.mode === "user" || record.mode === "openclaw_main") {
+    return {
+      mode: record.mode,
+      ...(trimmedStringField(record, "stage")
+        ? { stage: trimmedStringField(record, "stage") }
+        : {}),
+      ...(normalizeExecutionChannel(record.executionChannel)
+        ? { executionChannel: normalizeExecutionChannel(record.executionChannel) }
+        : {}),
+      ...(trimmedStringField(record, "roleListingId")
+        ? { roleListingId: trimmedStringField(record, "roleListingId") }
+        : {}),
+      ...(trimmedStringField(record, "roleTitle")
+        ? { roleTitle: trimmedStringField(record, "roleTitle") }
+        : {}),
+      ...(trimmedStringField(record, "roleQuery")
+        ? { roleQuery: trimmedStringField(record, "roleQuery") }
+        : {}),
+      ...(trimmedStringField(record, "workspaceDir")
+        ? { workspaceDir: trimmedStringField(record, "workspaceDir") }
+        : {}),
+    };
+  }
+  return null;
 }
 
 export function buildAicsDeveloperModeModelPrompt(params: {
@@ -52,4 +108,66 @@ export function buildAicsDeveloperModeModelPrompt(params: {
     "开发者消息:",
     params.message,
   ].join("\n");
+}
+
+export function buildAicsMainWorkflowModelPrompt(params: {
+  message: string;
+  context: Extract<ChatSendAicsContext, { mode: "user" | "openclaw_main" }>;
+}): string {
+  const stageKey =
+    params.context.stage && params.context.stage !== "ready" ? params.context.stage : "idle";
+  const stage = AICS_MAIN_WORKFLOW_STAGE_LABELS[stageKey] ?? AICS_MAIN_WORKFLOW_STAGE_LABELS.idle;
+  const executionChannel = params.context.executionChannel ?? "local_openclaw";
+  const roleHints = [
+    params.context.roleListingId
+      ? `- 已选择岗位 listing id: ${params.context.roleListingId}`
+      : undefined,
+    params.context.roleTitle ? `- 已选择岗位名称: ${params.context.roleTitle}` : undefined,
+    params.context.roleQuery ? `- 岗位匹配提示: ${params.context.roleQuery}` : undefined,
+    params.context.workspaceDir
+      ? `- 系统已知 workspace_dir: ${params.context.workspaceDir}`
+      : undefined,
+  ].filter(Boolean);
+  const channelInstructions =
+    executionChannel === "cloud_user_center"
+      ? [
+          "执行渠道：使用者中心云端执行。独立个人用户的岗位执行由使用者中心后端 action router 承接。",
+          "在这个 OpenClaw 主对话中不要调用本地 `dijie_role_task_run`；说明需要回到使用者中心确认并执行。",
+        ]
+      : [
+          "执行渠道：公司客户本地 OpenClaw。",
+          "当用户确认要执行已购买/已安装岗位任务时，调用 `dijie_role_task_run`。",
+          "`dijie_role_task_run` 只需要自然语言 `task_text`、岗位选择线索（优先 role_listing_id、role_title 或 role_query）、系统已知 `workspace_dir`，以及确认后的 `confirm_execution=true`。",
+        ];
+
+  return [
+    "[迭界AI主流程模式]",
+    `当前角色：${params.context.mode === "openclaw_main" ? "OpenClaw 主流程层对话框" : "使用者中心任务对话框"}`,
+    `当前流程阶段：${stage.label}。${stage.detail}`,
+    ...channelInstructions,
+    "用户只需要说业务目标和岗位选择；cloudBaseUrl、cloud access token、execution token、entitlement、device、workspace_ref、local_gateway_id、audit upload 和费用归属都由 gateway 内部解析、校验和记录。",
+    "不要要求用户粘贴 bearer token、execution token、授权编号、订单编号、结算编号、云端地址或本地 gateway id。",
+    "执行前必须确认：用户是否已选择岗位、任务目标是否清楚、是否需要人工确认、是否允许产生费用和 audit 记录。",
+    "执行后必须回读并解释 RoleResult、AuditSummary、费用归属、失败原因和下一步；不要伪造执行结果。",
+    "如果没有系统已知 workspace_dir，先请用户选择当前本地工作区，不要自己编造路径。",
+    ...(roleHints.length > 0 ? ["", "系统传入的岗位/工作区上下文:", ...roleHints] : []),
+    "",
+    "用户消息:",
+    params.message,
+  ].join("\n");
+}
+
+export function buildAicsModelPrompt(params: {
+  message: string;
+  context: ChatSendAicsContext;
+}): string {
+  return params.context.mode === "developer"
+    ? buildAicsDeveloperModeModelPrompt({
+        message: params.message,
+        stage: params.context.stage,
+      })
+    : buildAicsMainWorkflowModelPrompt({
+        message: params.message,
+        context: params.context,
+      });
 }

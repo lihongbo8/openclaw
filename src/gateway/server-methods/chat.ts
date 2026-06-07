@@ -151,10 +151,7 @@ import {
 import { formatForLog } from "../ws-log.js";
 import { injectTimestamp, timestampOptsFromConfig } from "./agent-timestamp.js";
 import { setGatewayDedupeEntry } from "./agent-wait-dedupe.js";
-import {
-  buildAicsDeveloperModeModelPrompt,
-  normalizeChatSendAicsContext,
-} from "./aics-chat-context.js";
+import { buildAicsModelPrompt, normalizeChatSendAicsContext } from "./aics-chat-context.js";
 import { normalizeRpcAttachmentsToChatAttachments } from "./attachment-normalize.js";
 import { normalizeWebchatReplyMediaPathsForDisplay } from "./chat-reply-media.js";
 import {
@@ -2953,9 +2950,9 @@ export const chatHandlers: GatewayRequestHandlers = {
     const aicsContext = normalizeChatSendAicsContext(p.aicsContext);
     const inboundMessage = sanitizedMessageResult.message;
     const aicsModelPrompt = aicsContext
-      ? buildAicsDeveloperModeModelPrompt({
+      ? buildAicsModelPrompt({
           message: inboundMessage,
-          stage: aicsContext.stage,
+          context: aicsContext,
         })
       : undefined;
     const rawModelPrompt =
