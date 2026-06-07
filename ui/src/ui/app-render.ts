@@ -516,17 +516,21 @@ function renderMyRolesProductPage(state: AppViewState, onNavigate: (tab: Tab) =>
     (role) => role.entitlementId || roleStatusLabel(role) === "已授权",
   );
   const updatable = roles.filter((role) => roleStatusLabel(role) === "可更新");
-  const items: MainSystemItem[] = roles.slice(0, 12).map((role) => ({
-    title: role.title,
-    status: roleStatusLabel(role),
-    meta: role.detail,
-    icon: role.entitlementId ? "check" : "brain",
-    action: {
-      label: "授权",
-      title: "在主对话中授权该岗位。",
-      onClick: () => state.useAicsMarketplaceRole(role),
-    },
-  }));
+  const items: MainSystemItem[] = roles.slice(0, 12).map((role) => {
+    const status = roleStatusLabel(role);
+    const canUseRole = Boolean(role.entitlementId) || status === "已授权" || status === "已安装";
+    return {
+      title: role.title,
+      status,
+      meta: role.detail,
+      icon: canUseRole ? "check" : "brain",
+      action: {
+        label: canUseRole ? "使用" : "授权",
+        title: canUseRole ? "在主对话中使用该岗位。" : "在云端岗位商城授权该岗位。",
+        onClick: () => state.useAicsMarketplaceRole(role),
+      },
+    };
+  });
 
   return renderMainSystemShell({
     title: "我的岗位",
@@ -536,7 +540,7 @@ function renderMyRolesProductPage(state: AppViewState, onNavigate: (tab: Tab) =>
     error: state.aicsMarketplace.error,
     emptyLabel: "暂无岗位",
     metrics: [
-      { label: "已同步授权", value: roles.length, title: "已同步到本机的岗位授权。" },
+      { label: "已安装", value: roles.length, title: "已安装并同步到本机的岗位授权。" },
       { label: "已授权", value: authorized.length, title: "已购买或已授权的岗位。" },
       { label: "可更新", value: updatable.length, title: "存在新版本的岗位。" },
       { label: "岗位列表", value: roles.length, title: "本机可调度的岗位列表。" },
@@ -571,7 +575,7 @@ function renderRoleMarketplaceProductPage(state: AppViewState, onNavigate: (tab:
         value: "通用",
         title: "使用同一迭界AI账号访问本地端、使用者中心、开发者中心和岗位商城。",
       },
-      { label: "已同步授权", value: syncedRoles, title: "当前账号已同步到本机的岗位授权。" },
+      { label: "已安装", value: syncedRoles, title: "当前账号已安装并同步到本机的岗位授权。" },
     ],
     items: [
       { title: "打开岗位商城", status: "同一账号", icon: "externalLink" },
@@ -583,8 +587,8 @@ function renderRoleMarketplaceProductPage(state: AppViewState, onNavigate: (tab:
     ],
     actions: [
       {
-        label: "打开商城",
-        title: "打开岗位商城，使用同一迭界AI账号继续浏览或授权岗位。",
+        label: "打开云端",
+        title: "打开云端岗位商城，使用同一迭界AI账号继续浏览或授权岗位。",
         icon: "externalLink",
         onClick: () =>
           window.open(BUYER_STOREFRONT_URL, EXTERNAL_LINK_TARGET, "noopener,noreferrer"),

@@ -236,6 +236,24 @@ function toAicsUserErrorMessage(value: unknown, fallback: string): string {
   if (!text) {
     return fallback;
   }
+  const normalized = text.replaceAll("_", "").toLowerCase();
+  if (
+    normalized.includes("notauthorized") ||
+    normalized.includes("not authorized") ||
+    normalized.includes("unauthorized")
+  ) {
+    return "当前迭界AI账号没有这个岗位的有效授权。";
+  }
+  if (
+    normalized.includes("cloudaccesstoken") ||
+    normalized.includes("cloud access token") ||
+    normalized.includes("bearer token")
+  ) {
+    return "Gateway 后端没有可用的迭界AI账号凭证，暂时不能连接云端岗位商城。";
+  }
+  if (normalized.includes("cloudbaseurl") || normalized.includes("cloud base url")) {
+    return "Gateway 后端没有配置迭界AI云端地址，暂时不能连接岗位商城。";
+  }
   return /[A-Za-z_]/.test(text) ? fallback : text;
 }
 
@@ -1154,23 +1172,16 @@ export class OpenClawApp extends LitElement {
     }
 
     const cloudAccessToken = this.aicsRoleBuilder.form.cloudAccessToken.trim();
-    if (!cloudAccessToken) {
-      this.aicsMarketplace = {
-        ...this.aicsMarketplace,
-        error: "当前本地端还没有可用的迭界AI账号会话，暂时不能同步已授权岗位。",
-      };
-      return;
-    }
-
     this.aicsMarketplace = {
       ...this.aicsMarketplace,
       loading: true,
       error: null,
     };
     try {
-      const payload: Record<string, unknown> = {
-        cloud_access_token: cloudAccessToken,
-      };
+      const payload: Record<string, unknown> = {};
+      if (cloudAccessToken) {
+        payload.cloud_access_token = cloudAccessToken;
+      }
       if (this.aicsRoleBuilder.form.workspaceRef.trim()) {
         payload.workspace_ref = this.aicsRoleBuilder.form.workspaceRef.trim();
       }
@@ -1190,7 +1201,7 @@ export class OpenClawApp extends LitElement {
           resultRecord.ok === false
             ? toAicsUserErrorMessage(
                 resultRecord.error ?? resultRecord.summary,
-                "岗位同步失败，请检查同一迭界AI账号的登录状态。",
+                "岗位同步失败，请检查本机 Gateway 的迭界AI账号配置。",
               )
             : roles.length > 0
               ? null
@@ -1202,7 +1213,7 @@ export class OpenClawApp extends LitElement {
         loading: false,
         error: toAicsUserErrorMessage(
           error instanceof Error ? error.message : String(error),
-          "岗位同步失败，请检查同一迭界AI账号的登录状态。",
+          "岗位同步失败，请检查本机 Gateway 的迭界AI账号配置。",
         ),
       };
     }
@@ -1222,7 +1233,6 @@ export class OpenClawApp extends LitElement {
 
     const form = this.aicsRoleBuilder.form;
     const requiredFields: Array<[keyof AicsRoleBuilderForm, string]> = [
-      ["cloudAccessToken", "账号授权凭证不能为空；需要当前迭界AI账号对应的岗位授权。"],
       ["roleListingId", "岗位编号不能为空。"],
       ["entitlementId", "授权编号不能为空。"],
       ["deviceId", "设备编号不能为空。"],
@@ -1245,14 +1255,18 @@ export class OpenClawApp extends LitElement {
       error: null,
     };
     try {
-      const result = await this.client.request("dijie.executionToken.request", {
-        cloud_access_token: form.cloudAccessToken.trim(),
+      const cloudAccessToken = form.cloudAccessToken.trim();
+      const payload: Record<string, unknown> = {
         role_listing_id: form.roleListingId.trim(),
         entitlement_id: form.entitlementId.trim(),
         device_id: form.deviceId.trim(),
         workspace_ref: form.workspaceRef.trim(),
         local_gateway_id: form.localGatewayId.trim(),
-      });
+      };
+      if (cloudAccessToken) {
+        payload.cloud_access_token = cloudAccessToken;
+      }
+      const result = await this.client.request("dijie.executionToken.request", payload);
       const resultRecord =
         result && typeof result === "object" ? (result as Record<string, unknown>) : {};
       const grant =
@@ -1261,7 +1275,7 @@ export class OpenClawApp extends LitElement {
           : {};
       const executionToken = typeof grant.token === "string" ? grant.token : "";
       const executionId = typeof grant.executionId === "string" ? grant.executionId : "";
-      const safeResult = redactAicsCloudAccessTokenValue(result, form.cloudAccessToken.trim());
+      const safeResult = redactAicsCloudAccessTokenValue(result, cloudAccessToken);
       this.aicsRoleBuilder = {
         ...this.aicsRoleBuilder,
         tokenRunning: false,
@@ -1314,13 +1328,6 @@ export class OpenClawApp extends LitElement {
     const form = this.aicsRoleBuilder.form;
     const cloudAccessToken = form.cloudAccessToken.trim();
     const executionId = form.executionId.trim();
-    if (!cloudAccessToken) {
-      this.aicsRoleBuilder = {
-        ...this.aicsRoleBuilder,
-        error: "账号授权凭证不能为空；需要当前迭界AI账号对应的岗位授权。",
-      };
-      return;
-    }
     if (!executionId) {
       this.aicsRoleBuilder = {
         ...this.aicsRoleBuilder,
@@ -1335,10 +1342,13 @@ export class OpenClawApp extends LitElement {
       error: null,
     };
     try {
-      const result = await this.client.request("dijie.executionAudit.read", {
-        cloud_access_token: cloudAccessToken,
+      const payload: Record<string, unknown> = {
         execution_id: executionId,
-      });
+      };
+      if (cloudAccessToken) {
+        payload.cloud_access_token = cloudAccessToken;
+      }
+      const result = await this.client.request("dijie.executionAudit.read", payload);
       const safeResult = redactAicsCloudAccessTokenValue(result, cloudAccessToken);
       const resultRecord =
         safeResult && typeof safeResult === "object" ? (safeResult as { ok?: unknown }) : {};

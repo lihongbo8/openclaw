@@ -442,11 +442,13 @@ const RoleTaskRunParamsSchema = Type.Object(
 
 const ExecutionTokenRequestParamsSchema = Type.Object(
   {
-    cloud_access_token: Type.String({
-      minLength: 1,
-      description:
-        "Transient Dijie cloud customer bearer token. Used only for this request and never persisted.",
-    }),
+    cloud_access_token: Type.Optional(
+      Type.String({
+        minLength: 1,
+        description:
+          "Optional transient Dijie cloud customer bearer token. If omitted, the backend-only plugin cloudAccessToken is used.",
+      }),
+    ),
     role_listing_id: Type.String({ minLength: 1 }),
     entitlement_id: Type.String({ minLength: 1 }),
     device_id: Type.String({ minLength: 1 }),
@@ -458,11 +460,13 @@ const ExecutionTokenRequestParamsSchema = Type.Object(
 
 const ExecutionAuditReadParamsSchema = Type.Object(
   {
-    cloud_access_token: Type.String({
-      minLength: 1,
-      description:
-        "Transient Dijie cloud customer bearer token. Used only for this audit read request and never persisted.",
-    }),
+    cloud_access_token: Type.Optional(
+      Type.String({
+        minLength: 1,
+        description:
+          "Optional transient Dijie cloud customer bearer token. If omitted, the backend-only plugin cloudAccessToken is used.",
+      }),
+    ),
     execution_id: Type.String({ minLength: 1 }),
   },
   { additionalProperties: false },
@@ -470,11 +474,13 @@ const ExecutionAuditReadParamsSchema = Type.Object(
 
 const MarketplaceInstalledRolesParamsSchema = Type.Object(
   {
-    cloud_access_token: Type.String({
-      minLength: 1,
-      description:
-        "Transient Dijie cloud customer bearer token. Used only for this installed-role read request and never persisted.",
-    }),
+    cloud_access_token: Type.Optional(
+      Type.String({
+        minLength: 1,
+        description:
+          "Optional transient Dijie cloud customer bearer token. If omitted, the backend-only plugin cloudAccessToken is used.",
+      }),
+    ),
     workspace_ref: Type.Optional(Type.String({ minLength: 1 })),
     device_id: Type.Optional(Type.String({ minLength: 1 })),
   },
@@ -519,7 +525,17 @@ function isRoleTokenPricing(value: unknown): value is DijieRoleTokenPricing {
 }
 
 function readPluginConfig(raw: unknown): AicsConfig {
-  const record = asRecord(raw);
+  const pluginRecord = asRecord(raw);
+  const record =
+    pluginRecord.config &&
+    typeof pluginRecord.config === "object" &&
+    !Array.isArray(pluginRecord.config)
+      ? asRecord(pluginRecord.config)
+      : pluginRecord;
+  const cloudBaseUrl =
+    typeof record.cloudBaseUrl === "string" && record.cloudBaseUrl.trim()
+      ? record.cloudBaseUrl.trim()
+      : readEnv(["DIJIE_CLOUD_BASE_URL", "OPENCLAW_DIJIE_CLOUD_BASE_URL"]);
   const repoRoot =
     typeof record.repoRoot === "string" && record.repoRoot.trim()
       ? record.repoRoot
@@ -582,8 +598,8 @@ function readPluginConfig(raw: unknown): AicsConfig {
   const cloudExecutionTokenUrl =
     typeof record.cloudExecutionTokenUrl === "string" && record.cloudExecutionTokenUrl.trim()
       ? record.cloudExecutionTokenUrl.trim()
-      : typeof record.cloudBaseUrl === "string" && record.cloudBaseUrl.trim()
-        ? new URL(cloudExecutionTokenPath, record.cloudBaseUrl).toString()
+      : cloudBaseUrl
+        ? new URL(cloudExecutionTokenPath, cloudBaseUrl).toString()
         : undefined;
   const cloudExecutionReadPath =
     typeof record.cloudExecutionReadPath === "string" && record.cloudExecutionReadPath.trim()
@@ -592,8 +608,8 @@ function readPluginConfig(raw: unknown): AicsConfig {
   const cloudExecutionReadUrl =
     typeof record.cloudExecutionReadUrl === "string" && record.cloudExecutionReadUrl.trim()
       ? record.cloudExecutionReadUrl.trim()
-      : typeof record.cloudBaseUrl === "string" && record.cloudBaseUrl.trim()
-        ? new URL(cloudExecutionReadPath, record.cloudBaseUrl).toString()
+      : cloudBaseUrl
+        ? new URL(cloudExecutionReadPath, cloudBaseUrl).toString()
         : undefined;
   const cloudMarketplaceInstalledRolesPath =
     typeof record.cloudMarketplaceInstalledRolesPath === "string" &&
@@ -604,8 +620,8 @@ function readPluginConfig(raw: unknown): AicsConfig {
     typeof record.cloudMarketplaceInstalledRolesUrl === "string" &&
     record.cloudMarketplaceInstalledRolesUrl.trim()
       ? record.cloudMarketplaceInstalledRolesUrl.trim()
-      : typeof record.cloudBaseUrl === "string" && record.cloudBaseUrl.trim()
-        ? new URL(cloudMarketplaceInstalledRolesPath, record.cloudBaseUrl).toString()
+      : cloudBaseUrl
+        ? new URL(cloudMarketplaceInstalledRolesPath, cloudBaseUrl).toString()
         : undefined;
   const cloudAuditPath =
     typeof record.cloudAuditPath === "string" && record.cloudAuditPath.trim()
@@ -614,8 +630,8 @@ function readPluginConfig(raw: unknown): AicsConfig {
   const cloudAuditUrl =
     typeof record.cloudAuditUrl === "string" && record.cloudAuditUrl.trim()
       ? record.cloudAuditUrl.trim()
-      : typeof record.cloudBaseUrl === "string" && record.cloudBaseUrl.trim()
-        ? new URL(cloudAuditPath, record.cloudBaseUrl).toString()
+      : cloudBaseUrl
+        ? new URL(cloudAuditPath, cloudBaseUrl).toString()
         : undefined;
   const cloudAuditUploadRequired =
     record.cloudAuditUploadRequired === true || record.auditUploadRequired === true;
@@ -626,25 +642,25 @@ function readPluginConfig(raw: unknown): AicsConfig {
   const cloudAccessToken =
     typeof record.cloudAccessToken === "string" && record.cloudAccessToken.trim()
       ? record.cloudAccessToken.trim()
-      : undefined;
+      : readEnv(["DIJIE_CLOUD_ACCESS_TOKEN", "OPENCLAW_DIJIE_CLOUD_ACCESS_TOKEN"]);
   const defaultDeviceId =
     typeof record.defaultDeviceId === "string" && record.defaultDeviceId.trim()
       ? record.defaultDeviceId.trim()
       : typeof record.deviceId === "string" && record.deviceId.trim()
         ? record.deviceId.trim()
-        : undefined;
+        : readEnv(["DIJIE_DEVICE_ID", "OPENCLAW_DIJIE_DEVICE_ID"]);
   const defaultWorkspaceRef =
     typeof record.defaultWorkspaceRef === "string" && record.defaultWorkspaceRef.trim()
       ? record.defaultWorkspaceRef.trim()
       : typeof record.workspaceRef === "string" && record.workspaceRef.trim()
         ? record.workspaceRef.trim()
-        : undefined;
+        : readEnv(["DIJIE_WORKSPACE_REF", "OPENCLAW_DIJIE_WORKSPACE_REF"]);
   const defaultLocalGatewayId =
     typeof record.defaultLocalGatewayId === "string" && record.defaultLocalGatewayId.trim()
       ? record.defaultLocalGatewayId.trim()
       : typeof record.localGatewayId === "string" && record.localGatewayId.trim()
         ? record.localGatewayId.trim()
-        : undefined;
+        : readEnv(["DIJIE_LOCAL_GATEWAY_ID", "OPENCLAW_DIJIE_LOCAL_GATEWAY_ID"]);
 
   return {
     repoRoot: path.resolve(repoRoot),
@@ -675,6 +691,16 @@ function readPluginConfig(raw: unknown): AicsConfig {
 function stringField(record: Record<string, unknown>, field: string): string | undefined {
   const value = record[field];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function readEnv(names: string[]): string | undefined {
+  for (const name of names) {
+    const value = process.env[name]?.trim();
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
 }
 
 function preflightError(error: string, code: string) {
@@ -779,6 +805,18 @@ function requireStringParam(
     throw new Error(message);
   }
   return value;
+}
+
+function resolveCloudAccessTokenParam(
+  config: AicsConfig,
+  params: Record<string, unknown>,
+  message: string,
+): string {
+  const cloudAccessToken = stringField(params, "cloud_access_token") ?? config.cloudAccessToken;
+  if (!cloudAccessToken) {
+    throw new Error(message);
+  }
+  return cloudAccessToken;
 }
 
 function buildPreflightParams(params: Record<string, unknown>) {
@@ -2900,10 +2938,10 @@ function createExecutionTokenRequestTool(config: AicsConfig): AnyAgentTool {
       if (typeof globalThis.fetch !== "function") {
         throw new Error("global fetch is unavailable for Dijie execution token requests.");
       }
-      const cloudAccessToken = requireStringParam(
+      const cloudAccessToken = resolveCloudAccessTokenParam(
+        config,
         params,
-        "cloud_access_token",
-        "cloud_access_token is required for Dijie execution token requests",
+        "cloud_access_token or backend aics.cloudAccessToken is required for Dijie execution token requests",
       );
       const requestBody = {
         roleListingId: requireStringParam(params, "role_listing_id"),
@@ -3011,10 +3049,10 @@ function createExecutionAuditReadTool(config: AicsConfig): AnyAgentTool {
       if (typeof globalThis.fetch !== "function") {
         throw new Error("global fetch is unavailable for Dijie execution audit reads.");
       }
-      const cloudAccessToken = requireStringParam(
+      const cloudAccessToken = resolveCloudAccessTokenParam(
+        config,
         params,
-        "cloud_access_token",
-        "cloud_access_token is required for Dijie execution audit reads",
+        "cloud_access_token or backend aics.cloudAccessToken is required for Dijie execution audit reads",
       );
       const executionId = requireStringParam(params, "execution_id");
 
@@ -3086,10 +3124,10 @@ function createMarketplaceInstalledRolesTool(config: AicsConfig): AnyAgentTool {
       if (typeof globalThis.fetch !== "function") {
         throw new Error("global fetch is unavailable for Dijie installed role reads.");
       }
-      const cloudAccessToken = requireStringParam(
+      const cloudAccessToken = resolveCloudAccessTokenParam(
+        config,
         params,
-        "cloud_access_token",
-        "cloud_access_token is required for Dijie installed role reads",
+        "cloud_access_token or backend aics.cloudAccessToken is required for Dijie installed role reads",
       );
 
       let response: Response;

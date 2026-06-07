@@ -240,6 +240,52 @@ describe("control UI routing", () => {
     expect(JSON.stringify(app.aicsMarketplace.result)).not.toContain("cloud_customer_token");
   });
 
+  it("syncs installed marketplace roles through the Gateway backend account when no token is visible", async () => {
+    const app = mountApp("/aics");
+    const request = vi.fn(async () => ({
+      ok: true,
+      roles: [
+        {
+          entitlementId: "djent_smart_lock",
+          role: {
+            id: "djrole_smart_lock",
+            title: "智能门锁电商美工岗位",
+            description: "检查智能门锁电商主图和视觉卖点。",
+            listingStatus: "published",
+          },
+        },
+      ],
+    }));
+    app.client = { request, stop: vi.fn() } as never;
+    app.connected = true;
+    fillAicsRoleBuilderRequiredFields(app, { cloudAccessToken: "" });
+    await app.updateComplete;
+
+    await app.refreshAicsMarketplaceRoles();
+    await app.updateComplete;
+    await nextFrame();
+    await app.updateComplete;
+
+    expect(request).toHaveBeenCalledWith("dijie.marketplace.roles.list", {
+      workspace_ref: "workspace_123",
+      device_id: "device_123",
+    });
+    expect(app.aicsMarketplace.error).toBeNull();
+    expect(app.aicsMarketplace.roles).toEqual([
+      {
+        id: "djrole_smart_lock",
+        title: "智能门锁电商美工岗位",
+        detail: "检查智能门锁电商主图和视觉卖点。",
+        status: "published",
+        roleListingId: "djrole_smart_lock",
+        entitlementId: "djent_smart_lock",
+      },
+    ]);
+    expect(expectElement(app, ".main-system-shell", HTMLElement).textContent).toContain(
+      "智能门锁电商美工岗位",
+    );
+  });
+
   it("renders marketplace as a local role-category page", async () => {
     const app = mountApp("/marketplace");
     app.aicsMarketplace = {
@@ -439,9 +485,12 @@ describe("control UI routing", () => {
     expect(secondPayload?.aicsContext).toBeUndefined();
   });
 
-  it("fails marketplace role sync clearly before RPC when cloud auth is missing", async () => {
+  it("sends marketplace role sync through the Gateway backend account when cloud auth is hidden", async () => {
     const app = mountApp("/aics");
-    const request = vi.fn(async () => ({ ok: true }));
+    const request = vi.fn(async () => ({
+      ok: false,
+      error: "backend aics.cloudAccessToken is required",
+    }));
     app.client = { request, stop: vi.fn() } as never;
     app.connected = true;
     fillAicsRoleBuilderRequiredFields(app, { cloudAccessToken: "" });
@@ -450,8 +499,13 @@ describe("control UI routing", () => {
     await app.refreshAicsMarketplaceRoles();
     await app.updateComplete;
 
-    expect(request).not.toHaveBeenCalled();
-    expect(app.aicsMarketplace.error).toContain("当前本地端还没有可用的迭界AI账号会话");
+    expect(request).toHaveBeenCalledWith("dijie.marketplace.roles.list", {
+      workspace_ref: "workspace_123",
+      device_id: "device_123",
+    });
+    expect(app.aicsMarketplace.error).toBe(
+      "Gateway 后端没有可用的迭界AI账号凭证，暂时不能连接云端岗位商城。",
+    );
     expect(app.aicsMarketplace.roles).toEqual([]);
   });
 
@@ -487,7 +541,7 @@ describe("control UI routing", () => {
     await app.updateComplete;
 
     expect(request).toHaveBeenCalledWith("dijie.marketplace.roles.list", expect.any(Object));
-    expect(app.aicsMarketplace.error).toBe("岗位同步失败，请检查同一迭界AI账号的登录状态。");
+    expect(app.aicsMarketplace.error).toBe("岗位同步失败，请检查本机 Gateway 的迭界AI账号配置。");
     expect(app.aicsMarketplace.roles).toEqual([]);
   });
 
@@ -585,9 +639,16 @@ describe("control UI routing", () => {
     expect(JSON.stringify(app.aicsRoleBuilder.result)).not.toContain("cloud_customer_token");
   });
 
-  it("fails the AICS execution-token request before RPC when the cloud bearer is missing", async () => {
+  it("requests an AICS execution token through the Gateway backend account when cloud auth is hidden", async () => {
     const app = mountApp("/aics");
-    const request = vi.fn(async () => ({ ok: true }));
+    const request = vi.fn(async () => ({
+      ok: true,
+      summary: "issued",
+      grant: {
+        executionId: "exec_backend_123",
+        token: "backend_short_lived_execution_token",
+      },
+    }));
     app.client = { request, stop: vi.fn() } as never;
     app.connected = true;
     fillAicsRoleBuilderRequiredFields(app, {
@@ -598,8 +659,16 @@ describe("control UI routing", () => {
     await app.requestAicsExecutionToken();
     await app.updateComplete;
 
-    expect(request).not.toHaveBeenCalled();
-    expect(app.aicsRoleBuilder.error).toContain("云端授权凭证不能为空");
+    expect(request).toHaveBeenCalledWith("dijie.executionToken.request", {
+      role_listing_id: "role_123",
+      entitlement_id: "ent_123",
+      device_id: "device_123",
+      workspace_ref: "workspace_123",
+      local_gateway_id: "gateway_123",
+    });
+    expect(app.aicsRoleBuilder.form.executionToken).toBe("backend_short_lived_execution_token");
+    expect(app.aicsRoleBuilder.form.executionId).toBe("exec_backend_123");
+    expect(app.aicsRoleBuilder.error).toBeNull();
   });
 
   it("reads an AICS execution audit through Gateway without storing the cloud bearer in result", async () => {
@@ -652,9 +721,15 @@ describe("control UI routing", () => {
     expect(app.aicsRoleBuilder.error).toContain("执行编号不能为空");
   });
 
-  it("fails the AICS execution audit read before RPC when the cloud bearer is missing", async () => {
+  it("reads an AICS execution audit through the Gateway backend account when cloud auth is hidden", async () => {
     const app = mountApp("/aics");
-    const request = vi.fn(async () => ({ ok: true }));
+    const request = vi.fn(async () => ({
+      ok: true,
+      execution: {
+        executionId: "exec_123",
+        status: "completed",
+      },
+    }));
     app.client = { request, stop: vi.fn() } as never;
     app.connected = true;
     fillAicsRoleBuilderRequiredFields(app, { cloudAccessToken: "" });
@@ -662,8 +737,17 @@ describe("control UI routing", () => {
     await app.readAicsExecutionAudit();
     await app.updateComplete;
 
-    expect(request).not.toHaveBeenCalled();
-    expect(app.aicsRoleBuilder.error).toContain("云端授权凭证不能为空");
+    expect(request).toHaveBeenCalledWith("dijie.executionAudit.read", {
+      execution_id: "exec_123",
+    });
+    expect(app.aicsRoleBuilder.error).toBeNull();
+    expect(app.aicsRoleBuilder.result).toMatchObject({
+      ok: true,
+      execution: {
+        executionId: "exec_123",
+        status: "completed",
+      },
+    });
   });
 
   it("fails the AICS execution audit read when Gateway is disconnected", async () => {
@@ -696,7 +780,7 @@ describe("control UI routing", () => {
     await app.updateComplete;
 
     expect(request).toHaveBeenCalledWith("dijie.executionAudit.read", expect.any(Object));
-    expect(app.aicsRoleBuilder.error).toBe("审计记录查询失败。");
+    expect(app.aicsRoleBuilder.error).toBe("当前迭界AI账号没有这个岗位的有效授权。");
     expect(JSON.stringify(app.aicsRoleBuilder.result)).not.toContain("cloud_customer_token");
   });
 

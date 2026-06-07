@@ -305,6 +305,7 @@ function registerRoleBuilder(
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   globalThis.fetch = originalFetch;
 });
 
@@ -1143,6 +1144,187 @@ describe("Dijie execution preflight", () => {
       ],
     });
     expect(JSON.stringify(response)).not.toContain("cloud_customer_token");
+  });
+
+  it("lists installed marketplace roles with the backend cloud access token when the UI omits it", async () => {
+    const registerGatewayMethod = vi.fn();
+    const registerTool = vi.fn();
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(init?.method).toBe("GET");
+      expect(init?.headers).toMatchObject({
+        authorization: "Bearer backend_cloud_customer_token",
+        accept: "application/json",
+      });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          roles: [
+            {
+              id: "djrole_smart_lock",
+              title: "智能门锁电商美工岗位",
+              note: "backend_cloud_customer_token must be redacted if echoed",
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    plugin.register({
+      pluginConfig: {
+        cloudBaseUrl: "https://dijie-cloud.test",
+        cloudAccessToken: "backend_cloud_customer_token",
+      },
+      registerGatewayMethod,
+      registerTool,
+    } as never);
+
+    const handler = registerGatewayMethod.mock.calls.find(
+      (call) => call[0] === "dijie.marketplace.roles.list",
+    )?.[1];
+    const response = await handler({
+      params: {
+        workspace_ref: "workspace_123",
+        device_id: "device_123",
+      },
+      respond: vi.fn(),
+    });
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "https://dijie-cloud.test/dijie/my-roles?workspaceRef=workspace_123&deviceId=device_123",
+    );
+    expect(response).toMatchObject({
+      ok: true,
+      summary: "迭界AI marketplace installed roles read completed",
+      source: "cloud",
+      roles: [
+        {
+          id: "djrole_smart_lock",
+          title: "智能门锁电商美工岗位",
+          note: "[redacted_cloud_access_token] must be redacted if echoed",
+        },
+      ],
+    });
+    expect(JSON.stringify(response)).not.toContain("backend_cloud_customer_token");
+  });
+
+  it("reads backend cloud credentials from the real nested plugin config shape", async () => {
+    const registerGatewayMethod = vi.fn();
+    const registerTool = vi.fn();
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(init?.method).toBe("GET");
+      expect(init?.headers).toMatchObject({
+        authorization: "Bearer nested_backend_cloud_customer_token",
+        accept: "application/json",
+      });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          roles: [
+            {
+              id: "djrole_smart_lock",
+              title: "智能门锁电商美工岗位",
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    plugin.register({
+      pluginConfig: {
+        enabled: true,
+        config: {
+          cloudBaseUrl: "https://dijie-cloud.test",
+          cloudAccessToken: "nested_backend_cloud_customer_token",
+        },
+      },
+      registerGatewayMethod,
+      registerTool,
+    } as never);
+
+    const handler = registerGatewayMethod.mock.calls.find(
+      (call) => call[0] === "dijie.marketplace.roles.list",
+    )?.[1];
+    const response = await handler({
+      params: {},
+      respond: vi.fn(),
+    });
+
+    expect(fetchMock.mock.calls[0][0]).toBe("https://dijie-cloud.test/dijie/my-roles");
+    expect(response).toMatchObject({
+      ok: true,
+      roles: [
+        {
+          id: "djrole_smart_lock",
+          title: "智能门锁电商美工岗位",
+        },
+      ],
+    });
+    expect(JSON.stringify(response)).not.toContain("nested_backend_cloud_customer_token");
+  });
+
+  it("lists installed marketplace roles from the shared AICS cloud environment when plugin config omits cloud credentials", async () => {
+    vi.stubEnv("OPENCLAW_DIJIE_CLOUD_BASE_URL", "https://dijie-env-cloud.test");
+    vi.stubEnv("OPENCLAW_DIJIE_CLOUD_ACCESS_TOKEN", "env_cloud_customer_token");
+    const registerGatewayMethod = vi.fn();
+    const registerTool = vi.fn();
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(init?.method).toBe("GET");
+      expect(init?.headers).toMatchObject({
+        authorization: "Bearer env_cloud_customer_token",
+        accept: "application/json",
+      });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          roles: [
+            {
+              id: "djrole_smart_lock",
+              title: "智能门锁电商美工岗位",
+              note: "env_cloud_customer_token must be redacted if echoed",
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    plugin.register({
+      pluginConfig: {},
+      registerGatewayMethod,
+      registerTool,
+    } as never);
+
+    const handler = registerGatewayMethod.mock.calls.find(
+      (call) => call[0] === "dijie.marketplace.roles.list",
+    )?.[1];
+    const response = await handler({
+      params: {
+        workspace_ref: "workspace_123",
+        device_id: "device_123",
+      },
+      respond: vi.fn(),
+    });
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "https://dijie-env-cloud.test/dijie/my-roles?workspaceRef=workspace_123&deviceId=device_123",
+    );
+    expect(response).toMatchObject({
+      ok: true,
+      source: "cloud",
+      roles: [
+        {
+          id: "djrole_smart_lock",
+          title: "智能门锁电商美工岗位",
+          note: "[redacted_cloud_access_token] must be redacted if echoed",
+        },
+      ],
+    });
+    expect(JSON.stringify(response)).not.toContain("env_cloud_customer_token");
   });
 
   it("fails marketplace role listing clearly when the marketplace URL is not configured", async () => {
