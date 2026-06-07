@@ -420,14 +420,23 @@ function estimateModelProxyUsage(taskText: string): DijieModelProxyUsage {
   };
 }
 
-function createRoleExecutionArtifacts(summary: string): DijieRoleArtifact[] {
-  const sha256 = createHash("sha256").update(summary).digest("hex");
+function isDesignRoleTask(value: string): boolean {
+  return /美工|设计|主图|详情页|商品图|图片|电商/u.test(value);
+}
+
+function createRoleExecutionArtifacts(params: {
+  summary: string;
+  roleTitle: string;
+  taskText: string;
+}): DijieRoleArtifact[] {
+  const designTask = isDesignRoleTask(`${params.roleTitle}\n${params.taskText}\n${params.summary}`);
+  const sha256 = createHash("sha256").update(params.summary).digest("hex");
   return [
     {
       id: `artifact_${sha256.slice(0, 16)}`,
-      type: "role_execution_summary",
-      title: "AICS role execution summary",
-      sizeBytes: Buffer.byteLength(summary),
+      type: designTask ? "design_plan_text" : "role_execution_summary",
+      title: designTask ? "电商设计方案文本" : "AICS role execution summary",
+      sizeBytes: Buffer.byteLength(params.summary),
       sha256,
     },
   ];
@@ -443,6 +452,9 @@ function runLocalRoleExecutor(params: {
   const summary = [
     `岗位「${params.role.title}」已在本地 OpenClaw 执行。`,
     `任务：${params.taskText}`,
+    ...(isDesignRoleTask(`${params.role.title}\n${params.taskText}`)
+      ? ["已生成可审计的电商设计方案文本 artifact，供使用者中心回读。"]
+      : []),
     "执行结果已形成 RoleResult，并将随 AuditSummary 回写云端。",
   ].join("\n");
   const modelProxyUsage = estimateModelProxyUsage(params.taskText);
@@ -461,7 +473,11 @@ function runLocalRoleExecutor(params: {
     modelProxyUsage,
     summary,
     changedFiles: [],
-    artifacts: createRoleExecutionArtifacts(summary),
+    artifacts: createRoleExecutionArtifacts({
+      summary,
+      roleTitle: params.role.title,
+      taskText: params.taskText,
+    }),
   };
   return {
     result,

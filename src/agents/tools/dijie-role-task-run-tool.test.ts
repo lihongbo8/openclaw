@@ -206,6 +206,12 @@ describe("dijie_role_task_run tool", () => {
         ok: true,
       },
     });
+    expect(result.details.auditSummary.result.artifacts).toMatchObject([
+      {
+        type: "design_plan_text",
+        title: "电商设计方案文本",
+      },
+    ]);
     expect(requests.map((request) => `${request.method} ${new URL(request.url).pathname}`)).toEqual(
       [
         "GET /dijie/gateway/roles/read-model",
