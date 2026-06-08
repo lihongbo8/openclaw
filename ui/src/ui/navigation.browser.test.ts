@@ -286,6 +286,64 @@ describe("control UI routing", () => {
     );
   });
 
+  it("syncs installed marketplace roles from gateway read-model shaped responses", async () => {
+    const app = mountApp("/workboard");
+    const request = vi.fn(async () => ({
+      ok: true,
+      readModel: {
+        roles: [
+          {
+            roleListingId: "djrole_smart_lock",
+            title: "智能门锁电商美工岗位",
+            subtitle: "检查智能门锁电商主图和视觉卖点。",
+            reviewSignal: { listingStatus: "published", reviewState: "approved" },
+            entitlement: {
+              id: "djent_smart_lock",
+              status: "authorized",
+              source: "checkout",
+              authorizedAt: "2026-06-08T00:00:00.000Z",
+            },
+          },
+        ],
+      },
+    }));
+    app.client = { request, stop: vi.fn() } as never;
+    app.connected = true;
+    fillAicsRoleBuilderRequiredFields(app, { cloudAccessToken: "" });
+    await app.updateComplete;
+
+    await app.refreshAicsMarketplaceRoles();
+    await app.updateComplete;
+    await nextFrame();
+    await app.updateComplete;
+
+    expect(app.aicsMarketplace.error).toBeNull();
+    expect(app.aicsMarketplace.roles).toEqual([
+      {
+        id: "djrole_smart_lock",
+        title: "智能门锁电商美工岗位",
+        detail: "检查智能门锁电商主图和视觉卖点。",
+        status: "published",
+        roleListingId: "djrole_smart_lock",
+        entitlementId: "djent_smart_lock",
+      },
+    ]);
+    const text = app.textContent ?? "";
+    expect(text).toContain("云端授权已同步");
+    expect(text).toMatch(/已授权岗位\s+1/u);
+  });
+
+  it("does not show cloud authorization as synced before marketplace sync runs", async () => {
+    const app = mountApp("/workboard");
+    app.connected = true;
+    await app.updateComplete;
+
+    const text = app.textContent ?? "";
+    expect(text).toContain("待同步");
+    expect(text).toMatch(/已授权岗位\s+0/u);
+    expect(text).not.toContain("云端授权已同步");
+  });
+
   it("renders marketplace as a local role-category page", async () => {
     const app = mountApp("/marketplace");
     app.aicsMarketplace = {

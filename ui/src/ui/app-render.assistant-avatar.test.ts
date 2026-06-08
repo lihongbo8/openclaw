@@ -577,6 +577,66 @@ describe("renderApp assistant avatar routing", () => {
     confirm.mockRestore();
   });
 
+  it("hides a protected current sidebar recent session instead of deleting it", () => {
+    const container = document.createElement("div");
+    const request = vi.fn(async (method: string) => {
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const applySettings = vi.fn();
+    const state = createState({
+      tab: "chat",
+      sessionKey: "agent:work:dashboard:new",
+      assistantAgentId: "work",
+      client: { request } as unknown as AppViewState["client"],
+      applySettings,
+      sessionsLoading: false,
+      sessionsError: null,
+      sessionsFilterActive: "0",
+      sessionsFilterLimit: "50",
+      sessionsIncludeGlobal: true,
+      sessionsIncludeUnknown: true,
+      sessionsShowArchived: false,
+      sessionsExpandedCheckpointKey: null,
+      sessionsCheckpointItemsByKey: {},
+      sessionsCheckpointLoadingKey: null,
+      sessionsCheckpointBusyKey: null,
+      sessionsCheckpointErrorByKey: {},
+      agentsList: {
+        defaultId: "main",
+        agents: [{ id: "work", name: "Work" }],
+      } as AppViewState["agentsList"],
+      sessionsResult: {
+        ts: 0,
+        path: "",
+        count: 1,
+        defaults: { modelProvider: null, model: null, contextTokens: null },
+        sessions: [
+          {
+            key: "agent:work:dashboard:new",
+            kind: "direct",
+            label: "Work new",
+            updatedAt: 20,
+          },
+        ],
+      } as AppViewState["sessionsResult"],
+    });
+    render(renderApp(state), container);
+    const deleteButton = container.querySelector<HTMLButtonElement>(
+      '[data-session-key="agent:work:dashboard:new"] .sidebar-recent-session__delete',
+    );
+    expect(deleteButton?.getAttribute("aria-label")).toContain("从最近会话隐藏");
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    deleteButton?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+
+    expect(request).not.toHaveBeenCalled();
+    expect(applySettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hiddenRecentSessionKeys: ["agent:work:dashboard:new"],
+      }),
+    );
+  });
+
   it("keeps legacy main sessions tied to the default agent when identity is stale", () => {
     const container = document.createElement("div");
 

@@ -37,7 +37,6 @@ import { resolveToolLoopDetectionConfig } from "./tool-loop-detection-config.js"
 import { createAgentsListTool } from "./tools/agents-list-tool.js";
 import type { AnyAgentTool } from "./tools/common.js";
 import { createCronTool } from "./tools/cron-tool.js";
-import { createDijieRoleTaskRunTool } from "./tools/dijie-role-task-run-tool.js";
 import { createEmbeddedCallGateway } from "./tools/embedded-gateway-stub.js";
 import { createGatewayTool } from "./tools/gateway-tool.js";
 import {
@@ -437,9 +436,6 @@ export function createOpenClawTools(
     createAgentsListTool({
       agentSessionKey: options?.agentSessionKey,
       requesterAgentIdOverride: options?.requesterAgentIdOverride,
-    }),
-    createDijieRoleTaskRunTool({
-      workspaceDir,
     }),
     createGetGoalTool({
       agentSessionKey: options?.agentSessionKey,

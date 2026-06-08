@@ -139,11 +139,13 @@ import { isCronSessionKey, resolveSessionDisplayName } from "./session-display.t
 import "./components/dashboard-header.ts";
 import {
   buildAgentMainSessionKey,
+  areUiSessionKeysEquivalent,
   isSessionKeyTiedToAgent,
   isSubagentSessionKey,
   normalizeAgentId,
   parseAgentSessionKey,
   resolveAgentIdFromSessionKey,
+  resolveUiConfiguredMainKey,
 } from "./session-key.ts";
 import { loadLocalAssistantIdentity } from "./storage.ts";
 import { normalizeStringEntries } from "./string-coerce.ts";
@@ -672,7 +674,9 @@ function renderRoleTasksProductPage(
     ? "同步中"
     : state.aicsMarketplace.error
       ? "同步异常"
-      : "云端授权已同步";
+      : state.aicsMarketplace.result
+        ? "云端授权已同步"
+        : "待同步";
   const workboardStatus = pluginEnabled
     ? hasOperatorWriteAccess(auth)
       ? "调度就绪"
@@ -1040,6 +1044,56 @@ function isSidebarSessionForSelectedAgent(
   return isSessionKeyTiedToAgent(row.key, selectedAgentId, resolveSidebarDefaultAgentId(state));
 }
 
+function isSidebarMainSessionKey(state: AppViewState, key: string): boolean {
+  const configuredMainKey = resolveUiConfiguredMainKey(state);
+  if (key.trim().toLowerCase() === configuredMainKey) {
+    return true;
+  }
+  const parsed = parseAgentSessionKey(key);
+  if (parsed) {
+    return (
+      normalizeAgentId(parsed.agentId) === resolveSidebarDefaultAgentId(state) &&
+      parsed.rest === configuredMainKey
+    );
+  }
+  return areUiSessionKeysEquivalent(
+    key,
+    buildAgentMainSessionKey({
+      agentId: resolveSidebarDefaultAgentId(state),
+      mainKey: configuredMainKey,
+    }),
+  );
+}
+
+function isSidebarProtectedRecentSession(state: AppViewState, key: string): boolean {
+  return areUiSessionKeysEquivalent(key, state.sessionKey) || isSidebarMainSessionKey(state, key);
+}
+
+function isSidebarRecentSessionHidden(state: AppViewState, key: string): boolean {
+  return (state.settings.hiddenRecentSessionKeys ?? []).some(
+    (hiddenKey) => hiddenKey === key || areUiSessionKeysEquivalent(hiddenKey, key),
+  );
+}
+
+function hideSidebarRecentSession(state: AppViewState, key: string, label: string): boolean {
+  const confirmed = window.confirm(
+    `从最近会话隐藏「${label}」？\n\n这是当前或主会话，OpenClaw 会保留对话记录，只从侧边栏最近会话列表移除。`,
+  );
+  if (!confirmed) {
+    return false;
+  }
+  const hidden = state.settings.hiddenRecentSessionKeys ?? [];
+  const nextHidden = [
+    key,
+    ...hidden.filter((hiddenKey) => !areUiSessionKeysEquivalent(hiddenKey, key)),
+  ].slice(0, 50);
+  state.applySettings({
+    ...state.settings,
+    hiddenRecentSessionKeys: nextHidden,
+  });
+  return true;
+}
+
 function resolveSidebarRecentSessions(state: AppViewState): GatewaySessionRow[] {
   const selectedAgentId = resolveSidebarSelectedAgentId(state);
   const shouldFilterByAgent =
@@ -1054,6 +1108,7 @@ function resolveSidebarRecentSessions(state: AppViewState): GatewaySessionRow[] 
         !isCronSessionKey(row.key) &&
         !isSubagentSessionKey(row.key) &&
         !row.spawnedBy &&
+        !isSidebarRecentSessionHidden(state, row.key) &&
         (!shouldFilterByAgent || isSidebarSessionForSelectedAgent(state, row, selectedAgentId)),
     )
     .toSorted((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
@@ -1141,6 +1196,7 @@ function renderSidebarRecentSession(state: AppViewState, row: GatewaySessionRow)
   const label = resolveSessionDisplayName(row.key, row);
   const meta = row.updatedAt ? formatRelativeTimestamp(row.updatedAt) : "n/a";
   const href = `${pathForTab("chat", state.basePath)}?session=${encodeURIComponent(row.key)}`;
+  const protectedRecentSession = isSidebarProtectedRecentSession(state, row.key);
   return html`
     <div
       class="sidebar-recent-session ${active ? "sidebar-recent-session--active" : ""}"
@@ -1193,12 +1249,16 @@ function renderSidebarRecentSession(state: AppViewState, row: GatewaySessionRow)
       <button
         class="sidebar-recent-session__delete"
         type="button"
-        title="删除对话记录"
-        aria-label=${`删除对话记录：${label}`}
+        title=${protectedRecentSession ? "从最近会话隐藏" : "删除对话记录"}
+        aria-label=${protectedRecentSession ? `从最近会话隐藏：${label}` : `删除对话记录：${label}`}
         ?disabled=${state.sessionsLoading}
         @click=${async (event: MouseEvent) => {
           event.preventDefault();
           event.stopPropagation();
+          if (protectedRecentSession) {
+            hideSidebarRecentSession(state, row.key, label);
+            return;
+          }
           const deleted = await deleteSessionsAndRefresh(state, [row.key]);
           if (deleted.includes(row.key) && row.key === state.sessionKey) {
             const nextSessionKey =

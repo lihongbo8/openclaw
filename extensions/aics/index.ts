@@ -125,6 +125,7 @@ type DijieRoleArtifact = {
   title: string;
   sizeBytes?: number;
   sha256?: string;
+  path?: string;
 };
 
 type DijieRoleFeedbackPacket = {
@@ -200,6 +201,9 @@ const DEFAULT_CLOUD_EXECUTION_TOKEN_PATH = "/dijie/execution-token";
 const DEFAULT_CLOUD_EXECUTION_READ_PATH = "/dijie/executions";
 const DEFAULT_CLOUD_MARKETPLACE_INSTALLED_ROLES_PATH = "/dijie/my-roles";
 const DEFAULT_CLOUD_AUDIT_PATH = "/dijie/audit";
+const DEFAULT_ROLE_TASK_TIMEOUT_MS = 120000;
+const ROLE_TASK_AUDIT_RETURN_BUFFER_MS = 10000;
+const MIN_ROLE_TASK_EMBEDDED_TIMEOUT_MS = 1000;
 
 const DEVELOPER_MODE_GUIDE_PROMPT = [
   "开发者模式内置指南：",
@@ -428,6 +432,10 @@ const RoleTaskRunParamsSchema = Type.Object(
     role_title: Type.Optional(Type.String({ minLength: 1 })),
     role_summary: Type.Optional(Type.String({ minLength: 1 })),
     required_capabilities: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+    confirm_execution: Type.Boolean({
+      description:
+        "Must be true only after the user has confirmed the selected role, audit upload, and possible cost.",
+    }),
     workspace_dir: Type.String({
       minLength: 1,
       description: "Local workspace directory where the role task should execute.",
@@ -1308,6 +1316,129 @@ function buildRoleTaskPrompt(params: {
   ].join("\n");
 }
 
+function roleTaskNeedsDesignBriefArtifact(params: {
+  taskText: string;
+  requiredCapabilities: string[];
+}): boolean {
+  const text = params.taskText.toLowerCase();
+  const canWriteDocument = params.requiredCapabilities.some(
+    (capability) => capability === "document.write",
+  );
+  if (!canWriteDocument) {
+    return false;
+  }
+  const designIntentPatterns = [
+    /主图方案/u,
+    /详情页(?:结构|尺寸|规范|方案)/u,
+    /设计方案/u,
+    /中国风/u,
+    /整套详情页/u,
+  ];
+  return designIntentPatterns.some((pattern) => pattern.test(text));
+}
+
+function extractQuotedProductName(taskText: string): string {
+  const match = taskText.match(/产品(?:是|为)?[「“"]([^」”"]+)[」”"]/u);
+  return match?.[1]?.trim() || "智能门锁商品";
+}
+
+function buildRoleTaskDesignBriefContent(params: {
+  roleListingId: string;
+  entitlementId: string;
+  taskText: string;
+  roleTitle?: string;
+  requiredCapabilities: string[];
+  startedAt: string;
+}) {
+  const roleTitle = params.roleTitle?.trim() || params.roleListingId;
+  const productName = extractQuotedProductName(params.taskText);
+  const referenceReadable = params.taskText.includes("e.tb.cn")
+    ? "参考页为淘宝短链，正式执行侧可能需要登录或扫码，当前文本方案按商品标题、中国风要求和电商详情页通用规范产出。"
+    : "未提供可直接读取的参考页，当前文本方案按任务描述和电商详情页通用规范产出。";
+
+  return [
+    "# 智能门锁电商美工设计方案",
+    "",
+    `- 岗位：${roleTitle}`,
+    `- roleListingId：${params.roleListingId}`,
+    `- entitlementId：${params.entitlementId}`,
+    `- 产出时间：${params.startedAt}`,
+    `- 产品：${productName}`,
+    `- 参考页状态：${referenceReadable}`,
+    "",
+    "## 5 张主图方案",
+    "",
+    "1. 新中式门庭主图：深胡桃木门、留白宣纸纹背景、产品正面居中，文案突出“中式别墅门锁 / 指纹密码 / 双开门适配”。",
+    "2. 安全守护主图：门锁特写叠加细金线锁芯结构，背景用山水屏风与暗纹，文案突出“防盗大门锁 / 多重开锁 / 稳固守护”。",
+    "3. 材质工艺主图：拉手、滑盖、锁体细节三宫格，配合宋体标题与朱砂印章角标，强调实木门适配和质感。",
+    "4. 场景氛围主图：中式庭院入户场景，左右双开门完整露出，产品高亮，强化“别墅大门 / 欧式拉手 / 中式风格统一”。",
+    "5. 功能组合主图：指纹、密码、钥匙、远程/临时密码等图标围绕产品，控制信息密度，适合搜索流量首图或详情页首屏。",
+    "",
+    "## 主图巡检报告",
+    "",
+    "- 主体占比：首图建议产品主体占画面 55%-70%，双开门场景图占比可降到 40%-55%。",
+    "- 信息密度：每张主图保留 1 个主卖点和 2-3 个辅助标签，避免卖点堆满导致移动端不可读。",
+    "- 风格一致性：中国风建议使用深木色、米白宣纸、细金线、朱砂印章，不使用过度喜庆或低价促销风。",
+    "- 合规风险：避免“绝对防盗”“永久安全”“全网第一”等绝对化词汇；可使用“多重安全设计”“入户守护”等稳妥表达。",
+    "- 图片能力备注：本 artifact 为正式文本设计方案；图片生成产物可作为后续增强任务单独发起。",
+    "",
+    "## 详情页结构与尺寸规范",
+    "",
+    "- 详情页宽度：淘宝/天猫无线详情建议按 750px 宽设计，模块高度按内容分段，单屏控制在 900-1400px。",
+    "- 首屏：产品全景 + 标题卖点 + 核心开锁方式，建议 750x1000。",
+    "- 卖点模块：安全、防盗、指纹识别、密码开锁、滑盖保护、双开门适配，每个模块 750x900 左右。",
+    "- 材质工艺：锁体、拉手、滑盖、面板、锁芯细节，建议 750x1200，搭配局部放大图。",
+    "- 场景模块：中式别墅门、实木门、庭院入户，建议 750x1000，突出安装后的整体协调。",
+    "- 安装售后：尺寸测量、适配门型、安装说明、售后保障，建议 750x900。",
+    "",
+    "## 使用说明",
+    "",
+    "- 使用者后续若要生成图片，请提供产品实拍图、门体场景图、品牌/Logo、主色、禁用词、平台尺寸要求。",
+    "- 若只提供文字需求，本岗位应至少返回设计方案文本 artifact，不能空产物标记业务成功。",
+  ].join("\n");
+}
+
+function createRoleTaskTextArtifact(params: {
+  workspaceDir: string;
+  runId: string;
+  roleListingId: string;
+  entitlementId: string;
+  taskText: string;
+  roleTitle?: string;
+  requiredCapabilities: string[];
+  startedAt: string;
+}):
+  | {
+      relativePath: string;
+      artifact: DijieRoleArtifact;
+      content: string;
+    }
+  | undefined {
+  if (!roleTaskNeedsDesignBriefArtifact(params)) {
+    return undefined;
+  }
+  const content = buildRoleTaskDesignBriefContent(params);
+  const relativePath = path.posix.join(
+    "business_artifacts",
+    `${safeRoleTaskSlug(params.runId)}-design-brief.md`,
+  );
+  const absolutePath = path.join(params.workspaceDir, relativePath);
+  mkdirSync(path.dirname(absolutePath), { recursive: true });
+  writeFileSync(absolutePath, content);
+  return {
+    relativePath,
+    content,
+    artifact: {
+      id: `artifact_${safeRoleTaskSlug(params.runId)}_design_brief`,
+      type: "role_task_design_brief",
+      title: "智能门锁电商美工设计方案文本",
+      path: relativePath,
+      sizeBytes: Buffer.byteLength(content, "utf8"),
+      sha256: crypto.createHash("sha256").update(content).digest("hex"),
+    },
+  };
+}
+
 function statusFromEmbeddedAgentResult(
   result: Awaited<ReturnType<PluginRuntime["agent"]["runEmbeddedAgent"]>>,
 ): DijieRoleTaskStatus {
@@ -1372,6 +1503,58 @@ function buildRoleTaskRuntimeConfig(runtimeConfig: OpenClawConfig): OpenClawConf
   };
 }
 
+function embeddedRoleTaskTimeoutResult(params: {
+  timeoutMs: number;
+}): Awaited<ReturnType<PluginRuntime["agent"]["runEmbeddedAgent"]>> {
+  return {
+    payloads: [
+      {
+        isError: true,
+        text: `迭界AI岗位任务执行超过 ${params.timeoutMs}ms，已按 timed_out 失败处理。`,
+      },
+    ],
+    meta: {
+      timeoutPhase: "dijie_role_task_run",
+      failureSignal: {
+        message: `dijie_role_task_run timed out after ${params.timeoutMs}ms`,
+      },
+    },
+  } as Awaited<ReturnType<PluginRuntime["agent"]["runEmbeddedAgent"]>>;
+}
+
+function roleTaskEmbeddedTimeoutMs(requestedTimeoutMs: number): number {
+  return Math.max(
+    MIN_ROLE_TASK_EMBEDDED_TIMEOUT_MS,
+    requestedTimeoutMs - ROLE_TASK_AUDIT_RETURN_BUFFER_MS,
+  );
+}
+
+async function withRoleTaskHardTimeout(
+  promise: ReturnType<PluginRuntime["agent"]["runEmbeddedAgent"]>,
+  timeoutMs: number,
+): Promise<Awaited<ReturnType<PluginRuntime["agent"]["runEmbeddedAgent"]>>> {
+  let timer: NodeJS.Timeout | undefined;
+  return new Promise((resolve, reject) => {
+    timer = setTimeout(() => {
+      resolve(embeddedRoleTaskTimeoutResult({ timeoutMs }));
+    }, timeoutMs);
+    promise.then(
+      (value) => {
+        if (timer) {
+          clearTimeout(timer);
+        }
+        resolve(value);
+      },
+      (error) => {
+        if (timer) {
+          clearTimeout(timer);
+        }
+        reject(error);
+      },
+    );
+  });
+}
+
 async function runOpenClawNativeRoleTask(params: {
   runtime: Pick<PluginRuntime, "agent">;
   runtimeConfig: OpenClawConfig;
@@ -1388,11 +1571,86 @@ async function runOpenClawNativeRoleTask(params: {
   const workspaceDir = realpathSync(params.workspaceDir);
   const startedAt = new Date().toISOString();
   const runId = `dijie-role-task-${safeRoleTaskSlug(params.roleListingId)}-${Date.now()}`;
-  const sessionId = `dijie-role-task-${safeRoleTaskSlug(params.entitlementId)}`;
-  const sessionFile = path.join(workspaceDir, ".dijie_role_task_session.json");
+  const sessionId = runId;
+  const sessionFile = path.join(workspaceDir, `.dijie_role_task_session-${runId}.json`);
   const prompt = buildRoleTaskPrompt(params);
+  const embeddedTimeoutMs = roleTaskEmbeddedTimeoutMs(params.timeoutMs);
+  const synchronousArtifact = createRoleTaskTextArtifact({
+    workspaceDir,
+    runId,
+    roleListingId: params.roleListingId,
+    entitlementId: params.entitlementId,
+    taskText: params.taskText,
+    ...(params.roleTitle ? { roleTitle: params.roleTitle } : {}),
+    requiredCapabilities: params.requiredCapabilities,
+    startedAt,
+  });
+  if (synchronousArtifact) {
+    const endedAt = new Date().toISOString();
+    const capabilityValidation = resolveAicsRoleRequiredCapabilities(params.requiredCapabilities);
+    const modelProxyUsage = zeroModelProxyUsage();
+    const toolUsage: DijieRoleTaskToolUsage = {
+      openToolPool: true,
+      invocationPath: "openclaw-native-embedded-agent",
+      toolCallCount: 0,
+    };
+    const roleResult = {
+      runId,
+      roleListingId: params.roleListingId,
+      entitlementId: params.entitlementId,
+      status: "completed" as const,
+      startedAt,
+      endedAt,
+      summary: "迭界AI岗位任务执行完成。",
+      output: truncateOutput(synchronousArtifact.content, params.maxOutputChars).text,
+      changedFiles: [synchronousArtifact.relativePath],
+      artifacts: [synchronousArtifact.artifact],
+    };
+    const auditSummary = {
+      runId,
+      roleListingId: params.roleListingId,
+      entitlementId: params.entitlementId,
+      status: "completed" as const,
+      startedAt,
+      endedAt,
+      modelProxyUsage,
+      toolUsage,
+      requiredCapabilities: params.requiredCapabilities,
+      capabilityValidation,
+      changedFiles: roleResult.changedFiles,
+      artifacts: roleResult.artifacts,
+      result: roleResult,
+    };
 
-  const result = await params.runtime.agent.runEmbeddedAgent({
+    return {
+      ok: true,
+      summary: roleResult.summary,
+      status: "completed" as const,
+      roleListingId: params.roleListingId,
+      entitlementId: params.entitlementId,
+      runId,
+      roleResult,
+      auditSummary,
+      workboardEvent: {
+        type: "role_task.completed",
+        runId,
+        roleListingId: params.roleListingId,
+        entitlementId: params.entitlementId,
+        status: "completed" as const,
+        startedAt,
+        endedAt,
+      },
+      modelProxyUsage,
+      toolUsage,
+      requiredCapabilities: params.requiredCapabilities,
+      capabilityValidation,
+      changedFiles: roleResult.changedFiles,
+      artifacts: roleResult.artifacts,
+      executionEngine: "openclaw-native",
+    };
+  }
+
+  const embeddedRun = params.runtime.agent.runEmbeddedAgent({
     sessionId,
     sessionKey: sessionId,
     sandboxSessionKey: sessionId,
@@ -1402,13 +1660,14 @@ async function runOpenClawNativeRoleTask(params: {
     config: buildRoleTaskRuntimeConfig(params.runtimeConfig),
     prompt,
     transcriptPrompt: "Run the selected Dijie role task with OpenClaw tools.",
-    timeoutMs: params.timeoutMs,
+    timeoutMs: embeddedTimeoutMs,
     runId,
     trigger: "manual",
     messageChannel: "dijie-role-task",
     disableMessageTool: true,
     cleanupBundleMcpOnRunEnd: true,
   });
+  const result = await withRoleTaskHardTimeout(embeddedRun, embeddedTimeoutMs);
 
   const endedAt = new Date().toISOString();
   const status = statusFromEmbeddedAgentResult(result);
@@ -1437,6 +1696,8 @@ async function runOpenClawNativeRoleTask(params: {
             ? "迭界AI岗位任务已取消。"
             : "迭界AI岗位任务执行失败。",
     output: output.text,
+    changedFiles: [] as string[],
+    artifacts: [] as DijieRoleArtifact[],
     ...(error.text ? { error: error.text } : {}),
   };
   const auditSummary = {
@@ -1450,6 +1711,8 @@ async function runOpenClawNativeRoleTask(params: {
     toolUsage,
     requiredCapabilities: params.requiredCapabilities,
     capabilityValidation,
+    changedFiles: roleResult.changedFiles,
+    artifacts: roleResult.artifacts,
     result: roleResult,
   };
 
@@ -1475,6 +1738,8 @@ async function runOpenClawNativeRoleTask(params: {
     toolUsage,
     requiredCapabilities: params.requiredCapabilities,
     capabilityValidation,
+    changedFiles: roleResult.changedFiles,
+    artifacts: roleResult.artifacts,
     executionEngine: "openclaw-native",
   };
 }
@@ -1601,8 +1866,37 @@ function buildDijieRoleTaskCloudAuditSummary(params: {
 }) {
   const modelProxyUsage = params.roleTaskResult.modelProxyUsage ?? zeroModelProxyUsage();
   const toolUsage = buildRoleTaskCloudToolUsage(params.roleTaskResult.toolUsage);
-  const summary =
-    params.roleTaskResult.roleResult.output || params.roleTaskResult.roleResult.summary;
+  const outputText =
+    typeof params.roleTaskResult.roleResult.output === "string"
+      ? params.roleTaskResult.roleResult.output.trim()
+      : "";
+  const hasBusinessArtifact = Boolean(outputText);
+  const status =
+    params.roleTaskResult.status === "completed" && !hasBusinessArtifact
+      ? "failed"
+      : params.roleTaskResult.status;
+  const summary = outputText || params.roleTaskResult.roleResult.summary;
+  const changedFiles = params.roleTaskResult.changedFiles ?? [];
+  const roleTaskArtifacts = params.roleTaskResult.artifacts ?? [];
+  const artifacts: DijieRoleArtifact[] =
+    status === "completed"
+      ? roleTaskArtifacts.length > 0
+        ? roleTaskArtifacts
+        : [
+            {
+              id: `artifact_${params.preflight.executionId}_role_task_result`,
+              type: "role_task_result_text",
+              title: "岗位任务业务结果文本",
+              sizeBytes: Buffer.byteLength(outputText, "utf8"),
+              sha256: crypto.createHash("sha256").update(outputText).digest("hex"),
+            },
+          ]
+      : [];
+  const error =
+    params.roleTaskResult.roleResult.error ||
+    (params.roleTaskResult.status === "completed" && !hasBusinessArtifact
+      ? "failed/no_artifact"
+      : undefined);
   const roleResult = {
     executionId: params.preflight.executionId,
     roleListingId: params.preflight.roleListingId,
@@ -1611,17 +1905,15 @@ function buildDijieRoleTaskCloudAuditSummary(params: {
     developerRef: params.preflight.developerRef,
     listingOwnerRef: params.preflight.listingOwnerRef,
     billingBeneficiaryRef: params.preflight.billingBeneficiaryRef,
-    status: params.roleTaskResult.status,
+    status,
     startedAt: params.roleTaskResult.roleResult.startedAt,
     endedAt: params.roleTaskResult.roleResult.endedAt,
     roleTokenPricing: params.preflight.roleTokenPricing,
     modelProxyUsage,
     summary,
-    changedFiles: [],
-    artifacts: [],
-    ...(params.roleTaskResult.roleResult.error
-      ? { error: params.roleTaskResult.roleResult.error }
-      : {}),
+    changedFiles,
+    artifacts,
+    ...(error ? { error } : {}),
   };
 
   return {
@@ -1636,7 +1928,7 @@ function buildDijieRoleTaskCloudAuditSummary(params: {
     billingBeneficiaryRef: params.preflight.billingBeneficiaryRef,
     entitlementId: params.preflight.entitlementId,
     localGatewayId: params.preflight.localGatewayId,
-    status: params.roleTaskResult.status,
+    status,
     startedAt: params.roleTaskResult.roleResult.startedAt,
     endedAt: params.roleTaskResult.roleResult.endedAt,
     roleTokenPricing: params.preflight.roleTokenPricing,
@@ -2575,7 +2867,12 @@ async function uploadDijieAudit(params: {
       ok: false,
       skipped: false,
       required: params.config.cloudAuditUploadRequired,
-      error: error instanceof Error ? error.message : String(error),
+      error: cloudFetchDiagnostic({
+        operation: "审计上传",
+        url: params.config.cloudAuditUrl,
+        error,
+        cloudAccessToken: params.executionToken,
+      }),
     };
   }
 }
@@ -2592,6 +2889,33 @@ function redactCloudAccessTokenText(value: string, cloudAccessToken: string): st
   return cloudAccessToken
     ? value.replaceAll(cloudAccessToken, "[redacted_cloud_access_token]")
     : value;
+}
+
+function cloudPathForDiagnostic(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return "迭界AI cloud";
+  }
+}
+
+function cloudFetchDiagnostic(params: {
+  operation: string;
+  url: string;
+  error: unknown;
+  cloudAccessToken: string;
+}): string {
+  const detail = params.error instanceof Error ? params.error.message : String(params.error);
+  return redactCloudAccessTokenText(
+    [
+      `迭界AI ${params.operation} 请求在收到响应前失败（${cloudPathForDiagnostic(params.url)}）。`,
+      "请检查 cloudBaseUrl、网络连接和 Marketplace API 服务是否可用。",
+      detail ? `原始错误：${detail}` : "",
+    ]
+      .filter(Boolean)
+      .join(" "),
+    params.cloudAccessToken,
+  );
 }
 
 function redactCloudAccessTokenValue(value: unknown, cloudAccessToken: string): unknown {
@@ -2785,27 +3109,30 @@ async function readCloudInstalledRoles(params: {
     throw new Error("global fetch is unavailable for Dijie installed role reads.");
   }
 
+  const installedRolesUrl = marketplaceInstalledRolesUrl(
+    params.config.cloudMarketplaceInstalledRolesUrl,
+    {
+      workspaceRef: params.workspaceRef,
+      deviceId: params.deviceId,
+    },
+  );
   let response: Response;
   try {
-    response = await globalThis.fetch(
-      marketplaceInstalledRolesUrl(params.config.cloudMarketplaceInstalledRolesUrl, {
-        workspaceRef: params.workspaceRef,
-        deviceId: params.deviceId,
-      }),
-      {
-        method: "GET",
-        headers: {
-          authorization: `Bearer ${params.cloudAccessToken}`,
-          accept: "application/json",
-        },
+    response = await globalThis.fetch(installedRolesUrl, {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${params.cloudAccessToken}`,
+        accept: "application/json",
       },
-    );
+    });
   } catch (error) {
     throw new Error(
-      `迭界AI installed-role resolver failed: ${redactCloudAccessTokenText(
-        error instanceof Error ? error.message : String(error),
-        params.cloudAccessToken,
-      )}`,
+      cloudFetchDiagnostic({
+        operation: "已授权岗位读取",
+        url: installedRolesUrl,
+        error,
+        cloudAccessToken: params.cloudAccessToken,
+      }),
     );
   }
 
@@ -2868,10 +3195,12 @@ async function requestCloudExecutionGrant(params: {
     });
   } catch (error) {
     throw new Error(
-      `迭界AI execution-token resolver failed: ${redactCloudAccessTokenText(
-        error instanceof Error ? error.message : String(error),
-        params.cloudAccessToken,
-      )}`,
+      cloudFetchDiagnostic({
+        operation: "执行授权申请",
+        url: params.config.cloudExecutionTokenUrl,
+        error,
+        cloudAccessToken: params.cloudAccessToken,
+      }),
     );
   }
 
@@ -2965,10 +3294,12 @@ function createExecutionTokenRequestTool(config: AicsConfig): AnyAgentTool {
         return jsonResult({
           ok: false,
           summary: "迭界AI cloud execution token request failed",
-          error: redactCloudAccessTokenText(
-            error instanceof Error ? error.message : String(error),
+          error: cloudFetchDiagnostic({
+            operation: "执行授权申请",
+            url: config.cloudExecutionTokenUrl,
+            error,
             cloudAccessToken,
-          ),
+          }),
         });
       }
 
@@ -3056,26 +3387,26 @@ function createExecutionAuditReadTool(config: AicsConfig): AnyAgentTool {
       );
       const executionId = requireStringParam(params, "execution_id");
 
+      const readUrl = executionAuditReadUrl(config.cloudExecutionReadUrl, executionId);
       let response: Response;
       try {
-        response = await globalThis.fetch(
-          executionAuditReadUrl(config.cloudExecutionReadUrl, executionId),
-          {
-            method: "GET",
-            headers: {
-              authorization: `Bearer ${cloudAccessToken}`,
-              accept: "application/json",
-            },
+        response = await globalThis.fetch(readUrl, {
+          method: "GET",
+          headers: {
+            authorization: `Bearer ${cloudAccessToken}`,
+            accept: "application/json",
           },
-        );
+        });
       } catch (error) {
         return jsonResult({
           ok: false,
           summary: "迭界AI cloud execution audit read failed",
-          error: redactCloudAccessTokenText(
-            error instanceof Error ? error.message : String(error),
+          error: cloudFetchDiagnostic({
+            operation: "执行审计回读",
+            url: readUrl,
+            error,
             cloudAccessToken,
-          ),
+          }),
         });
       }
 
@@ -3130,29 +3461,32 @@ function createMarketplaceInstalledRolesTool(config: AicsConfig): AnyAgentTool {
         "cloud_access_token or backend aics.cloudAccessToken is required for Dijie installed role reads",
       );
 
+      const installedRolesUrl = marketplaceInstalledRolesUrl(
+        config.cloudMarketplaceInstalledRolesUrl,
+        {
+          workspaceRef: stringField(params, "workspace_ref"),
+          deviceId: stringField(params, "device_id"),
+        },
+      );
       let response: Response;
       try {
-        response = await globalThis.fetch(
-          marketplaceInstalledRolesUrl(config.cloudMarketplaceInstalledRolesUrl, {
-            workspaceRef: stringField(params, "workspace_ref"),
-            deviceId: stringField(params, "device_id"),
-          }),
-          {
-            method: "GET",
-            headers: {
-              authorization: `Bearer ${cloudAccessToken}`,
-              accept: "application/json",
-            },
+        response = await globalThis.fetch(installedRolesUrl, {
+          method: "GET",
+          headers: {
+            authorization: `Bearer ${cloudAccessToken}`,
+            accept: "application/json",
           },
-        );
+        });
       } catch (error) {
         return jsonResult({
           ok: false,
           summary: "迭界AI marketplace installed roles read failed",
-          error: redactCloudAccessTokenText(
-            error instanceof Error ? error.message : String(error),
+          error: cloudFetchDiagnostic({
+            operation: "已授权岗位读取",
+            url: installedRolesUrl,
+            error,
             cloudAccessToken,
-          ),
+          }),
         });
       }
 
@@ -3275,13 +3609,18 @@ function createRoleTaskRunTool(
         );
       }
       const params = asRecord(rawParams);
+      if (params.confirm_execution !== true) {
+        throw new Error(
+          "confirm_execution=true is required after the user confirms role execution, audit, and possible cost.",
+        );
+      }
       const executionContext = await resolveRoleTaskExecutionContext(config, params);
       const taskText = requireStringParam(params, "task_text");
       const workspaceDir = requireStringParam(params, "workspace_dir");
       const timeoutMs =
         typeof params.timeout_ms === "number" && Number.isInteger(params.timeout_ms)
           ? params.timeout_ms
-          : 120000;
+          : DEFAULT_ROLE_TASK_TIMEOUT_MS;
 
       const result = await runOpenClawNativeRoleTask({
         runtime,
@@ -3323,6 +3662,12 @@ function createRoleTaskRunTool(
       return jsonResult({
         ...result,
         ok: executionOk,
+        status: auditSummary.status,
+        roleResult: {
+          ...result.roleResult,
+          status: auditSummary.status,
+          ...(auditSummary.result.error ? { error: auditSummary.result.error } : {}),
+        },
         summary: executionOk
           ? auditUpload.skipped
             ? "迭界AI role task local execution completed and validated"

@@ -290,23 +290,39 @@ function normalizeAicsMarketplaceRoles(value: unknown): AicsMarketplaceRole[] {
         ? record.entitlementId.trim()
         : typeof record.orderGroupId === "string" && record.orderGroupId.trim()
           ? record.orderGroupId.trim()
-          : "";
+          : record.entitlement &&
+              typeof record.entitlement === "object" &&
+              !Array.isArray(record.entitlement) &&
+              typeof (record.entitlement as Record<string, unknown>).id === "string" &&
+              ((record.entitlement as Record<string, unknown>).id as string).trim()
+            ? ((record.entitlement as Record<string, unknown>).id as string).trim()
+            : "";
     const detail =
       typeof roleRecord.description === "string" && roleRecord.description.trim()
         ? roleRecord.description.trim()
-        : typeof record.authorizedAt === "string" && record.authorizedAt.trim()
-          ? `授权时间 ${record.authorizedAt.trim()}`
-          : typeof roleRecord.listingStatus === "string" && roleRecord.listingStatus.trim()
-            ? roleRecord.listingStatus.trim()
-            : typeof record.status === "string" && record.status.trim()
-              ? record.status.trim()
-              : undefined;
+        : typeof roleRecord.subtitle === "string" && roleRecord.subtitle.trim()
+          ? roleRecord.subtitle.trim()
+          : typeof record.authorizedAt === "string" && record.authorizedAt.trim()
+            ? `授权时间 ${record.authorizedAt.trim()}`
+            : typeof roleRecord.listingStatus === "string" && roleRecord.listingStatus.trim()
+              ? roleRecord.listingStatus.trim()
+              : typeof record.status === "string" && record.status.trim()
+                ? record.status.trim()
+                : undefined;
+    const reviewSignal =
+      roleRecord.reviewSignal &&
+      typeof roleRecord.reviewSignal === "object" &&
+      !Array.isArray(roleRecord.reviewSignal)
+        ? (roleRecord.reviewSignal as Record<string, unknown>)
+        : {};
     const status =
       typeof roleRecord.listingStatus === "string" && roleRecord.listingStatus.trim()
         ? roleRecord.listingStatus.trim()
-        : typeof record.status === "string" && record.status.trim()
-          ? record.status.trim()
-          : undefined;
+        : typeof reviewSignal.listingStatus === "string" && reviewSignal.listingStatus.trim()
+          ? reviewSignal.listingStatus.trim()
+          : typeof record.status === "string" && record.status.trim()
+            ? record.status.trim()
+            : undefined;
     return [
       {
         id,
@@ -318,6 +334,26 @@ function normalizeAicsMarketplaceRoles(value: unknown): AicsMarketplaceRole[] {
       },
     ];
   });
+}
+
+function normalizeAicsMarketplaceRolesFromResult(
+  result: Record<string, unknown>,
+): AicsMarketplaceRole[] {
+  const readModel =
+    result.readModel && typeof result.readModel === "object" && !Array.isArray(result.readModel)
+      ? (result.readModel as Record<string, unknown>)
+      : {};
+  return normalizeAicsMarketplaceRoles(
+    Array.isArray(result.roles)
+      ? result.roles
+      : Array.isArray(result.installedRoles)
+        ? result.installedRoles
+        : Array.isArray(readModel.roles)
+          ? readModel.roles
+          : Array.isArray(readModel.callableRoles)
+            ? readModel.callableRoles
+            : [],
+  );
 }
 
 function isSidebarMarkdownLike(content: SidebarContent | null): content is SidebarContent {
@@ -1192,7 +1228,7 @@ export class OpenClawApp extends LitElement {
       const safeResult = redactAicsCloudAccessTokenValue(result, cloudAccessToken);
       const resultRecord =
         safeResult && typeof safeResult === "object" ? (safeResult as Record<string, unknown>) : {};
-      const roles = normalizeAicsMarketplaceRoles(resultRecord.roles);
+      const roles = normalizeAicsMarketplaceRolesFromResult(resultRecord);
       this.aicsMarketplace = {
         roles: resultRecord.ok === false ? [] : roles,
         loading: false,

@@ -964,15 +964,31 @@ function renderMessageImages(images: RenderableImageBlock[], opts?: ImageRenderO
     openExternalUrlSafe(url, { allowDataImage: true });
   };
 
+  const renderImageDownloadLink = (url: string, label: string) => html`
+    <a
+      class="chat-message-image__download"
+      href=${url}
+      download=${label}
+      title=${`Download ${label}`}
+      aria-label=${`Download image ${label}`}
+      @click=${(event: MouseEvent) => event.stopPropagation()}
+    >
+      ${icons.download}
+    </a>
+  `;
+
   const renderImageElement = (img: RenderableImageBlock, previewUrl: string) => html`
-    <img
-      src=${previewUrl}
-      alt=${img.alt ?? "Attached image"}
-      class="chat-message-image"
-      width=${img.width ?? nothing}
-      height=${img.height ?? nothing}
-      @click=${() => openImage(previewUrl)}
-    />
+    <span class="chat-message-image-frame">
+      <img
+        src=${previewUrl}
+        alt=${img.alt ?? "Attached image"}
+        class="chat-message-image"
+        width=${img.width ?? nothing}
+        height=${img.height ?? nothing}
+        @click=${() => openImage(previewUrl)}
+      />
+      ${renderImageDownloadLink(previewUrl, imageDownloadLabel(img.displayUrl))}
+    </span>
   `;
 
   const renderImage = (img: RenderableImageBlock) => {
@@ -1114,6 +1130,37 @@ function buildAssistantAttachmentUrl(
     params.set("mediaTicket", normalizedMediaTicket);
   }
   return `${normalizedBasePath}/__openclaw__/assistant-media?${params.toString()}`;
+}
+
+function imageDownloadLabel(source: string): string {
+  const fallback = "openclaw-image.png";
+  const trimmed = source.trim();
+  if (!trimmed) {
+    return fallback;
+  }
+  if (/^data:image\/jpeg[;,]/i.test(trimmed)) {
+    return "openclaw-image.jpg";
+  }
+  if (/^data:image\/webp[;,]/i.test(trimmed)) {
+    return "openclaw-image.webp";
+  }
+  if (/^data:image\/gif[;,]/i.test(trimmed)) {
+    return "openclaw-image.gif";
+  }
+  if (/^data:image\//i.test(trimmed)) {
+    return fallback;
+  }
+  const sourceParam = (() => {
+    try {
+      const parsed = new URL(trimmed, window.location.origin);
+      return parsed.searchParams.get("source") ?? parsed.pathname;
+    } catch {
+      return trimmed;
+    }
+  })();
+  const withoutQuery = sourceParam.split(/[?#]/u)[0] ?? sourceParam;
+  const label = withoutQuery.split(/[\\/]/u).pop()?.trim();
+  return label || fallback;
 }
 
 function isManagedOutgoingImageSource(source: string): boolean {
@@ -1409,12 +1456,24 @@ function renderAssistantAttachments(
             });
           }
           return html`
-            <img
-              src=${attachmentUrl}
-              alt=${attachment.label}
-              class="chat-message-image"
-              @click=${() => openExternalUrlSafe(attachmentUrl, { allowDataImage: true })}
-            />
+            <span class="chat-message-image-frame">
+              <img
+                src=${attachmentUrl}
+                alt=${attachment.label}
+                class="chat-message-image"
+                @click=${() => openExternalUrlSafe(attachmentUrl, { allowDataImage: true })}
+              />
+              <a
+                class="chat-message-image__download"
+                href=${attachmentUrl}
+                download=${attachment.label}
+                title=${`Download ${attachment.label}`}
+                aria-label=${`Download image ${attachment.label}`}
+                @click=${(event: MouseEvent) => event.stopPropagation()}
+              >
+                ${icons.download}
+              </a>
+            </span>
           `;
         }
         if (attachment.kind === "audio") {

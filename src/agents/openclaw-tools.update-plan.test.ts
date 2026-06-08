@@ -85,6 +85,14 @@ describe("openclaw-tools update_plan gating", () => {
     expect(shouldIncludeUpdatePlanToolForOpenClawTools(emptyAllowlistParams)).toBe(false);
   });
 
+  it("does not expose the legacy AICS role runner from the core tool set", () => {
+    const defaultTools = createFastToolNames({
+      config: {} as OpenClawConfig,
+    });
+
+    expect(defaultTools).not.toContain("dijie_role_task_run");
+  });
+
   it("wraps constructed tools with before-tool-call hooks by default", () => {
     const tools = createOpenClawTools({
       config: {} as OpenClawConfig,

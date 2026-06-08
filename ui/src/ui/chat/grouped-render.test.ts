@@ -1421,6 +1421,13 @@ describe("grouped chat rendering", () => {
     expect(expectElement(container, ".chat-message-image", HTMLImageElement).src).toBe(
       "https://example.com/photo.png",
     );
+    const imageDownload = expectElement(
+      container,
+      ".chat-message-image__download",
+      HTMLAnchorElement,
+    );
+    expect(imageDownload.href).toBe("https://example.com/photo.png");
+    expect(imageDownload.getAttribute("download")).toBe("photo.png");
     expect(expectElement(container, "audio", HTMLAudioElement).src).toBe(
       "https://example.com/voice.ogg",
     );
@@ -1764,6 +1771,13 @@ describe("grouped chat rendering", () => {
     expect(image?.getAttribute("src")).toBe(
       "/openclaw/__openclaw__/assistant-media?source=%2Ftmp%2Fopenclaw%2Ftest+image.png&mediaTicket=ticket-local",
     );
+    const imageDownload = container.querySelector<HTMLAnchorElement>(
+      ".chat-message-image__download",
+    );
+    expect(imageDownload?.getAttribute("href")).toBe(
+      "/openclaw/__openclaw__/assistant-media?source=%2Ftmp%2Fopenclaw%2Ftest+image.png&mediaTicket=ticket-local",
+    );
+    expect(imageDownload?.getAttribute("download")).toBe("test image.png");
     expect(docLink?.getAttribute("href")).toBe(
       "/openclaw/__openclaw__/assistant-media?source=%2Ftmp%2Fopenclaw%2Ftest-doc.pdf&mediaTicket=ticket-local",
     );
