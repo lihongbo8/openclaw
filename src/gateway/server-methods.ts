@@ -59,6 +59,10 @@ const loadAgentHandlers = lazyHandlerModule(
   () => import("./server-methods/agent.js"),
   (module) => module.agentHandlers,
 );
+const loadAicsMainFlowHandlers = lazyHandlerModule(
+  () => import("./server-methods/aics-main-flow.js"),
+  (module) => module.aicsMainFlowHandlers,
+);
 const loadAgentsHandlers = lazyHandlerModule(
   () => import("./server-methods/agents.js"),
   (module) => module.agentsHandlers,
@@ -554,6 +558,23 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
   ...createLazyCoreHandlers({
     methods: ["agent", "agent.identity.get", "agent.wait"],
     loadHandlers: loadAgentHandlers,
+  }),
+  ...createLazyCoreHandlers({
+    methods: [
+      "aics.mainFlow.readModel.get",
+      "aics.mainFlow.interaction.create",
+      "aics.mainFlow.observation.prepare",
+      "aics.mainFlow.attribution.prepare",
+      "aics.mainFlow.goal.candidate.create",
+      "aics.mainFlow.goal.confirm",
+      "aics.mainFlow.planning.prepare",
+      "aics.mainFlow.planning.confirm",
+      "aics.mainFlow.dispatch.proposal.create",
+      "aics.mainFlow.dispatch.confirm",
+      "aics.mainFlow.dispatch.materializeTaskPackage",
+      "aics.mainFlow.dispatch.runApprovedTask",
+    ],
+    loadHandlers: loadAicsMainFlowHandlers,
   }),
   ...createLazyCoreHandlers({
     methods: [

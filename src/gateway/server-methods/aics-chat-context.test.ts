@@ -22,7 +22,7 @@ describe("AICS chat context", () => {
     ).toContain("岗位开发专属助手");
   });
 
-  it("builds OpenClaw main workflow prompts that route execution through the local role task tool", () => {
+  it("builds OpenClaw main workflow prompts that keep role execution behind main flow dispatch", () => {
     const context = normalizeChatSendAicsContext({
       mode: "openclaw_main",
       stage: "planning",
@@ -46,9 +46,15 @@ describe("AICS chat context", () => {
       message: "用商品图检查岗位检查这张智能门锁主图",
     });
 
-    expect(prompt).toContain("OpenClaw 主流程层对话框");
-    expect(prompt).toContain("dijie_role_task_run");
-    expect(prompt).toContain("confirm_execution=true");
+    expect(prompt).toContain("本地业务对话助手");
+    expect(prompt).toContain("不要暴露内部状态机");
+    expect(prompt).not.toContain("OpenClaw 主流程层对话框");
+    expect(prompt).toContain("主对话不能直接调用岗位执行工具");
+    expect(prompt).toContain("aics.mainFlow.*");
+    expect(prompt).toContain("TaskPackage");
+    expect(prompt).toContain("DispatchToRoleRequest");
+    expect(prompt).not.toContain("dijie_role_task_run");
+    expect(prompt).not.toContain("confirm_execution=true");
     expect(prompt).toContain("role_image_review");
     expect(prompt).toContain("/tmp/openclaw-workspace");
     expect(prompt).toContain("不要要求用户粘贴 bearer token");
