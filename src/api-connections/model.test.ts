@@ -107,6 +107,7 @@ describe("api connections materializer", () => {
       enabled: true,
       config: {
         cloudBaseUrl: "https://dijie-cloud.test",
+        cloudHealthPath: "/dijie/gateway/health",
         cloudAccessToken: { source: "env", provider: "default", id: "DIJIE_CLOUD_ACCESS_TOKEN" },
         cloudExecutionTokenPath: "/dijie/execution-token",
         cloudExecutionReadPath: "/dijie/executions",
@@ -152,6 +153,15 @@ describe("api connections materializer", () => {
       secret: "buyer-cloud-token",
       consumers: ["marketplace"],
       configBindings: [{ path: "cloudMarketplace.apiKey" }],
+      metadata: {
+        dijie: {
+          roleListingId: "djrole_marketplace_ops",
+          entitlementId: "djent_marketplace_ops",
+          deviceId: "smoke-device",
+          workspaceRef: "smoke-workspace",
+          localGatewayId: "smoke-gateway",
+        },
+      },
     });
 
     const result = materializeApiConnectionToConfig({
@@ -169,10 +179,13 @@ describe("api connections materializer", () => {
 
     const aicsConfig = result.config.plugins?.entries?.aics?.config;
     expect(aicsConfig?.cloudBaseUrl).toBe("http://127.0.0.1:9000");
+    expect(aicsConfig?.cloudHealthPath).toBe("/dijie/gateway/health");
     expect(aicsConfig?.cloudAccessToken).toBe("buyer-cloud-token");
     expect(aicsConfig?.defaultDeviceId).toBe("existing-device");
-    expect(aicsConfig?.defaultWorkspaceRef).toBe("local-admin-workspace");
-    expect(aicsConfig?.defaultLocalGatewayId).toBe("openclaw-local-gateway");
+    expect(aicsConfig?.defaultWorkspaceRef).toBe("smoke-workspace");
+    expect(aicsConfig?.defaultLocalGatewayId).toBe("smoke-gateway");
+    expect(aicsConfig?.defaultRoleListingId).toBe("djrole_marketplace_ops");
+    expect(aicsConfig?.defaultEntitlementId).toBe("djent_marketplace_ops");
     expect(aicsConfig?.cloudAuditUploadEnabled).toBe(true);
     expect(result.config).not.toHaveProperty("cloudMarketplace");
     expect(result.changedPaths).toContain("plugins.entries.aics.config.cloudAccessToken");

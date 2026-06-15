@@ -129,6 +129,13 @@ function bindingsParam(params: Record<string, unknown>) {
     : bindings;
 }
 
+function metadataParam(params: Record<string, unknown>): Record<string, unknown> | undefined {
+  const value = params.metadata;
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 function ensureApiConnections(config: OpenClawConfig): OpenClawConfig {
   return {
     ...config,
@@ -194,6 +201,7 @@ function createEntryFromParams(params: Record<string, unknown>): ApiConnectionEn
     consumers: consumersParam(params),
     requestedScope: requestedScopeParam(params),
     configBindings: bindingsParam(params),
+    metadata: metadataParam(params),
   });
 }
 
@@ -255,6 +263,7 @@ export const aicsApiConnectionsHandlers: GatewayRequestHandlers = {
           params.configPath !== undefined
             ? { configBindings: bindingsParam(params) }
             : {}),
+          ...(params.metadata !== undefined ? { metadata: metadataParam(params) } : {}),
         };
         next.apiConnections!.entries![id] = normalizeApiConnectionEntry(patch, previous);
         return { config: next, changedPaths: [`apiConnections.entries.${id}`] };

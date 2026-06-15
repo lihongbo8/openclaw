@@ -32,6 +32,7 @@ export type ApiConnectionEntry = {
   consumers?: ApiConnectionConsumer[];
   configBindings?: ApiConnectionConfigBinding[];
   requestedScope?: string[];
+  metadata?: Record<string, unknown>;
   enabled?: boolean;
   createdAt?: string;
   updatedAt?: string;

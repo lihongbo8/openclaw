@@ -295,6 +295,7 @@ const ApiConnectionEntrySchema = z
       )
       .optional(),
     requestedScope: z.array(z.string().trim().min(1)).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
     enabled: z.boolean().optional(),
     createdAt: z.string().optional(),
     updatedAt: z.string().optional(),

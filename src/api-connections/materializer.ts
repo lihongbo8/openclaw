@@ -45,6 +45,15 @@ function getPath(root: MutableRecord, path: string): unknown {
   return cursor;
 }
 
+function metadataString(entry: ApiConnectionEntry, key: string): string | undefined {
+  const dijie = entry.metadata?.dijie;
+  const value =
+    dijie && typeof dijie === "object" && !Array.isArray(dijie)
+      ? (dijie as Record<string, unknown>)[key]
+      : entry.metadata?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 function materializeDijieCloudBridge(
   root: MutableRecord,
   entry: ApiConnectionEntry,
@@ -54,6 +63,11 @@ function materializeDijieCloudBridge(
   const bridgeValues: Array<[string, unknown, { preserveExisting?: boolean }?]> = [
     ["plugins.entries.aics.enabled", true],
     ["plugins.entries.aics.config.cloudBaseUrl", baseUrl],
+    [
+      "plugins.entries.aics.config.cloudHealthPath",
+      "/dijie/gateway/health",
+      { preserveExisting: true },
+    ],
     ["plugins.entries.aics.config.cloudAccessToken", entry.secret],
     [
       "plugins.entries.aics.config.cloudExecutionTokenPath",
@@ -78,17 +92,27 @@ function materializeDijieCloudBridge(
     ["plugins.entries.aics.config.cloudAuditPath", "/dijie/audit", { preserveExisting: true }],
     [
       "plugins.entries.aics.config.defaultDeviceId",
-      "local-admin-device",
+      metadataString(entry, "deviceId") ?? "local-admin-device",
       { preserveExisting: true },
     ],
     [
       "plugins.entries.aics.config.defaultWorkspaceRef",
-      "local-admin-workspace",
+      metadataString(entry, "workspaceRef") ?? "local-admin-workspace",
       { preserveExisting: true },
     ],
     [
       "plugins.entries.aics.config.defaultLocalGatewayId",
-      "openclaw-local-gateway",
+      metadataString(entry, "localGatewayId") ?? "openclaw-local-gateway",
+      { preserveExisting: true },
+    ],
+    [
+      "plugins.entries.aics.config.defaultRoleListingId",
+      metadataString(entry, "roleListingId"),
+      { preserveExisting: true },
+    ],
+    [
+      "plugins.entries.aics.config.defaultEntitlementId",
+      metadataString(entry, "entitlementId"),
       { preserveExisting: true },
     ],
     ["plugins.entries.aics.config.cloudAuditUploadEnabled", true, { preserveExisting: true }],

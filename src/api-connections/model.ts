@@ -1,6 +1,5 @@
 import type {
   ApiConnectionConfigBinding,
-  ApiConnectionConsumer,
   ApiConnectionEntry,
   ApiConnectionKind,
 } from "../config/types.api-connections.js";
