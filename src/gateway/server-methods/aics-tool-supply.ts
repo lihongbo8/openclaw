@@ -2,7 +2,10 @@ import { ErrorCodes, errorShape } from "../../../packages/gateway-protocol/src/i
 import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../../agents/agent-scope.js";
 import { canExecRequestNode } from "../../agents/exec-defaults.js";
 import { createCloudMarketplaceProjection } from "../../aics-main-flow/cloud-marketplace-projection.js";
-import { AicsMainFlowStore } from "../../aics-main-flow/store.js";
+import {
+  AicsMainFlowStore,
+  setUniqueCapabilityApprovalForDispatch,
+} from "../../aics-main-flow/store.js";
 import { createApiConnectionsReadModel } from "../../api-connections/model.js";
 import {
   readConfigFileSnapshotForWrite,
@@ -110,6 +113,7 @@ function ensureToolSupply(config: OpenClawConfig): OpenClawConfig {
 async function writeConfig(
   opts: GatewayRequestHandlerOptions,
   mutate: (config: OpenClawConfig) => { config: OpenClawConfig; changedPaths?: string[] },
+  afterCommit?: () => void,
 ) {
   const { snapshot, writeOptions } = await readConfigFileSnapshotForWrite();
   const mutated = mutate(snapshot.config);
@@ -121,12 +125,37 @@ async function writeConfig(
     context: opts.context,
     disconnectSharedAuthClients: false,
   });
+  afterCommit?.();
   opts.respond(true, {
     ok: true,
     changedPaths: mutated.changedPaths ?? [],
     readModel: buildReadModel(writeResult.config, paramsRecord(opts.req.params)),
   });
   writeResult.queueFollowUp();
+}
+
+function uniqueCapabilityRequestIdFromGrant(grant: ToolSupplyGrant): string | null {
+  for (const value of [grant.capabilityRef, grant.targetId]) {
+    if (!value?.startsWith("unique:")) continue;
+    const requestId = value.slice("unique:".length).trim();
+    if (requestId) return requestId;
+  }
+  return null;
+}
+
+function syncUniqueCapabilityGrantToMainFlow(grant: ToolSupplyGrant): void {
+  const capabilityRequestId = uniqueCapabilityRequestIdFromGrant(grant);
+  if (!capabilityRequestId) return;
+  try {
+    new AicsMainFlowStore().update((state) =>
+      setUniqueCapabilityApprovalForDispatch(state, {
+        capabilityRequestId,
+        status: grant.status,
+      }),
+    );
+  } catch {
+    /* Tool supply grants remain valid even if no local main-flow dispatch exists yet. */
+  }
 }
 
 function grantFromParams(params: Record<string, unknown>): ToolSupplyGrant {
@@ -187,11 +216,15 @@ export const aicsToolSupplyHandlers: GatewayRequestHandlers = {
   "aics.toolSupply.grant.set": async (opts) => {
     try {
       const grant = grantFromParams(paramsRecord(opts.req.params));
-      await writeConfig(opts, (config) => {
-        const next = ensureToolSupply(config);
-        next.toolSupply!.grants![grant.id] = grant;
-        return { config: next, changedPaths: [`toolSupply.grants.${grant.id}`] };
-      });
+      await writeConfig(
+        opts,
+        (config) => {
+          const next = ensureToolSupply(config);
+          next.toolSupply!.grants![grant.id] = grant;
+          return { config: next, changedPaths: [`toolSupply.grants.${grant.id}`] };
+        },
+        () => syncUniqueCapabilityGrantToMainFlow(grant),
+      );
     } catch (err) {
       opts.respond(
         false,
