@@ -421,14 +421,14 @@ function renderBusinessOverviewPage(state: AppViewState, requestHostUpdate?: () 
             state.businessIntentDraft = (event.target as HTMLTextAreaElement).value;
             requestHostUpdate?.();
           }}
-          placeholder="例如：提升岗位商城首批岗位授权转化与执行成功率，先找出岗位供给、详情页展示、授权费用、执行质量和审核阻塞之间的主要问题。"
+          placeholder="例如：提升岗位商城首批岗位授权转化与执行成功率，先找出云端商城、本地 OpenClaw、岗位供给、能力路由、API/模型/工具、调度执行和外部可吸收能力之间的主要问题。"
           style="width:100%;min-height:132px;resize:vertical;padding:10px;border:1px solid var(--border-color,#ccc);border-radius:6px;background:var(--bg-primary,#fff);color:var(--text-primary,#111);font:inherit;font-size:13px;box-sizing:border-box"
         ></textarea>
         <div
           style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;gap:8px"
         >
           <span style="font-size:11px;color:var(--text-secondary,#888)"
-            >输出：岗位供给、授权转化、执行质量、费用消耗、审核阻塞</span
+            >输出：云端商城、本地端、岗位能力、调度执行、外部能力和风险观察</span
           >
           <button
             @click=${() =>
@@ -509,6 +509,34 @@ function renderBusinessOverviewPage(state: AppViewState, requestHostUpdate?: () 
   </div>`;
 }
 
+const MARKETPLACE_OBSERVATION_VIEW_DOMAINS = [
+  "云端岗位商城观察",
+  "本地 OpenClaw 运行观察",
+  "岗位供给与能力观察",
+  "用户/管理者使用观察",
+  "调度与执行链路观察",
+  "外部产品与竞品观察",
+  "外部技术/工具/模型观察",
+  "可吸收能力库观察",
+  "风险与数据质量观察",
+] as const;
+
+const MARKETPLACE_ATTRIBUTION_VIEW_CAUSES = [
+  "云端商城问题",
+  "本地 OpenClaw 问题",
+  "岗位供给问题",
+  "授权与费用问题",
+  "能力路由问题",
+  "API / 模型 / 工具 / Skill 问题",
+  "页面体验问题",
+  "调度链路问题",
+  "岗位执行质量问题",
+  "外部能力未吸收",
+  "外部竞品/产品压力",
+  "风险与数据质量问题",
+  "目标设定问题",
+] as const;
+
 function renderObservationPage(state: AppViewState, requestHostUpdate?: () => void) {
   const mf = state.aicsMainFlow;
   const readModel = mf?.readModel as Record<string, unknown> | null;
@@ -519,16 +547,23 @@ function renderObservationPage(state: AppViewState, requestHostUpdate?: () => vo
     (r: Record<string, unknown>) => r.stage === "observation",
   );
   const signals = (obs?.signals ?? []) as Array<Record<string, unknown>>;
+  const domainHits = MARKETPLACE_OBSERVATION_VIEW_DOMAINS.filter((domain) =>
+    signals.some(
+      (signal) =>
+        String(signal.title ?? "").includes(domain) ||
+        String(signal.summary ?? "").includes(domain.replace("观察", "")),
+    ),
+  ).length;
   const metrics = [
     { l: "数据包", v: counts.observations ?? 0 },
     { l: "事实数", v: signals.length },
+    { l: "观察域", v: domainHits || MARKETPLACE_OBSERVATION_VIEW_DOMAINS.length },
     {
       l: "就绪",
       v: blocked.length === 0 ? "是" : "否",
       c: blocked.length === 0 ? "#38a169" : "#e53e3e",
     },
     { l: "阻塞", v: blocked.length, c: blocked.length > 0 ? "#e53e3e" : "#a0aec0" },
-    { l: "来源可信度", v: obs ? "待验证" : "—" },
   ];
 
   return html`<div style="padding:16px;max-width:900px;margin:0 auto">
@@ -650,17 +685,31 @@ function renderObservationPage(state: AppViewState, requestHostUpdate?: () => vo
               >
                 观察信号为空，不能进入归因分析。请从「经营概览」发起经营意图生成初始观察包。
               </div>`}
+          <div style="margin-top:12px">
+            <div style="font-size:12px;font-weight:700;margin-bottom:6px">岗位商城观察域</div>
+            <div
+              style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;font-size:12px"
+            >
+              ${MARKETPLACE_OBSERVATION_VIEW_DOMAINS.map(
+                (domain) => html`<div
+                  style="padding:8px;background:var(--bg-secondary,#f8fafc);border-radius:6px;border:1px solid var(--border-color,#edf2f7)"
+                >
+                  ${domain}
+                </div>`,
+              )}
+            </div>
+          </div>
           <div
             style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px;font-size:12px"
           >
             <div style="padding:8px;background:var(--bg-secondary,#f8fafc);border-radius:6px">
-              <strong>观察范围</strong><br />公司内部 / 竞争对手 / 行业数据
+              <strong>允许动作</strong><br />真实采集、证据留存、异常/缺失/可信度标记
             </div>
             <div style="padding:8px;background:var(--bg-secondary,#f8fafc);border-radius:6px">
-              <strong>允许动作</strong><br />标记异常、缺失、初步可信度
+              <strong>下游用途</strong><br />进入归因、目标、规划、调度前的事实依据
             </div>
             <div style="padding:8px;background:var(--bg-secondary,#f8fafc);border-radius:6px">
-              <strong>禁止动作</strong><br />不定目标、不归因、不执行
+              <strong>禁止动作</strong><br />不定目标、不归因、不直接调岗位执行
             </div>
           </div>
         </div>`
@@ -702,6 +751,13 @@ function renderAttributionPage(state: AppViewState, requestHostUpdate?: () => vo
   );
   const canPrepareAttribution = readiness.canPrepareAttribution === true;
   const findings = (attr?.findings ?? []) as Array<Record<string, unknown>>;
+  const causeHits = MARKETPLACE_ATTRIBUTION_VIEW_CAUSES.filter((cause) =>
+    findings.some(
+      (finding) =>
+        String(finding.title ?? "").includes(cause) ||
+        String(finding.summary ?? "").includes(cause),
+    ),
+  ).length;
 
   return html`<div style="padding:16px;max-width:900px;margin:0 auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -735,7 +791,10 @@ function renderAttributionPage(state: AppViewState, requestHostUpdate?: () => vo
         { l: "待审核", v: 0 },
         { l: "可引用", v: attr ? 1 : 0, c: attr ? "#38a169" : "#a0aec0" },
         { l: "观察阻塞", v: blocked.length, c: blocked.length > 0 ? "#e53e3e" : "#a0aec0" },
-        { l: "置信度", v: attr?.confidence || "—" },
+        {
+          l: "归因维度",
+          v: causeHits || (attr ? MARKETPLACE_ATTRIBUTION_VIEW_CAUSES.length : "—"),
+        },
       ].map(
         (m: Record<string, unknown>) =>
           html`<div
@@ -835,13 +894,27 @@ function renderAttributionPage(state: AppViewState, requestHostUpdate?: () => vo
               <strong>完成判断</strong><br />完成 / 未完成 / 部分 / 超额 / 数据不足
             </div>
             <div style="padding:8px;background:var(--bg-secondary,#f8fafc);border-radius:6px">
-              <strong>问题来源</strong><br />岗位供给、详情页、授权、执行、费用、审核
+              <strong>问题来源</strong><br />云端商城、本地端、能力、API、调度、执行、外部生态、风险
             </div>
             <div style="padding:8px;background:var(--bg-secondary,#f8fafc);border-radius:6px">
-              <strong>记忆状态</strong><br />待确认 / 已确认 / 需补数据
+              <strong>目标层参考</strong><br />产品改进、能力吸收、风险预案、调度修复
             </div>
             <div style="padding:8px;background:var(--bg-secondary,#f8fafc);border-radius:6px">
               <strong>禁止动作</strong><br />不制定目标、不调用岗位执行
+            </div>
+          </div>
+          <div style="margin-top:12px">
+            <div style="font-size:12px;font-weight:700;margin-bottom:6px">岗位商城归因维度</div>
+            <div
+              style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;font-size:12px"
+            >
+              ${MARKETPLACE_ATTRIBUTION_VIEW_CAUSES.map(
+                (cause) => html`<div
+                  style="padding:8px;background:var(--bg-secondary,#f8fafc);border-radius:6px;border:1px solid var(--border-color,#edf2f7)"
+                >
+                  ${cause}
+                </div>`,
+              )}
             </div>
           </div>
         </div>`
@@ -850,6 +923,20 @@ function renderAttributionPage(state: AppViewState, requestHostUpdate?: () => vo
           <p style="font-size:12px;margin:0">
             先创建数据分析包（ObservationPackage），系统将自动生成归因报告。
           </p>
+          <div style="margin-top:16px;text-align:left">
+            <div style="font-size:12px;font-weight:700;margin-bottom:6px">岗位商城归因维度</div>
+            <div
+              style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;font-size:12px"
+            >
+              ${MARKETPLACE_ATTRIBUTION_VIEW_CAUSES.map(
+                (cause) => html`<div
+                  style="padding:8px;background:var(--bg-secondary,#f8fafc);border-radius:6px;border:1px solid var(--border-color,#edf2f7)"
+                >
+                  ${cause}
+                </div>`,
+              )}
+            </div>
+          </div>
         </div>`}
     ${blocked.length === 0 && attr
       ? html`<div
@@ -1248,16 +1335,16 @@ function renderCompanyManagementProductPage(
     },
     {
       id: "role-listing-conversion",
-      title: "详情页转化",
+      title: "岗位商品表达",
       projectIds: ["project-product-launch"],
-      summary: "优化岗位商品的主图、详情页、授权说明和转化路径。",
+      summary: "优化岗位商品的能力说明、授权说明、输出样例和可调用边界。",
       fallbackProgress: 80,
       roles: [
         {
-          title: "电商美工",
+          title: "产品设计",
           progress: 86,
           status: "执行中",
-          task: "岗位主图、详情页和授权视觉优化",
+          task: "岗位商品信息架构和授权说明优化",
         },
         {
           title: "商品运营",
@@ -1267,7 +1354,7 @@ function renderCompanyManagementProductPage(
         },
         { title: "文案策划", progress: 78, status: "可调度", task: "岗位边界、输出样例和授权话术" },
       ],
-      tasks: ["首批岗位详情页结构优化", "每个岗位 5 张主图方向", "授权转化卖点重写"],
+      tasks: ["首批岗位商品说明结构优化", "岗位能力和输出样例补齐", "授权转化说明重写"],
       blocker: "部分岗位缺少示例产物和失败边界说明。",
     },
     {
@@ -2205,7 +2292,7 @@ function renderBillingAuthorizationProductPage(
                   "roleListingId",
                   (event.target as HTMLInputElement).value,
                 )}
-              placeholder="例如 djrole_xxx 或首批电商美工岗位编号"
+              placeholder="例如 djrole_xxx 或首批岗位商品编号"
               style="padding:8px;border:1px solid var(--border-color,#ccc);border-radius:4px;font-size:13px"
             />
           </label>
@@ -2519,7 +2606,17 @@ function renderApiManagementProductPage(state: AppViewState, onNavigate: (tab: T
             }
           }}
         >
-          ${entries.length ? "管理" : template.connectionMode === "local" ? "检测" : "连接"}
+          ${entries.length
+            ? "管理 API"
+            : template.connectionMode === "local"
+              ? "检测本地服务"
+              : template.category === "cloud_marketplace"
+                ? "接入商城 API"
+                : template.category === "model_provider"
+                  ? "接入模型 API"
+                  : template.category === "tool_provider"
+                    ? "接入工具 API"
+                    : "接入 API"}
         </button>
       </div>
     `;
@@ -2815,7 +2912,7 @@ function renderApiManagementProductPage(state: AppViewState, onNavigate: (tab: T
             (form.connectionMode === "env" && !form.secretEnvId.trim())}
             @click=${() => state.createApiConnectionEntry?.()}
           >
-            ${form.editingId ? "保存修改" : "连接"}
+            ${form.editingId ? "保存 API 修改" : "添加 API 连接"}
           </button>
           ${form.editingId
             ? html`<button

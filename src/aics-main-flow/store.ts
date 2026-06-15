@@ -410,7 +410,7 @@ function inferCategory(...texts: Array<string | undefined>): string {
   const source = texts.filter(Boolean).join(" ").toLowerCase();
   if (/岗位商城|岗位商品|授权转化|执行成功率|role marketplace|marketplace/.test(source))
     return "岗位商城";
-  if (/电商|商品|主图|详情页|sku|商城|ecommerce/.test(source)) return "电商商品";
+  if (/岗位|商品|商城|role|listing/.test(source)) return "岗位商城";
   if (/短视频|视频|直播|douyin|抖音/.test(source)) return "内容视频";
   if (/客服|售后|退款|投诉/.test(source)) return "客服售后";
   if (/库存|供应链|采购|交期/.test(source)) return "供应链";
@@ -598,7 +598,8 @@ function buildOperationChecks(params: {
       title: "经营概览到数据分析",
       layer: "main_flow",
       status: checkStatus(state.observations.length > 0, Boolean(state.interactions.length)),
-      summary: "经营意图生成岗位商城观察包，覆盖岗位供给、授权转化、执行质量、费用和审核阻塞。",
+      summary:
+        "经营意图生成岗位商城观察包，覆盖云端商城、本地 OpenClaw、岗位供给、用户使用、调度执行、外部产品、外部技术、可吸收能力和风险数据质量。",
       routeTab: "observation",
       nextAction:
         state.observations.length > 0 ? "查看数据分析包" : "在经营概览发起岗位商城经营意图",
@@ -608,7 +609,8 @@ function buildOperationChecks(params: {
       title: "数据分析到归因分析",
       layer: "main_flow",
       status: checkStatus(state.attributions.length > 0, readiness.canPrepareAttribution),
-      summary: "归因层只解释岗位商城运营差距，不直接定目标或执行岗位。",
+      summary:
+        "归因层解释岗位商城目标差距，区分云端商城、本地端、能力路由、API/模型/工具/Skill、页面体验、调度执行、外部能力、竞品压力和风险数据质量。",
       routeTab: "attribution",
       nextAction: state.attributions.length > 0 ? "查看归因报告" : "基于观察信号生成归因报告",
     },
@@ -617,7 +619,7 @@ function buildOperationChecks(params: {
       title: "归因分析到公司目标",
       layer: "main_flow",
       status: checkStatus(Boolean(latestConfirmed(state.goals)), readiness.canCreateGoalCandidate),
-      summary: "目标层确认提升首批岗位授权转化与执行成功率。",
+      summary: "目标层确认岗位商城真实可用目标、产品目标、能力吸收目标和风险控制目标。",
       routeTab: "goals",
       nextAction: latestConfirmed(state.goals) ? "查看已确认目标" : "创建并确认公司目标候选",
     },
@@ -629,7 +631,7 @@ function buildOperationChecks(params: {
         Boolean(latestConfirmed(state.planningPackages)),
         readiness.canPreparePlanning,
       ),
-      summary: "规划层拆成岗位供给、详情页转化、执行质量、授权费用和审核治理。",
+      summary: "规划层生成岗位商城方案、工作块和 RolePlanItem，再经人工确认进入调度层。",
       routeTab: "company",
       nextAction: latestConfirmed(state.planningPackages) ? "查看规划方案" : "生成并确认规划方案",
     },
@@ -641,7 +643,8 @@ function buildOperationChecks(params: {
         Boolean(latestConfirmed(state.dispatchProposalReviews)),
         readiness.canCreateDispatchProposal,
       ),
-      summary: "调度层是 TaskPackage 和 DispatchToRoleRequest 的唯一物化入口。",
+      summary:
+        "调度层读取真实岗位授权、能力路由、工具/Skill/API 状态，物化 TaskPackage 和 DispatchToRoleRequest。",
       routeTab: "workboard",
       nextAction: latestConfirmed(state.dispatchProposalReviews)
         ? "查看已确认调度"

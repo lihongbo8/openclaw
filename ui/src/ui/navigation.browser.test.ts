@@ -367,7 +367,7 @@ describe("control UI routing", () => {
     expect(app.apiConnections.form.templateId).toBe("tool-skill-api");
     const form = expectElement(app, "[data-api-connection-form]", HTMLElement);
     const connectButton = Array.from(form.querySelectorAll<HTMLButtonElement>("button")).find(
-      (button) => button.textContent?.trim() === "连接",
+      (button) => button.textContent?.trim() === "添加 API 连接",
     );
     expect(connectButton).toBeInstanceOf(HTMLButtonElement);
     connectButton?.click();
@@ -419,7 +419,7 @@ describe("control UI routing", () => {
 
     const form = expectElement(app, "[data-api-connection-form]", HTMLElement);
     const connectButton = Array.from(form.querySelectorAll<HTMLButtonElement>("button")).find(
-      (button) => button.textContent?.trim() === "连接",
+      (button) => button.textContent?.trim() === "添加 API 连接",
     );
     expect(connectButton).toBeInstanceOf(HTMLButtonElement);
     connectButton?.click();
@@ -479,7 +479,7 @@ describe("control UI routing", () => {
 
     const form = expectElement(app, "[data-api-connection-form]", HTMLElement);
     const connectButton = Array.from(form.querySelectorAll<HTMLButtonElement>("button")).find(
-      (button) => button.textContent?.trim() === "连接",
+      (button) => button.textContent?.trim() === "添加 API 连接",
     );
     expect(connectButton).toBeInstanceOf(HTMLButtonElement);
     connectButton?.click();
@@ -559,7 +559,7 @@ describe("control UI routing", () => {
 
     const form = expectElement(app, "[data-api-connection-form]", HTMLElement);
     const connectButton = Array.from(form.querySelectorAll<HTMLButtonElement>("button")).find(
-      (button) => button.textContent?.trim() === "连接",
+      (button) => button.textContent?.trim() === "添加 API 连接",
     );
     expect(connectButton).toBeInstanceOf(HTMLButtonElement);
     connectButton?.click();

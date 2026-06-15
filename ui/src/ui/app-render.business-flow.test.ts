@@ -390,12 +390,15 @@ describe("renderApp business flow routing", () => {
     if (!observationPayload) throw new Error("Expected observation payload");
     expect(observationPayload.signals?.map((signal) => signal.id)).toEqual([
       "business_intent",
-      "role_supply",
-      "authorization_conversion",
-      "execution_quality",
-      "cost_usage",
-      "review_blockers",
-      "initial_confidence",
+      "cloud_marketplace",
+      "local_openclaw",
+      "role_supply_capability",
+      "operator_usage",
+      "dispatch_execution_chain",
+      "external_product_competitor",
+      "external_technology_tool_model",
+      "absorbable_capability_library",
+      "risk_data_quality",
     ]);
     expect(harness.state.tab).toBe("observation");
   });
@@ -485,6 +488,10 @@ describe("renderApp business flow routing", () => {
     expect(text).toContain("确认观察包");
     expect(text).toContain("标记数据缺失");
     expect(text).toContain("驳回观察包");
+    expect(text).toContain("岗位商城观察域");
+    expect(text).toContain("云端岗位商城观察");
+    expect(text).toContain("可吸收能力库观察");
+    expect(text).toContain("风险与数据质量观察");
   });
 
   it("generates attribution findings from observation signals instead of an empty report", async () => {
@@ -538,12 +545,17 @@ describe("renderApp business flow routing", () => {
     expect(request).toHaveBeenCalledWith(
       "aics.mainFlow.attribution.prepare",
       expect.objectContaining({
-        findings: [
+        findings: expect.arrayContaining([
           expect.objectContaining({
-            title: "归因线索：经营意图",
-            observationSignalIds: ["business_intent"],
+            title: "云端商城问题",
           }),
-        ],
+          expect.objectContaining({
+            title: "外部能力未吸收",
+          }),
+          expect.objectContaining({
+            title: "风险与数据质量问题",
+          }),
+        ]),
       }),
     );
   });
@@ -586,6 +598,10 @@ describe("renderApp business flow routing", () => {
     expect(text).toContain("确认归因报告");
     expect(text).toContain("要求补数据");
     expect(text).toContain("驳回归因报告");
+    expect(text).toContain("岗位商城归因维度");
+    expect(text).toContain("云端商城问题");
+    expect(text).toContain("外部能力未吸收");
+    expect(text).toContain("风险与数据质量问题");
   });
 
   it("renders the company goal page without the old strategy target explainer", () => {

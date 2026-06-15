@@ -276,7 +276,15 @@ function installControlUiMockGateway(input: {
     summary: string;
     title: string;
   };
+  type MainFlowAttribution = MainFlowEntity & {
+    findings: Array<Record<string, unknown>>;
+    kind: "AttributionReport";
+    observationPackageId: string;
+    summary: string;
+    title: string;
+  };
   type MainFlowMockState = {
+    attributions: MainFlowAttribution[];
     interactions: MainFlowInteraction[];
     observations: MainFlowObservation[];
   };
@@ -305,6 +313,7 @@ function installControlUiMockGateway(input: {
   const requests: BrowserRequest[] = [];
   const sockets: unknown[] = [];
   const mainFlowState: MainFlowMockState = {
+    attributions: [],
     interactions: [],
     observations: [],
   };
@@ -416,8 +425,16 @@ function installControlUiMockGateway(input: {
     );
   }
 
+  function latestAttributionReady(): boolean {
+    const attribution = latestByCreatedAt(mainFlowState.attributions);
+    return Boolean(
+      attribution && attribution.status === "confirmed" && attribution.findings.length > 0,
+    );
+  }
+
   function buildMainFlowReadModel() {
     const observationReady = latestObservationReady();
+    const attributionReady = latestAttributionReady();
     const blockedReasons = [
       ...(observationReady
         ? []
@@ -428,11 +445,15 @@ function installControlUiMockGateway(input: {
               message: "ObservationPackage is required before attribution.",
             },
           ]),
-      {
-        stage: "attribution",
-        code: "missing_attribution_report",
-        message: "AttributionReport is required before creating goal rationale.",
-      },
+      ...(attributionReady
+        ? []
+        : [
+            {
+              stage: "attribution",
+              code: "missing_attribution_report",
+              message: "AttributionReport is required before creating goal rationale.",
+            },
+          ]),
       {
         stage: "goal",
         code: "missing_confirmed_company_goal",
@@ -467,7 +488,7 @@ function installControlUiMockGateway(input: {
       currentStage: blockedReasons[0]?.stage ?? "role",
       readiness: {
         canPrepareAttribution: observationReady,
-        canCreateGoalCandidate: false,
+        canCreateGoalCandidate: attributionReady,
         canPreparePlanning: false,
         canCreateDispatchProposal: false,
         canMaterializeTaskPackage: false,
@@ -482,7 +503,7 @@ function installControlUiMockGateway(input: {
       latest: {
         interaction: latestByCreatedAt(mainFlowState.interactions),
         observationPackage: latestByCreatedAt(mainFlowState.observations),
-        attributionReport: null,
+        attributionReport: latestByCreatedAt(mainFlowState.attributions),
         companyGoal: null,
         planningPackage: null,
         rolePlanItem: null,
@@ -494,7 +515,7 @@ function installControlUiMockGateway(input: {
       counts: {
         interactions: mainFlowState.interactions.length,
         observations: mainFlowState.observations.length,
-        attributions: 0,
+        attributions: mainFlowState.attributions.length,
         goals: 0,
         planningPackages: 0,
         rolePlanItems: 0,
@@ -506,7 +527,7 @@ function installControlUiMockGateway(input: {
       objects: {
         interactions: mainFlowState.interactions,
         observations: mainFlowState.observations,
-        attributions: [],
+        attributions: mainFlowState.attributions,
         goals: [],
         planningPackages: [],
         rolePlanItems: [],
@@ -560,6 +581,28 @@ function installControlUiMockGateway(input: {
     return observation;
   }
 
+  function prepareMainFlowAttribution(params: unknown): MainFlowAttribution {
+    const record = isRecord(params) ? params : {};
+    const findings = Array.isArray(record.findings)
+      ? record.findings.filter(isRecord).map((finding) => ({ ...finding }))
+      : [];
+    const observationPackageId =
+      typeof record.observationPackageId === "string"
+        ? record.observationPackageId
+        : (latestByCreatedAt(mainFlowState.observations)?.id ?? "obs_pkg_latest");
+    const base = makeEntityBase("AttributionReport", "attr_report");
+    const attribution: MainFlowAttribution = {
+      ...base,
+      findings,
+      kind: "AttributionReport",
+      observationPackageId,
+      title: typeof record.title === "string" ? record.title : "上一轮目标归因报告",
+      summary: typeof record.summary === "string" ? record.summary : "",
+    };
+    mainFlowState.attributions.push(attribution);
+    return attribution;
+  }
+
   function updateMainFlowObservation(
     params: unknown,
     status: "confirmed" | "rejected" | "prepared",
@@ -582,6 +625,28 @@ function installControlUiMockGateway(input: {
     return observation;
   }
 
+  function updateMainFlowAttribution(
+    params: unknown,
+    status: "confirmed" | "rejected" | "prepared",
+    summarySuffix?: string,
+  ): MainFlowAttribution {
+    const record = isRecord(params) ? params : {};
+    const attributionReportId =
+      typeof record.attributionReportId === "string" ? record.attributionReportId : "";
+    const attribution =
+      mainFlowState.attributions.find((item) => item.id === attributionReportId) ??
+      latestByCreatedAt(mainFlowState.attributions);
+    if (!attribution) {
+      throw new Error("No mock AttributionReport exists.");
+    }
+    attribution.status = status;
+    attribution.updatedAt = Date.now();
+    if (summarySuffix && !attribution.summary.includes(summarySuffix)) {
+      attribution.summary = `${attribution.summary} ${summarySuffix}`.trim();
+    }
+    return attribution;
+  }
+
   function buildResponse(method: string, params: unknown): unknown {
     const configured = configuredResponse(method, params);
     if (configured.found) {
@@ -600,6 +665,14 @@ function installControlUiMockGateway(input: {
         return updateMainFlowObservation(params, "rejected");
       case "aics.mainFlow.observation.markDataMissing":
         return updateMainFlowObservation(params, "prepared", "待补真实经营数据");
+      case "aics.mainFlow.attribution.prepare":
+        return prepareMainFlowAttribution(params);
+      case "aics.mainFlow.attribution.confirm":
+        return updateMainFlowAttribution(params, "confirmed");
+      case "aics.mainFlow.attribution.reject":
+        return updateMainFlowAttribution(params, "rejected");
+      case "aics.mainFlow.attribution.requestMoreData":
+        return updateMainFlowAttribution(params, "prepared", "待补真实经营数据");
       case "connect":
         return {
           auth: {

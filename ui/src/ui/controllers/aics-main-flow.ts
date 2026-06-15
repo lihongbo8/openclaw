@@ -24,6 +24,173 @@ function text(value: unknown): string {
   return typeof value === "string" && value.trim() ? value.trim() : "";
 }
 
+const MARKETPLACE_OBSERVATION_DOMAINS = [
+  {
+    id: "cloud_marketplace",
+    title: "云端岗位商城观察",
+    summary: "观察岗位商品、审核、能力、授权、可调用状态和云端 blocked reason。",
+  },
+  {
+    id: "local_openclaw",
+    title: "本地 OpenClaw 运行观察",
+    summary: "观察 Gateway、actor_context、API 管理、模型 Provider、工具、Skill 和本地能力路由。",
+  },
+  {
+    id: "role_supply_capability",
+    title: "岗位供给与能力观察",
+    summary: "观察已有岗位覆盖、缺失岗位、通用能力、独特能力、未授权或不可调用岗位。",
+  },
+  {
+    id: "operator_usage",
+    title: "用户/管理者使用观察",
+    summary: "观察配置、保存、回显、错误提示、确认/驳回、下一步导航是否真实可用。",
+  },
+  {
+    id: "dispatch_execution_chain",
+    title: "调度与执行链路观察",
+    summary:
+      "观察 CompanyGoal、PlanningPackage、TaskPackage、DispatchToRoleRequest、RoleRun、RoleResult 和产物回写。",
+  },
+  {
+    id: "external_product_competitor",
+    title: "外部产品与竞品观察",
+    summary: "观察其他 Agent marketplace、插件市场、工具市场、模型控制台、工作流平台的产品做法。",
+  },
+  {
+    id: "external_technology_tool_model",
+    title: "外部技术/工具/模型观察",
+    summary:
+      "观察 DeepSeek、阿里百炼、OpenAI、Anthropic、Gemini、本地模型、浏览器自动化、搜索、文档解析、质检和监控能力。",
+  },
+  {
+    id: "absorbable_capability_library",
+    title: "可吸收能力库观察",
+    summary: "观察本地开源岗位库、已筛选岗位、工作流模板、Skill/Tool 需求和岗位商品候选。",
+  },
+  {
+    id: "risk_data_quality",
+    title: "风险与数据质量观察",
+    summary:
+      "观察供应商稳定性、模型成本、Key 泄漏、scope 过大、actor_context 缺失、工具越权、外部信息可信度和数据过期冲突。",
+  },
+] as const;
+
+const MARKETPLACE_ATTRIBUTION_CAUSES = [
+  {
+    id: "cloud_marketplace_problem",
+    title: "云端商城问题",
+    summary: "岗位商品、审核、能力、授权、可调用状态或云端 blocked reason 影响目标完成。",
+  },
+  {
+    id: "local_openclaw_problem",
+    title: "本地 OpenClaw 问题",
+    summary:
+      "Gateway、actor_context、API 管理、模型 Provider、工具、Skill 或本地能力路由影响使用。",
+  },
+  {
+    id: "role_supply_problem",
+    title: "岗位供给问题",
+    summary: "岗位数量、品类覆盖、岗位能力、审核状态或可调用性不足。",
+  },
+  {
+    id: "authorization_billing_problem",
+    title: "授权与费用问题",
+    summary: "岗位未授权、授权过期、费用确认或额度状态阻塞执行。",
+  },
+  {
+    id: "capability_routing_problem",
+    title: "能力路由问题",
+    summary: "任务所需能力和岗位能力、工具、Skill 匹配不足。",
+  },
+  {
+    id: "api_model_tool_skill_problem",
+    title: "API / 模型 / 工具 / Skill 问题",
+    summary: "Provider、API Key、工具依赖、Skill 启用状态或真实工具执行能力不满足。",
+  },
+  {
+    id: "product_experience_problem",
+    title: "页面体验问题",
+    summary: "管理后台配置、保存、回显、错误提示、确认动作或下一步导航不清晰。",
+  },
+  {
+    id: "dispatch_chain_problem",
+    title: "调度链路问题",
+    summary: "目标、规划、调度建议、TaskPackage、DispatchToRoleRequest 的链路断裂或状态不清。",
+  },
+  {
+    id: "role_execution_quality_problem",
+    title: "岗位执行质量问题",
+    summary: "岗位执行失败、产物不合格、回写失败、返工过多或结果不可验收。",
+  },
+  {
+    id: "external_capability_absorption_gap",
+    title: "外部能力未吸收",
+    summary: "外部岗位、工具、工作流、模型能力或产品设计未进入 OpenClaw 候选能力池。",
+  },
+  {
+    id: "external_product_pressure",
+    title: "外部竞品/产品压力",
+    summary: "其他 Agent marketplace、插件市场、工具市场或模型平台在能力和体验上形成压力。",
+  },
+  {
+    id: "risk_data_quality_problem",
+    title: "风险与数据质量问题",
+    summary: "供应商、合规、安全、成本、权限或低可信/过期/冲突数据影响判断。",
+  },
+  {
+    id: "goal_setting_problem",
+    title: "目标设定问题",
+    summary: "目标缺少基线、指标口径不清、目标值过高或没有覆盖外部机会和风险。",
+  },
+] as const;
+
+function buildMarketplaceObservationSignals(intent: string, evidenceRef: string) {
+  return [
+    {
+      id: "business_intent",
+      title: "经营意图",
+      summary: intent,
+      evidenceRefs: [evidenceRef],
+    },
+    ...MARKETPLACE_OBSERVATION_DOMAINS.map((domain) => ({
+      id: domain.id,
+      title: domain.title,
+      summary: domain.summary,
+      evidenceRefs: [evidenceRef],
+    })),
+  ];
+}
+
+function buildMarketplaceAttributionFindings(signals: Array<Record<string, unknown>>) {
+  const signalIds = signals.map((signal) => text(signal.id)).filter(Boolean);
+  const hasSignal = (id: string) => signalIds.includes(id);
+  return MARKETPLACE_ATTRIBUTION_CAUSES.map((cause) => {
+    const linkedSignalIds = signalIds.filter((signalId) => {
+      if (cause.id.includes("cloud_marketplace")) return signalId === "cloud_marketplace";
+      if (cause.id.includes("local_openclaw")) return signalId === "local_openclaw";
+      if (cause.id.includes("role_supply")) return signalId === "role_supply_capability";
+      if (cause.id.includes("authorization")) return signalId === "cloud_marketplace";
+      if (cause.id.includes("capability")) return signalId === "role_supply_capability";
+      if (cause.id.includes("api_model")) return signalId === "external_technology_tool_model";
+      if (cause.id.includes("product_experience")) return signalId === "operator_usage";
+      if (cause.id.includes("dispatch")) return signalId === "dispatch_execution_chain";
+      if (cause.id.includes("role_execution")) return signalId === "dispatch_execution_chain";
+      if (cause.id.includes("external_capability"))
+        return signalId === "absorbable_capability_library";
+      if (cause.id.includes("external_product")) return signalId === "external_product_competitor";
+      if (cause.id.includes("risk")) return signalId === "risk_data_quality";
+      return false;
+    });
+    return {
+      id: `finding_${cause.id}`,
+      title: cause.title,
+      summary: `${cause.summary} 需要结合真实观察证据、云端商城投影、本地运行状态和外部采集结果确认。`,
+      confidence: linkedSignalIds.length > 0 && hasSignal("business_intent") ? "medium" : "low",
+      observationSignalIds: linkedSignalIds.length ? linkedSignalIds : signalIds.slice(0, 1),
+    };
+  });
+}
+
 function latestDispatchRequest(state: AppViewState): Record<string, unknown> {
   const readModel = state.aicsMainFlow?.readModel as Record<string, unknown> | null | undefined;
   const latest = readModel?.latest as Record<string, unknown> | undefined;
@@ -160,53 +327,10 @@ export const aicsMainFlow = {
       );
       const interactionId = interaction?.id ?? "interaction:latest";
       await s.client.request("aics.mainFlow.observation.prepare", {
-        title: "经营意图初始观察包",
+        title: "岗位商城观察包",
         summary:
-          "由经营概览提交的岗位商城经营意图生成。当前只记录岗位供给、授权转化、执行质量、费用和审核阻塞的观察范围，不伪造真实 KPI。",
-        signals: [
-          {
-            id: "business_intent",
-            title: "经营意图",
-            summary: intent,
-            evidenceRefs: [interactionId],
-          },
-          {
-            id: "role_supply",
-            title: "岗位供给",
-            summary: "观察首批岗位商品数量、能力标签、上架状态和供给缺口。",
-            evidenceRefs: [interactionId],
-          },
-          {
-            id: "authorization_conversion",
-            title: "授权转化",
-            summary: "观察岗位商品详情页访问、授权点击、授权成功和未授权阻塞。",
-            evidenceRefs: [interactionId],
-          },
-          {
-            id: "execution_quality",
-            title: "执行质量",
-            summary: "观察岗位执行成功率、失败原因、产物回写和用户反馈。",
-            evidenceRefs: [interactionId],
-          },
-          {
-            id: "cost_usage",
-            title: "费用消耗",
-            summary: "观察一次授权费、岗位运行费用、ledger 记录和费用确认状态。",
-            evidenceRefs: [interactionId],
-          },
-          {
-            id: "review_blockers",
-            title: "审核阻塞",
-            summary: "观察岗位审核、能力目录、云端岗位桥和本地调度之间的确认点。",
-            evidenceRefs: [interactionId],
-          },
-          {
-            id: "initial_confidence",
-            title: "初步可信度",
-            summary: "来源为人工输入，可信度待数据分析和归因分析继续验证。",
-            evidenceRefs: [interactionId],
-          },
-        ],
+          "由经营概览提交的岗位商城经营意图生成。观察范围固定为云端岗位商城、本地 OpenClaw、岗位供给与能力、用户使用、调度执行、外部产品、外部技术、可吸收能力库、风险与数据质量。",
+        signals: buildMarketplaceObservationSignals(intent, interactionId),
       });
       await refreshAicsMainFlowReadModel(s);
       s.businessIntentDraft = "";
@@ -246,13 +370,7 @@ export const aicsMainFlow = {
     const signals = Array.isArray(observation?.signals)
       ? (observation.signals as Array<Record<string, unknown>>)
       : [];
-    const findings = signals.slice(0, 3).map((signal, index) => ({
-      id: `finding_${String(signal.id ?? index).replace(/[^a-zA-Z0-9_-]+/g, "_")}`,
-      title: `归因线索：${text(signal.title) || `观察信号 ${index + 1}`}`,
-      summary: `${text(signal.summary) || "观察信号需要进一步验证。"} 当前结论来自本地经营意图和观察包，待补真实经营数据验证。`,
-      confidence: "low",
-      observationSignalIds: [text(signal.id)].filter(Boolean),
-    }));
+    const findings = buildMarketplaceAttributionFindings(signals);
     return callMainFlow(s, "aics.mainFlow.attribution.prepare", {
       title,
       summary,
