@@ -47,9 +47,9 @@ export const aicsMemoryHandlers: GatewayRequestHandlers = {
     try {
       const candidateId = requireString(params, "candidateId");
       const confirmedBy = stringParam(params, "confirmedBy") ?? "gateway-user";
-      const result = MemoryConfirmService.confirm(candidateId, confirmedBy);
+      const result = MemoryConfirmService.confirmAndPromote(candidateId, confirmedBy);
       if ("error" in result) {
-        respond(false, undefined, errorShape(ErrorCodes.NOT_FOUND, result.error));
+        respond(false, undefined, errorShape(ErrorCodes.INVALID_REQUEST, result.error));
         return;
       }
       respond(true, { candidate: result.candidate, memory: result.memory });
@@ -62,12 +62,12 @@ export const aicsMemoryHandlers: GatewayRequestHandlers = {
     try {
       const candidateId = requireString(params, "candidateId");
       const reason = stringParam(params, "reason") ?? "rejected via Gateway";
-      const result = MemoryConfirmService.reject(candidateId, reason);
+      const result = MemoryCandidateStore.reject(candidateId, reason);
       if (!result) {
         respond(
           false,
           undefined,
-          errorShape(ErrorCodes.NOT_FOUND, `Candidate not found: ${candidateId}`),
+          errorShape(ErrorCodes.INVALID_REQUEST, `Candidate not found: ${candidateId}`),
         );
         return;
       }
@@ -82,7 +82,11 @@ export const aicsMemoryHandlers: GatewayRequestHandlers = {
       const query = stringParam(params, "query");
       const tags = stringArrayParam(params, "tags");
       const limit = typeof params.limit === "number" ? params.limit : 20;
-      const memories = FormalMemoryStore.search({ query, tags, limit });
+      const memories = tags.length
+        ? FormalMemoryStore.listByTags(tags, limit)
+        : query
+          ? FormalMemoryStore.search(query, limit)
+          : FormalMemoryStore.listByScope("global", undefined, limit);
       respond(true, { memories });
     } catch (error) {
       respondError(respond, error);

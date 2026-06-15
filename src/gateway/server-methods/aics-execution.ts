@@ -21,11 +21,6 @@ function stringParam(params: Record<string, unknown>, key: string): string | und
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function booleanParam(params: Record<string, unknown>, key: string): boolean | undefined {
-  const value = params[key];
-  return typeof value === "boolean" ? value : undefined;
-}
-
 function stringArrayParam(params: Record<string, unknown>, key: string): string[] {
   const value = params[key];
   return Array.isArray(value)
@@ -62,6 +57,36 @@ function progressForStatus(status: string): number {
   }
 }
 
+function executionBlockedReason(
+  task: TaskPackage | null,
+  request: DispatchToRoleRequest,
+  match: { status?: string } | undefined,
+): string | null {
+  if (!task) return "missing_task_package";
+  if (
+    (request.capabilityRequestId || match?.status === "needs_unique_capability") &&
+    (task.status === "blocked" || request.status === "blocked" || request.toolSkillReady === false)
+  ) {
+    return "unique_capability_pending";
+  }
+  if (!request.roleListingId || !request.entitlementId) {
+    return "authorization_required";
+  }
+  if (request.confirmExecution !== true) {
+    return "execution_confirmation_required";
+  }
+  if (request.costConfirmed !== true) {
+    return "cost_not_confirmed";
+  }
+  if (request.toolSkillReady === false) {
+    return "tool_skill_not_ready";
+  }
+  if (request.apiBindingReady === false) {
+    return "api_binding_required";
+  }
+  return null;
+}
+
 function buildExecutionConsoleReadModel(readModel: AicsMainFlowReadModel) {
   const objects = readModel.objects;
   const matches = readModel.capabilities.matches;
@@ -95,15 +120,7 @@ function buildExecutionConsoleReadModel(readModel: AicsMainFlowReadModel) {
         ? (uniqueRequests.find((item) => item.id === match.uniqueCapabilityRequestId) ?? null)
         : null;
 
-      const blockedReason = !task
-        ? "missing_task_package"
-        : request.status === "blocked" && !request.roleListingId
-          ? "dispatcher_role_not_authorized"
-          : match?.status === "needs_unique_capability"
-            ? "unique_capability_pending"
-            : !request.roleListingId && !request.roleTitle
-              ? "dispatcher_role_not_authorized"
-              : null;
+      const blockedReason = executionBlockedReason(task, request, match);
 
       const status =
         latestResult?.outcome === "succeeded"
@@ -244,6 +261,20 @@ export const aicsExecutionHandlers: GatewayRequestHandlers = {
       const store = new AicsMainFlowStore();
       const readModel = store.readModel();
       const { taskPackage, request } = selectTaskPackage(readModel, record);
+      const preflight = store.executionPreflight({
+        taskPackageId: taskPackage.id,
+        ...(request?.id ? { dispatchToRoleRequestId: request.id } : {}),
+      });
+      if (!preflight.canRun) {
+        respond(true, {
+          ok: false,
+          status: "blocked",
+          taskPackageId: taskPackage.id,
+          dispatchToRoleRequestId: request?.id ?? null,
+          blockedReasons: preflight.blockedReasons,
+        });
+        return;
+      }
       const executionId = stringParam(record, "executionId") ?? `cloud_${Date.now()}`;
       const status = stringParam(record, "status");
       const ok = record.ok === true || status === "completed" || status === "succeeded";
@@ -252,8 +283,7 @@ export const aicsExecutionHandlers: GatewayRequestHandlers = {
         : status === "blocked"
           ? "blocked"
           : "failed";
-      const roleListingId = stringParam(record, "roleListingId") ?? request?.roleListingId;
-      const entitlementId = stringParam(record, "entitlementId");
+      const entitlementId = request?.entitlementId;
       const summary =
         stringParam(record, "summary") ??
         stringParam(record, "message") ??
@@ -280,13 +310,6 @@ export const aicsExecutionHandlers: GatewayRequestHandlers = {
           {
             taskPackageId: taskPackage.id,
             ...(request?.id ? { dispatchToRoleRequestId: request.id } : {}),
-            ...(roleListingId ? { roleListingId } : {}),
-            ...(stringParam(record, "roleTitle")
-              ? { roleTitle: stringParam(record, "roleTitle") }
-              : {}),
-            ...(entitlementId ? { entitlementId } : {}),
-            confirmExecution: true,
-            costConfirmed: true,
             ledgerRef,
             memoryCandidateRef,
             result: {
@@ -310,6 +333,20 @@ export const aicsExecutionHandlers: GatewayRequestHandlers = {
       const store = new AicsMainFlowStore();
       const readModel = store.readModel();
       const { taskPackage, request, rolePlanItem } = selectTaskPackage(readModel, params);
+      const preflight = store.executionPreflight({
+        taskPackageId: taskPackage.id,
+        ...(request?.id ? { dispatchToRoleRequestId: request.id } : {}),
+      });
+      if (!preflight.canRun) {
+        respond(true, {
+          ok: false,
+          status: "blocked",
+          taskPackageId: taskPackage.id,
+          dispatchToRoleRequestId: request?.id ?? null,
+          blockedReasons: preflight.blockedReasons,
+        });
+        return;
+      }
       const workspaceRoot = stringParam(params, "workspaceRoot");
       const modelRef = stringParam(params, "modelRef") ?? "deepseek-custom/deepseek-chat";
       const startedAt = Date.now();
@@ -320,18 +357,6 @@ export const aicsExecutionHandlers: GatewayRequestHandlers = {
           {
             taskPackageId: taskPackage.id,
             ...(request?.id ? { dispatchToRoleRequestId: request.id } : {}),
-            ...(stringParam(params, "roleListingId")
-              ? { roleListingId: stringParam(params, "roleListingId") }
-              : {}),
-            ...(stringParam(params, "entitlementId")
-              ? { entitlementId: stringParam(params, "entitlementId") }
-              : {}),
-            ...(booleanParam(params, "confirmExecution") !== undefined
-              ? { confirmExecution: booleanParam(params, "confirmExecution") }
-              : {}),
-            ...(booleanParam(params, "costConfirmed") !== undefined
-              ? { costConfirmed: booleanParam(params, "costConfirmed") }
-              : {}),
           },
           startedAt,
         ),
@@ -354,11 +379,8 @@ export const aicsExecutionHandlers: GatewayRequestHandlers = {
         .then(async (executorResult) => {
           const outcome = toStoreOutcome(executorResult.outcome as RoleResult["outcome"]);
           const effectiveRoleListingId =
-            stringParam(params, "roleListingId") ??
-            request?.roleListingId ??
-            rolePlanItem?.roleCapabilityRef ??
-            taskPackage.rolePlanItemId;
-          const effectiveEntitlementId = stringParam(params, "entitlementId");
+            request?.roleListingId ?? rolePlanItem?.roleCapabilityRef ?? taskPackage.rolePlanItemId;
+          const effectiveEntitlementId = request?.entitlementId;
           // Build RoleResult
           const roleResult: RoleResult = {
             executionId: context.executionId,
@@ -461,10 +483,6 @@ export const aicsExecutionHandlers: GatewayRequestHandlers = {
             runApprovedTask(state, {
               taskPackageId: taskPackage.id,
               ...(request?.id ? { dispatchToRoleRequestId: request.id } : {}),
-              roleListingId: effectiveRoleListingId,
-              ...(effectiveEntitlementId ? { entitlementId: effectiveEntitlementId } : {}),
-              confirmExecution: true,
-              costConfirmed: true,
               ledgerRef,
               memoryCandidateRef,
               result: {

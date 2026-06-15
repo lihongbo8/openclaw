@@ -2,11 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { resolveStateDir } from "../config/paths.js";
-import {
-  findMatchingTemplates,
-  getCategoryTemplate,
-  type CategoryTemplate,
-} from "./skill-catalog.js";
+import { getCategoryTemplate, type CategoryTemplate } from "./skill-catalog.js";
 import { resolveCapabilities } from "./tool-registry.js";
 
 // ======================================================================

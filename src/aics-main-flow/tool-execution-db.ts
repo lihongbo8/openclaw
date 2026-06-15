@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { resolveStateDir } from "../config/paths.js";
-import type { ToolCallResult, ToolExecutionResponse } from "./tool-registry.js";
+import type { ToolExecutionResponse } from "./tool-registry.js";
 
 // ======================================================================
 // 工具执行数据库
@@ -27,16 +27,6 @@ export type ToolExecutionRecord = {
   error?: string;
   createdAt: number;
 };
-
-type ToolExecutionDbState = {
-  version: 1;
-  updatedAt: number;
-  records: ToolExecutionRecord[];
-};
-
-function emptyState(): ToolExecutionDbState {
-  return { version: 1, updatedAt: Date.now(), records: [] };
-}
 
 function resolveDbPath(): string {
   const dir = path.join(resolveStateDir(), "tool-executions");

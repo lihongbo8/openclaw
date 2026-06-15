@@ -129,13 +129,18 @@ export type DispatchToRoleRequest = AicsMainFlowEntityBase & {
   rolePlanItemId: string;
   roleListingId?: string;
   roleTitle?: string;
+  entitlementId?: string;
   workspaceDir?: string;
   category?: string;
   requiredCapabilityRefs?: string[];
   allowedTools?: string[];
   allowedSkills?: string[];
   capabilityRequestId?: string;
-  confirmExecution: true;
+  confirmExecution?: boolean;
+  costConfirmed?: boolean;
+  ledgerRef?: string;
+  toolSkillReady?: boolean;
+  apiBindingReady?: boolean;
 };
 
 export type RoleResult = AicsMainFlowEntityBase & {
@@ -270,6 +275,7 @@ export type AicsMainFlowReadiness = {
   canPreparePlanning: boolean;
   canCreateDispatchProposal: boolean;
   canMaterializeTaskPackage: boolean;
+  canEnterRoleExecution: boolean;
   canRunApprovedTask: boolean;
 };
 
@@ -284,8 +290,25 @@ export type AicsMainFlowBlockedReason = {
     | "missing_task_package"
     | "missing_dispatch_to_role_request"
     | "authorization_required"
-    | "cost_not_confirmed";
+    | "execution_confirmation_required"
+    | "cost_not_confirmed"
+    | "tool_skill_not_ready"
+    | "api_binding_required";
   message: string;
+};
+
+export type AicsMainFlowExecutionPreflight = {
+  taskPackageId?: string;
+  dispatchToRoleRequestId?: string;
+  hasTaskPackage: boolean;
+  hasDispatchToRoleRequest: boolean;
+  hasEntitlement: boolean;
+  hasExecutionConfirmation: boolean;
+  hasCostConfirmation: boolean;
+  hasToolSkillReadiness: boolean;
+  hasApiBinding: boolean;
+  blockedReasons: AicsMainFlowBlockedReason[];
+  canRun: boolean;
 };
 
 export type AicsOperationCheckStatus = "ready" | "waiting" | "blocked" | "done";
@@ -316,6 +339,7 @@ export type AicsMainFlowReadModel = {
   updatedAt: number;
   currentStage: AicsMainFlowStage;
   readiness: AicsMainFlowReadiness;
+  executionPreflight: AicsMainFlowExecutionPreflight;
   blockedReasons: AicsMainFlowBlockedReason[];
   latest: {
     interaction: AicsMainFlowInteraction | null;

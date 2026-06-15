@@ -2,7 +2,6 @@ import { ErrorCodes, errorShape } from "../../../packages/gateway-protocol/src/i
 import { BuildSession } from "../../aics-main-flow/role-build-session.js";
 import type { BuildSessionBrief } from "../../aics-main-flow/role-build-session.js";
 import { listCategoryTemplates, getCategoryTemplate } from "../../aics-main-flow/skill-catalog.js";
-import { resolveCapabilities } from "../../aics-main-flow/tool-registry.js";
 import type { GatewayRequestHandlers, RespondFn } from "./types.js";
 
 function stringParam(params: Record<string, unknown>, key: string): string | undefined {
@@ -59,7 +58,7 @@ export const aicsBuildSessionHandlers: GatewayRequestHandlers = {
         respond(
           false,
           undefined,
-          errorShape(ErrorCodes.NOT_FOUND, `Build session not found: ${sessionId}`),
+          errorShape(ErrorCodes.INVALID_REQUEST, `Build session not found: ${sessionId}`),
         );
         return;
       }

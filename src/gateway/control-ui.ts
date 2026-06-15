@@ -40,7 +40,6 @@ import { buildControlUiCspHeader, computeInlineScriptHashes } from "./control-ui
 import {
   isReadHttpMethod,
   respondNotFound as respondControlUiNotFound,
-  respondPlainText,
 } from "./control-ui-http-utils.js";
 import { classifyControlUiRequest } from "./control-ui-routing.js";
 import {

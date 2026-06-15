@@ -1,5 +1,3 @@
-import { randomUUID } from "node:crypto";
-
 // ======================================================================
 // ToolRegistry: 工具库管理
 // ======================================================================
@@ -178,8 +176,6 @@ export type ToolExecutionResponse = {
 // ======================================================================
 
 export async function executeToolCall(request: ToolCallRequest): Promise<ToolExecutionResponse> {
-  const startedAt = Date.now();
-
   // 1. 按 capability 查找候选工具
   let candidates = ToolRegistry.findByCapability(request.toolCapability);
 
@@ -268,7 +264,6 @@ export async function executeToolCall(request: ToolCallRequest): Promise<ToolExe
     const executePromise = selected.handler(request.input);
     const result = deadline ? await Promise.race([executePromise, deadline]) : await executePromise;
 
-    const durationMs = Date.now() - startedAt;
     const toolResult = result as ToolCallResult;
 
     return {
@@ -284,7 +279,6 @@ export async function executeToolCall(request: ToolCallRequest): Promise<ToolExe
       qualityCheckSummary: toolResult.qualityCheckPassed ? "passed" : "failed",
     };
   } catch (error) {
-    const durationMs = Date.now() - startedAt;
     return {
       requestId: request.requestId,
       selectedToolRef: selected.toolId,

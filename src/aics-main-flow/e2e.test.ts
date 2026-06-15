@@ -5,7 +5,9 @@ import { RoleInstanceStore } from "./role-instance-store.js";
 import {
   AicsMainFlowStore,
   prepareObservation,
+  confirmObservation,
   prepareAttribution,
+  confirmAttribution,
   createGoalCandidate,
   confirmGoal,
   preparePlanning,
@@ -44,6 +46,7 @@ describe("AICS 端到端", () => {
       }),
     );
     expect(obs.status).toBe("prepared");
+    store.update((s) => confirmObservation(s, obs.id));
 
     const attr = store.update((s) =>
       prepareAttribution(s, {
@@ -61,6 +64,7 @@ describe("AICS 端到端", () => {
       }),
     );
     expect(attr.status).toBe("prepared");
+    store.update((s) => confirmAttribution(s, attr.id));
 
     const goal = store.update((s) =>
       createGoalCandidate(s, {
@@ -109,7 +113,7 @@ describe("AICS 端到端", () => {
       }),
     );
     expect(result.taskPackage.status).toBe("materialized");
-    expect(result.dispatchToRoleRequest.confirmExecution).toBe(true);
+    expect(result.dispatchToRoleRequest.confirmExecution).toBe(false);
 
     // 验证 readModel
     const rm = store.readModel();
@@ -190,12 +194,26 @@ describe("AICS 端到端", () => {
     const store = new AicsMainFlowStore();
     const signalId = `signal_management_${Date.now()}`;
     const goal = store.update((s) => {
-      prepareObservation(s, {
+      const obs = prepareObservation(s, {
         title: "obs",
         summary: "",
         signals: [{ id: signalId, title: "经营意图", summary: "测试观察信号", evidenceRefs: [] }],
       });
-      prepareAttribution(s, { title: "attr", summary: "" });
+      confirmObservation(s, obs.id);
+      const attr = prepareAttribution(s, {
+        title: "attr",
+        summary: "",
+        findings: [
+          {
+            id: `finding_management_${Date.now()}`,
+            title: "测试归因",
+            summary: "测试归因结论",
+            confidence: "medium",
+            observationSignalIds: [signalId],
+          },
+        ],
+      });
+      confirmAttribution(s, attr.id);
       const g = createGoalCandidate(s, {
         title: "测试",
         owner: "t",

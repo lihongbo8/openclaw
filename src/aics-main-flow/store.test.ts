@@ -4,9 +4,13 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   AicsMainFlowStore,
+  confirmAttribution,
   confirmDispatch,
   confirmGoal,
+  confirmObservation,
   confirmPlanning,
+  confirmRoleExecution,
+  confirmRoleExecutionCost,
   createAicsMainFlowReadModel,
   createDispatchProposal,
   createEmptyAicsMainFlowState,
@@ -17,6 +21,7 @@ import {
   prepareObservation,
   preparePlanning,
   runApprovedTask,
+  setUniqueCapabilityApprovalForDispatch,
 } from "./store.js";
 import { AicsMainFlowGateError } from "./types.js";
 
@@ -36,6 +41,7 @@ function prepareConfirmedPlanningState() {
     { id: "obs-1", title: "观察", summary: "收入和交付事实", signals: observationSignals },
     2,
   );
+  confirmObservation(state, observation.id, 3);
   const attribution = prepareAttribution(
     state,
     {
@@ -43,9 +49,19 @@ function prepareConfirmedPlanningState() {
       observationPackageId: observation.id,
       title: "归因",
       summary: "增长卡在渠道质量",
+      findings: [
+        {
+          id: "finding-1",
+          title: "渠道质量不足",
+          summary: "有效线索比例低",
+          confidence: "medium",
+          observationSignalIds: ["signal-1"],
+        },
+      ],
     },
-    3,
+    4,
   );
+  confirmAttribution(state, attribution.id, 5);
   const goal = createGoalCandidate(
     state,
     {
@@ -57,9 +73,9 @@ function prepareConfirmedPlanningState() {
       target: "提升有效线索比例",
       rationale: "由归因报告支撑",
     },
-    4,
+    6,
   );
-  confirmGoal(state, goal.id, 5);
+  confirmGoal(state, goal.id, 7);
   const planning = preparePlanning(
     state,
     {
@@ -77,7 +93,7 @@ function prepareConfirmedPlanningState() {
         },
       ],
     },
-    6,
+    8,
   );
   return { state, planning };
 }
@@ -121,11 +137,31 @@ describe("AICS main flow store", () => {
       { id: "obs-2", title: "观察", summary: "事实", signals: observationSignals },
       5,
     );
+    expect(createAicsMainFlowReadModel(state).readiness.canPrepareAttribution).toBe(false);
+    confirmObservation(state, observation.id, 6);
+    expect(createAicsMainFlowReadModel(state).readiness.canPrepareAttribution).toBe(true);
     const attribution = prepareAttribution(
       state,
-      { id: "attr-1", observationPackageId: observation.id, title: "归因", summary: "原因" },
-      6,
+      {
+        id: "attr-1",
+        observationPackageId: observation.id,
+        title: "归因",
+        summary: "原因",
+        findings: [
+          {
+            id: "finding-1",
+            title: "原因",
+            summary: "渠道质量不足",
+            confidence: "medium",
+            observationSignalIds: ["signal-1"],
+          },
+        ],
+      },
+      7,
     );
+    expect(createAicsMainFlowReadModel(state).readiness.canCreateGoalCandidate).toBe(false);
+    confirmAttribution(state, attribution.id, 8);
+    expect(createAicsMainFlowReadModel(state).readiness.canCreateGoalCandidate).toBe(true);
     createGoalCandidate(
       state,
       {
@@ -137,7 +173,7 @@ describe("AICS main flow store", () => {
         target: "提升收入",
         rationale: "来自归因报告",
       },
-      7,
+      9,
     );
 
     expect(() =>
@@ -155,7 +191,7 @@ describe("AICS main flow store", () => {
             },
           ],
         },
-        8,
+        10,
       ),
     ).toThrowError(AicsMainFlowGateError);
   });
@@ -384,6 +420,44 @@ describe("AICS main flow store", () => {
       expectGate(error, "missing_dispatch_to_role_request");
       expect((error as Error).message).toContain("missing category capability");
     }
+
+    const approval = setUniqueCapabilityApprovalForDispatch(
+      state,
+      { capabilityRequestId: "unique_cap_req:role-plan-1", status: "approved" },
+      13,
+    );
+    expect(approval.updatedRequests).toHaveLength(1);
+    expect(approval.updatedTaskPackages).toHaveLength(1);
+    expect(materialized.taskPackage.status).toBe("materialized");
+    expect(materialized.dispatchToRoleRequest.status).toBe("ready");
+    expect(materialized.dispatchToRoleRequest.toolSkillReady).toBe(true);
+    expect(materialized.dispatchToRoleRequest.allowedTools).toContain(
+      "tool.execute.category_specific",
+    );
+    expect(materialized.dispatchToRoleRequest.allowedSkills).toContain(
+      "skill.岗位商城.specific_rules",
+    );
+
+    const readModelAfterApproval = createAicsMainFlowReadModel(state);
+    expect(readModelAfterApproval.capabilities.uniqueRequests[0]?.status).toBe("approved");
+    expect(readModelAfterApproval.capabilities.matches[0]?.status).toBe("satisfied");
+    expect(
+      readModelAfterApproval.executionPreflight.blockedReasons.map((reason) => reason.code),
+    ).not.toContain("tool_skill_not_ready");
+
+    const run = runApprovedTask(
+      state,
+      {
+        taskPackageId: materialized.taskPackage.id,
+        dispatchToRoleRequestId: materialized.dispatchToRoleRequest.id,
+        roleListingId: "role-billing-publisher",
+        entitlementId: "entitlement-billing-publisher",
+        confirmExecution: true,
+        costConfirmed: true,
+      },
+      14,
+    );
+    expect(run.dispatchToRoleRequest.status).toBe("running");
   });
 
   it("persists state and exposes a read model", () => {

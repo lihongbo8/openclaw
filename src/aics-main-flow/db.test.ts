@@ -40,6 +40,30 @@ describe("aics-pipeline.db", () => {
     expect(names).toContain("role_results");
   });
 
+  it("keeps capability routing columns in the pipeline tables", () => {
+    const db = getPipelineDb();
+    const columns = (table: string) =>
+      (
+        db.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+          name: string;
+        }>
+      ).map((row) => row.name);
+
+    expect(columns("role_plan_items")).toContain("category");
+    expect(columns("task_packages")).toEqual(
+      expect.arrayContaining(["category", "required_capability_refs"]),
+    );
+    expect(columns("dispatch_to_role_requests")).toEqual(
+      expect.arrayContaining([
+        "category",
+        "required_capability_refs",
+        "allowed_tools",
+        "allowed_skills",
+        "capability_request_id",
+      ]),
+    );
+  });
+
   it("inserts and reads an observation", async () => {
     const kysely = getPipelineKysely();
     const now = Date.now();

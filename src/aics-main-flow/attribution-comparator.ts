@@ -1,6 +1,5 @@
 import type {
   AttributionFinding,
-  AttributionReport,
   CompanyGoal,
   ObservationPackage,
   ObservationSignal,
@@ -245,7 +244,7 @@ export function toAttributionInput(
   findings: AttributionFinding[];
 } {
   return {
-    title: `归因报告 ${new Date().toISOString().slice(0, 10)}`,
+    title: `归因报告 ${new Date().toISOString().slice(0, 10)} ${observationPackageId}`,
     summary: result.gapSummary,
     findings: result.rankedCauses.map((cause) => ({
       id: `finding-${cause.rank}`,

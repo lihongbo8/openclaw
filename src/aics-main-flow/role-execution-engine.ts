@@ -3,7 +3,6 @@ import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import type {
   RoleExecutionContext,
-  RoleExecutionStep,
   RoleExecutionOutcome,
   RoleResult,
   RoleExecutor,
@@ -98,7 +97,8 @@ export function createRoleExecutionEngine(): RoleExecutionEngine {
       const result: RoleResult = {
         executionId: context.executionId,
         taskPackageId: context.taskPackage.id,
-        roleListingId: context.taskPackage.roleListItemId,
+        roleListingId:
+          context.taskPackage.requiredCapabilityRefs?.[0] ?? context.taskPackage.rolePlanItemId,
         roleTitle: context.rolePackage.manifest.title,
         outcome,
         summary: executorResult.output.slice(0, context.maxOutputChars),

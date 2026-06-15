@@ -1,4 +1,4 @@
-import type { ObservationSignal, ObservationPackage } from "../types.js";
+import type { ObservationSignal } from "../types.js";
 import type { ObservationAdapter, AdapterFetchResult, SourceConfidence } from "./types.js";
 
 /**

@@ -143,6 +143,7 @@ export interface RolePlanItemRow {
   status: string;
   planning_package_id: string;
   title: string;
+  category: string | null;
   role_capability_ref: string;
   task_intent: string;
   expected_output: string;
@@ -174,6 +175,8 @@ export interface TaskPackageRow {
   dispatch_proposal_review_id: string;
   title: string;
   task_text: string;
+  category: string | null;
+  required_capability_refs: string;
   created_at: number;
   updated_at: number;
   audit_refs: string;
@@ -186,8 +189,18 @@ export interface DispatchToRoleRequestRow {
   role_plan_item_id: string;
   role_listing_id: string | null;
   role_title: string | null;
+  entitlement_id: string | null;
   workspace_dir: string | null;
+  category: string | null;
+  required_capability_refs: string;
+  allowed_tools: string;
+  allowed_skills: string;
+  capability_request_id: string | null;
   confirm_execution: number;
+  cost_confirmed: number;
+  ledger_ref: string | null;
+  tool_skill_ready: number;
+  api_binding_ready: number;
   created_at: number;
   updated_at: number;
   audit_refs: string;
@@ -385,6 +398,7 @@ export function createPipelineTables(db = getPipelineDb()): void {
       status TEXT NOT NULL DEFAULT 'draft',
       planning_package_id TEXT NOT NULL REFERENCES planning_packages(id),
       title TEXT NOT NULL,
+      category TEXT,
       role_capability_ref TEXT NOT NULL DEFAULT '',
       task_intent TEXT NOT NULL DEFAULT '',
       expected_output TEXT NOT NULL DEFAULT '',
@@ -418,6 +432,8 @@ export function createPipelineTables(db = getPipelineDb()): void {
       dispatch_proposal_review_id TEXT NOT NULL REFERENCES dispatch_proposal_reviews(id),
       title TEXT NOT NULL,
       task_text TEXT NOT NULL DEFAULT '',
+      category TEXT,
+      required_capability_refs TEXT NOT NULL DEFAULT '[]',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       audit_refs TEXT NOT NULL DEFAULT '[]'
@@ -431,8 +447,18 @@ export function createPipelineTables(db = getPipelineDb()): void {
       role_plan_item_id TEXT NOT NULL REFERENCES role_plan_items(id),
       role_listing_id TEXT,
       role_title TEXT,
+      entitlement_id TEXT,
       workspace_dir TEXT,
-      confirm_execution INTEGER NOT NULL DEFAULT 1,
+      category TEXT,
+      required_capability_refs TEXT NOT NULL DEFAULT '[]',
+      allowed_tools TEXT NOT NULL DEFAULT '[]',
+      allowed_skills TEXT NOT NULL DEFAULT '[]',
+      capability_request_id TEXT,
+      confirm_execution INTEGER NOT NULL DEFAULT 0,
+      cost_confirmed INTEGER NOT NULL DEFAULT 0,
+      ledger_ref TEXT,
+      tool_skill_ready INTEGER NOT NULL DEFAULT 1,
+      api_binding_ready INTEGER NOT NULL DEFAULT 1,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       audit_refs TEXT NOT NULL DEFAULT '[]'
@@ -460,6 +486,27 @@ export function createPipelineTables(db = getPipelineDb()): void {
     db.exec("ALTER TABLE goals ADD COLUMN observation_package_id TEXT REFERENCES observations(id)");
   } catch {
     /* already exists */
+  }
+  for (const sql of [
+    "ALTER TABLE role_plan_items ADD COLUMN category TEXT",
+    "ALTER TABLE task_packages ADD COLUMN category TEXT",
+    "ALTER TABLE task_packages ADD COLUMN required_capability_refs TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE dispatch_to_role_requests ADD COLUMN category TEXT",
+    "ALTER TABLE dispatch_to_role_requests ADD COLUMN required_capability_refs TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE dispatch_to_role_requests ADD COLUMN allowed_tools TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE dispatch_to_role_requests ADD COLUMN allowed_skills TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE dispatch_to_role_requests ADD COLUMN capability_request_id TEXT",
+    "ALTER TABLE dispatch_to_role_requests ADD COLUMN entitlement_id TEXT",
+    "ALTER TABLE dispatch_to_role_requests ADD COLUMN cost_confirmed INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE dispatch_to_role_requests ADD COLUMN ledger_ref TEXT",
+    "ALTER TABLE dispatch_to_role_requests ADD COLUMN tool_skill_ready INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE dispatch_to_role_requests ADD COLUMN api_binding_ready INTEGER NOT NULL DEFAULT 1",
+  ]) {
+    try {
+      db.exec(sql);
+    } catch {
+      /* already exists */
+    }
   }
 }
 

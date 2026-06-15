@@ -1,4 +1,4 @@
-import type { ObservationPackage, ObservationSignal } from "../types.js";
+import type { ObservationSignal } from "../types.js";
 
 /**
  * 数据源可信度级别

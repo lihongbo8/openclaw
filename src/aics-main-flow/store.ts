@@ -10,6 +10,7 @@ import {
   type AicsMainFlowBlockedReason,
   type AicsCapability,
   type AicsCapabilityMatchResult,
+  type AicsMainFlowExecutionPreflight,
   type AicsMainFlowInteraction,
   type AicsMainFlowReadModel,
   type AicsMainFlowStage,
@@ -171,6 +172,20 @@ function auditRefs(input: EntityInput | undefined): AicsAuditRef[] {
   return input?.auditRefs ? [...input.auditRefs] : [];
 }
 
+function parseStringArray(value: unknown): string[] {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string");
+  if (typeof value !== "string") return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 function confirmed<T extends { status: string }>(item: T | null): T | null {
   return item?.status === "confirmed" ? item : null;
 }
@@ -185,6 +200,18 @@ function observationHasSignals(
   return Boolean(observation && observation.signals.length > 0);
 }
 
+function observationReadyForAttribution(
+  observation: ObservationPackage | null | undefined,
+): observation is ObservationPackage {
+  return Boolean(observation?.status === "confirmed" && observationHasSignals(observation));
+}
+
+function attributionReadyForGoal(
+  attribution: AttributionReport | null | undefined,
+): attribution is AttributionReport {
+  return Boolean(attribution?.status === "confirmed" && attribution.findings.length > 0);
+}
+
 function getReadiness(state: AicsMainFlowState) {
   const latestObservation = latestByCreatedAt(state.observations);
   const latestAttribution = latestByCreatedAt(state.attributions);
@@ -194,18 +221,119 @@ function getReadiness(state: AicsMainFlowState) {
   const latestTaskPackage = latestByCreatedAt(state.taskPackages);
   const latestDispatchRequest = latestByCreatedAt(state.dispatchToRoleRequests);
   return {
-    canPrepareAttribution: observationHasSignals(latestObservation),
-    canCreateGoalCandidate: Boolean(latestAttribution),
+    canPrepareAttribution: observationReadyForAttribution(latestObservation),
+    canCreateGoalCandidate: attributionReadyForGoal(latestAttribution),
     canPreparePlanning: Boolean(latestConfirmedGoal),
     canCreateDispatchProposal: Boolean(latestConfirmedPlanning),
     canMaterializeTaskPackage: Boolean(latestConfirmedDispatch),
-    canRunApprovedTask: Boolean(
+    canEnterRoleExecution: Boolean(latestTaskPackage && latestDispatchRequest),
+    canRunApprovedTask: getAicsMainFlowExecutionPreflight(state).canRun,
+  };
+}
+
+export function getAicsMainFlowExecutionPreflight(
+  state: AicsMainFlowState,
+  input: { taskPackageId?: string; dispatchToRoleRequestId?: string } = {},
+): AicsMainFlowExecutionPreflight {
+  const taskPackageId = input.taskPackageId ?? latestByCreatedAt(state.taskPackages)?.id;
+  const dispatchToRoleRequestId =
+    input.dispatchToRoleRequestId ?? latestByCreatedAt(state.dispatchToRoleRequests)?.id;
+  const latestTaskPackage = taskPackageId
+    ? (state.taskPackages.find((item) => item.id === taskPackageId) ?? null)
+    : null;
+  const latestDispatchRequest = dispatchToRoleRequestId
+    ? (state.dispatchToRoleRequests.find(
+        (item) =>
+          item.id === dispatchToRoleRequestId &&
+          (!latestTaskPackage || item.taskPackageId === latestTaskPackage.id),
+      ) ?? null)
+    : null;
+  const hasTaskPackage = Boolean(latestTaskPackage);
+  const hasDispatchToRoleRequest = Boolean(latestDispatchRequest);
+  const hasCapabilityBlock = Boolean(
+    latestDispatchRequest?.capabilityRequestId &&
+    (latestTaskPackage?.status === "blocked" || latestDispatchRequest.status === "blocked"),
+  );
+  const hasEntitlement = Boolean(
+    latestDispatchRequest?.roleListingId && latestDispatchRequest.entitlementId,
+  );
+  const hasExecutionConfirmation = latestDispatchRequest?.confirmExecution === true;
+  const hasCostConfirmation = latestDispatchRequest?.costConfirmed === true;
+  const hasToolSkillReadiness = Boolean(
+    latestDispatchRequest && latestDispatchRequest.toolSkillReady !== false && !hasCapabilityBlock,
+  );
+  const hasApiBinding = Boolean(
+    latestDispatchRequest && latestDispatchRequest.apiBindingReady !== false,
+  );
+  const blockedReasons: AicsMainFlowBlockedReason[] = [];
+  if (!hasTaskPackage) {
+    blockedReasons.push({
+      stage: "dispatch",
+      code: "missing_task_package",
+      message: "TaskPackage is required before role execution.",
+    });
+  }
+  if (!hasDispatchToRoleRequest) {
+    blockedReasons.push({
+      stage: "dispatch",
+      code: "missing_dispatch_to_role_request",
+      message: "DispatchToRoleRequest is required before role execution.",
+    });
+  }
+  if (hasTaskPackage && hasDispatchToRoleRequest && !hasEntitlement) {
+    blockedReasons.push({
+      stage: "role",
+      code: "authorization_required",
+      message: "岗位执行需要云端岗位授权：roleListingId 与 entitlementId 都必须存在。",
+    });
+  }
+  if (hasTaskPackage && hasDispatchToRoleRequest && !hasExecutionConfirmation) {
+    blockedReasons.push({
+      stage: "role",
+      code: "execution_confirmation_required",
+      message: "岗位执行需要管理者在岗位执行页显式确认。",
+    });
+  }
+  if (hasTaskPackage && hasDispatchToRoleRequest && !hasCostConfirmation) {
+    blockedReasons.push({
+      stage: "role",
+      code: "cost_not_confirmed",
+      message: "岗位执行需要确认本次费用。",
+    });
+  }
+  if (hasTaskPackage && hasDispatchToRoleRequest && !hasToolSkillReadiness) {
+    blockedReasons.push({
+      stage: "role",
+      code: "tool_skill_not_ready",
+      message: "岗位执行需要工具权限和 Skill 就绪；独特能力 pending 时不能执行。",
+    });
+  }
+  if (hasTaskPackage && hasDispatchToRoleRequest && !hasApiBinding) {
+    blockedReasons.push({
+      stage: "role",
+      code: "api_binding_required",
+      message: "岗位执行需要 API 绑定就绪。",
+    });
+  }
+  return {
+    ...(taskPackageId ? { taskPackageId } : {}),
+    ...(dispatchToRoleRequestId ? { dispatchToRoleRequestId } : {}),
+    hasTaskPackage,
+    hasDispatchToRoleRequest,
+    hasEntitlement,
+    hasExecutionConfirmation,
+    hasCostConfirmation,
+    hasToolSkillReadiness,
+    hasApiBinding,
+    blockedReasons,
+    canRun: Boolean(
       latestTaskPackage &&
       latestDispatchRequest &&
-      !(
-        (latestTaskPackage.status === "blocked" || latestDispatchRequest.status === "blocked") &&
-        latestDispatchRequest.capabilityRequestId
-      ),
+      hasEntitlement &&
+      hasExecutionConfirmation &&
+      hasCostConfirmation &&
+      hasToolSkillReadiness &&
+      hasApiBinding,
     ),
   };
 }
@@ -253,17 +381,20 @@ export function getAicsMainFlowBlockedReasons(
   }
   if (!latestByCreatedAt(state.taskPackages)) {
     reasons.push({
-      stage: "role",
+      stage: "dispatch",
       code: "missing_task_package",
       message: "TaskPackage is required before role execution.",
     });
   }
   if (!latestByCreatedAt(state.dispatchToRoleRequests)) {
     reasons.push({
-      stage: "role",
+      stage: "dispatch",
       code: "missing_dispatch_to_role_request",
       message: "DispatchToRoleRequest is required before role execution.",
     });
+  }
+  if (readiness.canEnterRoleExecution) {
+    reasons.push(...getAicsMainFlowExecutionPreflight(state).blockedReasons);
   }
   return reasons;
 }
@@ -343,6 +474,15 @@ function needsUniqueCapability(item: RolePlanItem): boolean {
   return /独特|专属|掌静脉|合规|comfy|发布|改价|退款|资金|采购|外部/.test(text);
 }
 
+function uniqueCapabilityApprovedInDispatch(state: AicsMainFlowState, requestId: string): boolean {
+  return state.dispatchToRoleRequests.some(
+    (request) =>
+      request.capabilityRequestId === requestId &&
+      request.toolSkillReady !== false &&
+      request.status !== "blocked",
+  );
+}
+
 function buildCapabilityReadModel(state: AicsMainFlowState): AicsMainFlowReadModel["capabilities"] {
   const categoryByItem = new Map<string, string>();
   for (const item of state.rolePlanItems) {
@@ -371,6 +511,7 @@ function buildCapabilityReadModel(state: AicsMainFlowState): AicsMainFlowReadMod
       categoryCommon.find((cap) => cap.category === category) ?? categoryCommonCapability(category);
     const requestId = `unique_cap_req:${item.id}`;
     const requiresUnique = needsUniqueCapability(item);
+    const uniqueApproved = requiresUnique && uniqueCapabilityApprovedInDispatch(state, requestId);
     if (requiresUnique) {
       uniqueRequests.push({
         id: requestId,
@@ -382,26 +523,37 @@ function buildCapabilityReadModel(state: AicsMainFlowState): AicsMainFlowReadMod
         neededSkills: [`skill.${category}.specific_rules`],
         reason: "品类通用能力只能覆盖读取、分析、建议和统一输出；该任务需要额外 tool/skill 授权。",
         riskLevel: item.humanConfirmationRequired ? "high" : "medium",
-        status: "requested",
+        status: uniqueApproved ? "approved" : "requested",
         humanConfirmRequired: true,
       });
     }
+    const missingTools =
+      requiresUnique && !uniqueApproved ? ["tool.execute.category_specific"] : [];
+    const missingSkills =
+      requiresUnique && !uniqueApproved ? [`skill.${category}.specific_rules`] : [];
     matches.push({
       rolePlanItemId: item.id,
       category,
       requiredCapabilityRef: item.roleCapabilityRef,
       commonCapabilityId: common.id,
       ...(requiresUnique ? { uniqueCapabilityRequestId: requestId } : {}),
-      status: requiresUnique ? "needs_unique_capability" : "satisfied",
-      allowedTools: common.tools.filter((tool) => tool.status === "granted").map((tool) => tool.id),
+      status: requiresUnique && !uniqueApproved ? "needs_unique_capability" : "satisfied",
+      allowedTools: [
+        ...common.tools.filter((tool) => tool.status === "granted").map((tool) => tool.id),
+        ...(uniqueApproved ? ["tool.execute.category_specific"] : []),
+      ],
       allowedSkills: common.skills
         .filter((skill) => skill.status === "granted")
-        .map((skill) => skill.id),
-      missingTools: requiresUnique ? ["tool.execute.category_specific"] : [],
-      missingSkills: requiresUnique ? [`skill.${category}.specific_rules`] : [],
-      summary: requiresUnique
-        ? "通用能力不足，必须先提交独特能力申请，确认 tool/skill 后才能执行。"
-        : "品类通用能力已满足，允许调度生成结构化任务包。",
+        .map((skill) => skill.id)
+        .concat(uniqueApproved ? [`skill.${category}.specific_rules`] : []),
+      missingTools,
+      missingSkills,
+      summary:
+        requiresUnique && !uniqueApproved
+          ? "通用能力不足，必须先提交独特能力申请，确认 tool/skill 后才能执行。"
+          : uniqueApproved
+            ? "独特能力已通过工具与 Skill 管控批准，允许调度请求进入执行确认。"
+            : "品类通用能力已满足，允许调度生成结构化任务包。",
     });
   }
 
@@ -429,7 +581,12 @@ function buildOperationChecks(params: {
     latestTask?.status === "blocked" ||
     latestRequest?.status === "blocked" ||
     blockedReasons.some(
-      (reason) => reason.code === "authorization_required" || reason.code === "cost_not_confirmed",
+      (reason) =>
+        reason.code === "authorization_required" ||
+        reason.code === "execution_confirmation_required" ||
+        reason.code === "cost_not_confirmed" ||
+        reason.code === "tool_skill_not_ready" ||
+        reason.code === "api_binding_required",
     );
   const artifactRefs = latestResult?.artifactRefs ?? [];
   const hasLedgerRef = artifactRefs.some((ref) => ref.startsWith("ledger:"));
@@ -496,7 +653,7 @@ function buildOperationChecks(params: {
       layer: "main_flow",
       status: checkStatus(
         Boolean(latestResult),
-        readiness.canRunApprovedTask,
+        readiness.canEnterRoleExecution,
         hasRoleExecutionBlock,
       ),
       summary: "岗位执行只能消费已授权、已确认费用的调度请求，并回写 RoleResult。",
@@ -563,11 +720,13 @@ export function createAicsMainFlowReadModel(state: AicsMainFlowState): AicsMainF
   const currentStage = blockedReasons[0]?.stage ?? "role";
   const capabilities = buildCapabilityReadModel(state);
   const readiness = getReadiness(state);
+  const executionPreflight = getAicsMainFlowExecutionPreflight(state);
   return {
     version: AICS_MAIN_FLOW_VERSION,
     updatedAt: state.updatedAt,
     currentStage,
     readiness,
+    executionPreflight,
     blockedReasons,
     latest: {
       interaction: latestByCreatedAt(state.interactions),
@@ -654,6 +813,65 @@ export function prepareObservation(
   return observation;
 }
 
+export function confirmObservation(
+  state: AicsMainFlowState,
+  observationPackageId: string,
+  now = Date.now(),
+): ObservationPackage {
+  const observation = state.observations.find((item) => item.id === observationPackageId);
+  if (!observation || !observationHasSignals(observation)) {
+    throw new AicsMainFlowGateError({
+      stage: "observation",
+      code: "missing_observation_package",
+      message: "ObservationPackage must contain at least one signal before confirmation.",
+    });
+  }
+  observation.status = "confirmed";
+  observation.updatedAt = now;
+  state.updatedAt = now;
+  return observation;
+}
+
+export function rejectObservation(
+  state: AicsMainFlowState,
+  observationPackageId: string,
+  now = Date.now(),
+): ObservationPackage {
+  const observation = state.observations.find((item) => item.id === observationPackageId);
+  if (!observation) {
+    throw new AicsMainFlowGateError({
+      stage: "observation",
+      code: "missing_observation_package",
+      message: "ObservationPackage is required before rejection.",
+    });
+  }
+  observation.status = "rejected";
+  observation.updatedAt = now;
+  state.updatedAt = now;
+  return observation;
+}
+
+export function markObservationDataMissing(
+  state: AicsMainFlowState,
+  observationPackageId: string,
+  summary = "待补真实经营数据",
+  now = Date.now(),
+): ObservationPackage {
+  const observation = state.observations.find((item) => item.id === observationPackageId);
+  if (!observation) {
+    throw new AicsMainFlowGateError({
+      stage: "observation",
+      code: "missing_observation_package",
+      message: "ObservationPackage is required before marking data gaps.",
+    });
+  }
+  observation.status = "prepared";
+  observation.summary = `${observation.summary}\n数据缺口：${summary}`.trim();
+  observation.updatedAt = now;
+  state.updatedAt = now;
+  return observation;
+}
+
 export function prepareAttribution(
   state: AicsMainFlowState,
   input: PrepareAttributionInput,
@@ -661,13 +879,21 @@ export function prepareAttribution(
 ): AttributionReport {
   const observationPackageId =
     input.observationPackageId ?? latestByCreatedAt(state.observations)?.id;
-  const observation = state.observations.find((item) => item.id === observationPackageId);
-  if (!observation || !observationHasSignals(observation)) {
+  if (!observationPackageId) {
     throw new AicsMainFlowGateError({
       stage: "observation",
       code: "missing_observation_package",
       message:
         "ObservationPackage with at least one observation signal is required before attribution.",
+    });
+  }
+  const observation = state.observations.find((item) => item.id === observationPackageId);
+  if (!observation || !observationReadyForAttribution(observation)) {
+    throw new AicsMainFlowGateError({
+      stage: "observation",
+      code: "missing_observation_package",
+      message:
+        "Confirmed ObservationPackage with at least one observation signal is required before attribution.",
     });
   }
   const attribution: AttributionReport = {
@@ -686,6 +912,65 @@ export function prepareAttribution(
   return attribution;
 }
 
+export function confirmAttribution(
+  state: AicsMainFlowState,
+  attributionReportId: string,
+  now = Date.now(),
+): AttributionReport {
+  const attribution = state.attributions.find((item) => item.id === attributionReportId);
+  if (!attribution || attribution.findings.length === 0) {
+    throw new AicsMainFlowGateError({
+      stage: "attribution",
+      code: "missing_attribution_report",
+      message: "AttributionReport must contain at least one finding before confirmation.",
+    });
+  }
+  attribution.status = "confirmed";
+  attribution.updatedAt = now;
+  state.updatedAt = now;
+  return attribution;
+}
+
+export function rejectAttribution(
+  state: AicsMainFlowState,
+  attributionReportId: string,
+  now = Date.now(),
+): AttributionReport {
+  const attribution = state.attributions.find((item) => item.id === attributionReportId);
+  if (!attribution) {
+    throw new AicsMainFlowGateError({
+      stage: "attribution",
+      code: "missing_attribution_report",
+      message: "AttributionReport is required before rejection.",
+    });
+  }
+  attribution.status = "rejected";
+  attribution.updatedAt = now;
+  state.updatedAt = now;
+  return attribution;
+}
+
+export function requestAttributionMoreData(
+  state: AicsMainFlowState,
+  attributionReportId: string,
+  summary = "归因需要补充经营数据",
+  now = Date.now(),
+): AttributionReport {
+  const attribution = state.attributions.find((item) => item.id === attributionReportId);
+  if (!attribution) {
+    throw new AicsMainFlowGateError({
+      stage: "attribution",
+      code: "missing_attribution_report",
+      message: "AttributionReport is required before requesting more data.",
+    });
+  }
+  attribution.status = "prepared";
+  attribution.summary = `${attribution.summary}\n补数据要求：${summary}`.trim();
+  attribution.updatedAt = now;
+  state.updatedAt = now;
+  return attribution;
+}
+
 export function createGoalCandidate(
   state: AicsMainFlowState,
   input: CreateGoalCandidateInput,
@@ -698,20 +983,21 @@ export function createGoalCandidate(
   const attributionReportId =
     input.attributionReportId ?? latestByCreatedAt(state.attributions)?.id;
   const observation = state.observations.find((item) => item.id === observationPackageId);
-  if (!observationPackageId || !observationHasSignals(observation)) {
+  if (!observationPackageId || !observationReadyForAttribution(observation)) {
     throw new AicsMainFlowGateError({
       stage: "observation",
       code: "missing_observation_package",
       message:
-        "ObservationPackage with at least one observation signal is required before creating a CompanyGoal candidate. CompanyGoal 是观察+归因+目标三方共同确认的结果。",
+        "Confirmed ObservationPackage with at least one observation signal is required before creating a CompanyGoal candidate. CompanyGoal 是观察+归因+目标三方共同确认的结果。",
     });
   }
-  if (!attributionReportId || !state.attributions.some((item) => item.id === attributionReportId)) {
+  const attribution = state.attributions.find((item) => item.id === attributionReportId);
+  if (!attributionReportId || !attributionReadyForGoal(attribution)) {
     throw new AicsMainFlowGateError({
       stage: "attribution",
       code: "missing_attribution_report",
       message:
-        "AttributionReport is required before creating goal rationale. CompanyGoal 是观察+归因+目标三方共同确认的结果。",
+        "Confirmed AttributionReport with at least one finding is required before creating goal rationale. CompanyGoal 是观察+归因+目标三方共同确认的结果。",
     });
   }
   const goal: CompanyGoal = {
@@ -950,12 +1236,103 @@ export function materializeTaskPackage(
     ...(input.request?.roleListingId ? { roleListingId: input.request.roleListingId } : {}),
     ...(input.request?.roleTitle ? { roleTitle: input.request.roleTitle } : {}),
     ...(input.request?.workspaceDir ? { workspaceDir: input.request.workspaceDir } : {}),
-    confirmExecution: true,
+    confirmExecution: false,
+    costConfirmed: false,
+    toolSkillReady: match?.status !== "needs_unique_capability",
+    apiBindingReady: true,
   };
   state.taskPackages.push(taskPackage);
   state.dispatchToRoleRequests.push(dispatchToRoleRequest);
   state.updatedAt = now;
   return { taskPackage, dispatchToRoleRequest };
+}
+
+export function confirmRoleExecution(
+  state: AicsMainFlowState,
+  input: RunApprovedTaskInput,
+  now = Date.now(),
+): DispatchToRoleRequest {
+  requireGate(state, "missing_dispatch_to_role_request");
+  const dispatchToRoleRequestId =
+    input.dispatchToRoleRequestId ?? latestByCreatedAt(state.dispatchToRoleRequests)?.id;
+  const request = state.dispatchToRoleRequests.find((item) => item.id === dispatchToRoleRequestId);
+  if (!request) {
+    throw new AicsMainFlowGateError({
+      stage: "role",
+      code: "missing_dispatch_to_role_request",
+      message: "DispatchToRoleRequest is required before execution confirmation.",
+    });
+  }
+  if (input.roleListingId) request.roleListingId = input.roleListingId;
+  if (input.roleTitle) request.roleTitle = input.roleTitle;
+  if (input.entitlementId) request.entitlementId = input.entitlementId;
+  request.confirmExecution = true;
+  request.updatedAt = now;
+  state.updatedAt = now;
+  return request;
+}
+
+export function confirmRoleExecutionCost(
+  state: AicsMainFlowState,
+  input: RunApprovedTaskInput,
+  now = Date.now(),
+): DispatchToRoleRequest {
+  requireGate(state, "missing_dispatch_to_role_request");
+  const dispatchToRoleRequestId =
+    input.dispatchToRoleRequestId ?? latestByCreatedAt(state.dispatchToRoleRequests)?.id;
+  const request = state.dispatchToRoleRequests.find((item) => item.id === dispatchToRoleRequestId);
+  if (!request) {
+    throw new AicsMainFlowGateError({
+      stage: "role",
+      code: "missing_dispatch_to_role_request",
+      message: "DispatchToRoleRequest is required before cost confirmation.",
+    });
+  }
+  if (input.entitlementId) request.entitlementId = input.entitlementId;
+  if (input.ledgerRef) request.ledgerRef = input.ledgerRef;
+  request.costConfirmed = true;
+  request.updatedAt = now;
+  state.updatedAt = now;
+  return request;
+}
+
+export function setUniqueCapabilityApprovalForDispatch(
+  state: AicsMainFlowState,
+  input: {
+    capabilityRequestId: string;
+    status: "approved" | "blocked" | "pending_review";
+  },
+  now = Date.now(),
+): { updatedRequests: DispatchToRoleRequest[]; updatedTaskPackages: TaskPackage[] } {
+  const updatedRequests: DispatchToRoleRequest[] = [];
+  const updatedTaskPackages: TaskPackage[] = [];
+  const approved = input.status === "approved";
+  for (const request of state.dispatchToRoleRequests) {
+    if (request.capabilityRequestId !== input.capabilityRequestId) continue;
+    request.toolSkillReady = approved;
+    request.status = approved ? "ready" : "blocked";
+    request.updatedAt = now;
+    if (approved) {
+      request.allowedTools = Array.from(
+        new Set([...(request.allowedTools ?? []), "tool.execute.category_specific"]),
+      );
+      const category = request.category ?? "通用品类";
+      request.allowedSkills = Array.from(
+        new Set([...(request.allowedSkills ?? []), `skill.${category}.specific_rules`]),
+      );
+    }
+    updatedRequests.push(request);
+    const task = state.taskPackages.find((item) => item.id === request.taskPackageId);
+    if (task) {
+      task.status = approved ? "materialized" : "blocked";
+      task.updatedAt = now;
+      updatedTaskPackages.push(task);
+    }
+  }
+  if (updatedRequests.length || updatedTaskPackages.length) {
+    state.updatedAt = now;
+  }
+  return { updatedRequests, updatedTaskPackages };
 }
 
 export function runApprovedTask(
@@ -1002,8 +1379,20 @@ export function runApprovedTask(
   if (!request.roleTitle && input.roleTitle) {
     request.roleTitle = input.roleTitle;
   }
+  if (!request.entitlementId && input.entitlementId) {
+    request.entitlementId = input.entitlementId;
+  }
+  if (input.confirmExecution === true) {
+    request.confirmExecution = true;
+  }
+  if (input.costConfirmed === true) {
+    request.costConfirmed = true;
+  }
+  if (input.ledgerRef) {
+    request.ledgerRef = input.ledgerRef;
+  }
   const missingAuthorization =
-    !request.roleListingId || !input.entitlementId || input.confirmExecution !== true;
+    !request.roleListingId || !request.entitlementId || request.confirmExecution !== true;
   if (missingAuthorization) {
     request.status = "blocked";
     request.updatedAt = now;
@@ -1017,7 +1406,7 @@ export function runApprovedTask(
         "岗位执行需要先完成岗位授权和人工执行确认。请到「费用与授权」确认 roleListingId、entitlementId 和 confirmExecution 后再运行。",
     });
   }
-  if (input.costConfirmed !== true) {
+  if (request.costConfirmed !== true) {
     request.status = "blocked";
     request.updatedAt = now;
     taskPackage.status = "blocked";
@@ -1035,7 +1424,7 @@ export function runApprovedTask(
   taskPackage.updatedAt = now;
   const artifactRefs = [
     ...(input.result?.artifactRefs ? [...input.result.artifactRefs] : []),
-    ...(input.ledgerRef ? [input.ledgerRef] : []),
+    ...(request.ledgerRef ? [request.ledgerRef] : []),
     ...(input.memoryCandidateRef ? [input.memoryCandidateRef] : []),
   ];
   const roleResult: RoleResult | null = input.result
@@ -1154,6 +1543,7 @@ function loadStateFromSqlite(): AicsMainFlowState {
     auditRefs: JSON.parse((row.audit_refs as string) || "[]"),
     planningPackageId: row.planning_package_id as string,
     title: row.title as string,
+    ...(row.category ? { category: row.category as string } : {}),
     roleCapabilityRef: row.role_capability_ref as string,
     taskIntent: row.task_intent as string,
     expectedOutput: row.expected_output as string,
@@ -1190,6 +1580,8 @@ function loadStateFromSqlite(): AicsMainFlowState {
       dispatchProposalReviewId: row.dispatch_proposal_review_id as string,
       title: row.title as string,
       taskText: row.task_text as string,
+      ...(row.category ? { category: row.category as string } : {}),
+      requiredCapabilityRefs: parseStringArray(row.required_capability_refs),
     }),
   );
 
@@ -1205,11 +1597,23 @@ function loadStateFromSqlite(): AicsMainFlowState {
       auditRefs: JSON.parse((row.audit_refs as string) || "[]"),
       taskPackageId: row.task_package_id as string,
       rolePlanItemId: row.role_plan_item_id as string,
-      confirmExecution: Boolean(row.confirm_execution) as true,
+      ...(row.category ? { category: row.category as string } : {}),
+      requiredCapabilityRefs: parseStringArray(row.required_capability_refs),
+      allowedTools: parseStringArray(row.allowed_tools),
+      allowedSkills: parseStringArray(row.allowed_skills),
+      ...(row.capability_request_id
+        ? { capabilityRequestId: row.capability_request_id as string }
+        : {}),
+      confirmExecution: Boolean(row.confirm_execution),
+      costConfirmed: Boolean(row.cost_confirmed),
+      toolSkillReady: row.tool_skill_ready === undefined ? true : Boolean(row.tool_skill_ready),
+      apiBindingReady: row.api_binding_ready === undefined ? true : Boolean(row.api_binding_ready),
     };
     if (row.role_listing_id) r.roleListingId = row.role_listing_id as string;
     if (row.role_title) r.roleTitle = row.role_title as string;
+    if (row.entitlement_id) r.entitlementId = row.entitlement_id as string;
     if (row.workspace_dir) r.workspaceDir = row.workspace_dir as string;
+    if (row.ledger_ref) r.ledgerRef = row.ledger_ref as string;
     return r;
   });
 
@@ -1387,11 +1791,12 @@ function syncStateToSqlite(state: AicsMainFlowState): void {
     );
   for (const r of state.rolePlanItems)
     run(
-      "INSERT INTO role_plan_items(id,status,planning_package_id,title,role_capability_ref,task_intent,expected_output,human_confirmation_required,created_at,updated_at,audit_refs) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO role_plan_items(id,status,planning_package_id,title,category,role_capability_ref,task_intent,expected_output,human_confirmation_required,created_at,updated_at,audit_refs) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
       r.id,
       r.status,
       r.planningPackageId,
       r.title,
+      r.category ?? null,
       r.roleCapabilityRef,
       r.taskIntent,
       r.expectedOutput,
@@ -1416,7 +1821,7 @@ function syncStateToSqlite(state: AicsMainFlowState): void {
     );
   for (const t of state.taskPackages)
     run(
-      "INSERT INTO task_packages(id,status,goal_id,planning_package_id,role_plan_item_id,dispatch_proposal_review_id,title,task_text,created_at,updated_at,audit_refs) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO task_packages(id,status,goal_id,planning_package_id,role_plan_item_id,dispatch_proposal_review_id,title,task_text,category,required_capability_refs,created_at,updated_at,audit_refs) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
       t.id,
       t.status,
       t.goalId,
@@ -1425,21 +1830,33 @@ function syncStateToSqlite(state: AicsMainFlowState): void {
       t.dispatchProposalReviewId,
       t.title,
       t.taskText,
+      t.category ?? null,
+      JSON.stringify(t.requiredCapabilityRefs ?? []),
       t.createdAt,
       t.updatedAt,
       JSON.stringify(t.auditRefs),
     );
   for (const r of state.dispatchToRoleRequests)
     run(
-      "INSERT INTO dispatch_to_role_requests(id,status,task_package_id,role_plan_item_id,role_listing_id,role_title,workspace_dir,confirm_execution,created_at,updated_at,audit_refs) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO dispatch_to_role_requests(id,status,task_package_id,role_plan_item_id,role_listing_id,role_title,entitlement_id,workspace_dir,category,required_capability_refs,allowed_tools,allowed_skills,capability_request_id,confirm_execution,cost_confirmed,ledger_ref,tool_skill_ready,api_binding_ready,created_at,updated_at,audit_refs) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       r.id,
       r.status,
       r.taskPackageId,
       r.rolePlanItemId,
       r.roleListingId ?? null,
       r.roleTitle ?? null,
+      r.entitlementId ?? null,
       r.workspaceDir ?? null,
-      1,
+      r.category ?? null,
+      JSON.stringify(r.requiredCapabilityRefs ?? []),
+      JSON.stringify(r.allowedTools ?? []),
+      JSON.stringify(r.allowedSkills ?? []),
+      r.capabilityRequestId ?? null,
+      r.confirmExecution ? 1 : 0,
+      r.costConfirmed ? 1 : 0,
+      r.ledgerRef ?? null,
+      r.toolSkillReady === false ? 0 : 1,
+      r.apiBindingReady === false ? 0 : 1,
       r.createdAt,
       r.updatedAt,
       JSON.stringify(r.auditRefs),
@@ -1523,6 +1940,12 @@ export class AicsMainFlowStore {
   }
   readModel(): AicsMainFlowReadModel {
     return createAicsMainFlowReadModel(this.readState());
+  }
+  executionPreflight(input?: {
+    taskPackageId?: string;
+    dispatchToRoleRequestId?: string;
+  }): AicsMainFlowExecutionPreflight {
+    return getAicsMainFlowExecutionPreflight(this.readState(), input);
   }
   update<T>(mutate: (state: AicsMainFlowState) => T): T {
     const state = this.readState();

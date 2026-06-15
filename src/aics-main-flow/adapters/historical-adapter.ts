@@ -1,4 +1,4 @@
-import type { AicsMainFlowState, ObservationPackage } from "../types.js";
+import type { AicsMainFlowState } from "../types.js";
 import type { ObservationAdapter, AdapterFetchResult } from "./types.js";
 
 /**

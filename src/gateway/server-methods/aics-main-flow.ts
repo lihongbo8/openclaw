@@ -17,15 +17,23 @@ import {
   AicsMainFlowStore,
   confirmDispatch,
   confirmGoal,
+  confirmObservation,
   confirmPlanning,
+  confirmAttribution,
+  confirmRoleExecution,
+  confirmRoleExecutionCost,
   createDispatchProposal,
   createGoalCandidate,
   createInteraction,
   createWorkBlocks,
   materializeTaskPackage,
+  markObservationDataMissing,
   prepareAttribution,
   prepareObservation,
   preparePlanning,
+  rejectAttribution,
+  rejectObservation,
+  requestAttributionMoreData,
   runApprovedTask,
   type CreateDispatchProposalInput,
   type CreateGoalCandidateInput,
@@ -281,6 +289,8 @@ type AicsBridgeConfig = {
   cloudBaseUrl?: string;
   cloudAccessToken?: string;
   cloudAccessTokenConfiguredButUnresolved?: boolean;
+  defaultRoleListingId?: string;
+  defaultEntitlementId?: string;
   defaultDeviceId?: string;
   defaultWorkspaceRef?: string;
   defaultLocalGatewayId?: string;
@@ -312,6 +322,8 @@ function resolveAicsBridgeConfig(config: OpenClawConfig): AicsBridgeConfig {
     cloudAccessToken: trimString(cloudAccessTokenValue),
     cloudAccessTokenConfiguredButUnresolved:
       !trimString(cloudAccessTokenValue) && isSecretRefLike(cloudAccessTokenValue),
+    defaultRoleListingId: trimString(pluginConfig.defaultRoleListingId),
+    defaultEntitlementId: trimString(pluginConfig.defaultEntitlementId),
     defaultDeviceId: trimString(pluginConfig.defaultDeviceId),
     defaultWorkspaceRef: trimString(pluginConfig.defaultWorkspaceRef),
     defaultLocalGatewayId: trimString(pluginConfig.defaultLocalGatewayId),
@@ -444,8 +456,8 @@ async function createClosedLoopReadiness(config: OpenClawConfig, params: Record<
     myRolesUrl.searchParams.set("workspaceRef", bridge.defaultWorkspaceRef);
   if (bridge.defaultDeviceId) myRolesUrl.searchParams.set("deviceId", bridge.defaultDeviceId);
 
-  let selectedRoleListingId = trimString(params.roleListingId);
-  let selectedEntitlementId = trimString(params.entitlementId);
+  let selectedRoleListingId = trimString(params.roleListingId) ?? bridge.defaultRoleListingId;
+  let selectedEntitlementId = trimString(params.entitlementId) ?? bridge.defaultEntitlementId;
   let rolesCount = 0;
   try {
     const myRoles = await fetchJsonWithTimeout(
@@ -583,6 +595,60 @@ async function createClosedLoopReadiness(config: OpenClawConfig, params: Record<
   };
 }
 
+async function approveCloudMarketplaceRoleReview(
+  config: OpenClawConfig,
+  params: Record<string, unknown>,
+) {
+  const bridge = resolveAicsBridgeConfig(config);
+  const roleListingId = requireString(params, "roleListingId");
+  const timeoutMs = Math.max(500, Math.min(15_000, Number(params.timeoutMs ?? 5_000) || 5_000));
+  if (!bridge.cloudBaseUrl) {
+    throw new Error("missing_cloud_base_url");
+  }
+  if (!bridge.cloudAccessToken) {
+    throw new Error(
+      bridge.cloudAccessTokenConfiguredButUnresolved
+        ? "cloud_access_token_unresolved"
+        : "missing_cloud_access_token",
+    );
+  }
+
+  const summary =
+    stringParam(params, "summary") ??
+    "本地端审核通过：岗位包、零元授权、执行桥接和回写链路满足首轮闭环要求。";
+  const review = await fetchJsonWithTimeout(
+    new URL(
+      `/admin/dijie/reviews/${encodeURIComponent(roleListingId)}/evaluations`,
+      bridge.cloudBaseUrl,
+    ).toString(),
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${bridge.cloudAccessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        roleStandardDecision: "pass",
+        safetyComplianceDecision: "pass",
+        pricingReasonabilityDecision: "pass",
+        summary,
+      }),
+    },
+    timeoutMs,
+  );
+
+  if (!review.ok || review.payload.ok === false) {
+    throw new Error(`cloud_role_review_approve_failed:${review.status}`);
+  }
+
+  return {
+    ok: true,
+    roleListingId,
+    review: review.payload.review ?? null,
+    listing: review.payload.listing ?? null,
+  };
+}
+
 export const aicsMainFlowHandlers: GatewayRequestHandlers = {
   "aics.cloudMarketplace.auditQueue.get": ({ params, respond }) => {
     try {
@@ -659,6 +725,15 @@ export const aicsMainFlowHandlers: GatewayRequestHandlers = {
       respondError(respond, error);
     }
   },
+  "aics.cloudMarketplace.roleReview.approve": async ({ params, context, respond }) => {
+    try {
+      requireActorContext(params);
+      const result = await approveCloudMarketplaceRoleReview(context.getRuntimeConfig(), params);
+      respond(true, result);
+    } catch (error) {
+      respondError(respond, error);
+    }
+  },
   "aics.closedLoop.readiness.get": async ({ params, context, respond }) => {
     try {
       const readiness = await createClosedLoopReadiness(context.getRuntimeConfig(), params);
@@ -694,10 +769,78 @@ export const aicsMainFlowHandlers: GatewayRequestHandlers = {
       respondError(respond, error);
     }
   },
+  "aics.mainFlow.observation.confirm": ({ params, respond }) => {
+    try {
+      const result = new AicsMainFlowStore().update((state) =>
+        confirmObservation(state, requireString(params, "observationPackageId")),
+      );
+      respond(true, result);
+    } catch (error) {
+      respondError(respond, error);
+    }
+  },
+  "aics.mainFlow.observation.reject": ({ params, respond }) => {
+    try {
+      const result = new AicsMainFlowStore().update((state) =>
+        rejectObservation(state, requireString(params, "observationPackageId")),
+      );
+      respond(true, result);
+    } catch (error) {
+      respondError(respond, error);
+    }
+  },
+  "aics.mainFlow.observation.markDataMissing": ({ params, respond }) => {
+    try {
+      const result = new AicsMainFlowStore().update((state) =>
+        markObservationDataMissing(
+          state,
+          requireString(params, "observationPackageId"),
+          stringParam(params, "summary") ?? undefined,
+        ),
+      );
+      respond(true, result);
+    } catch (error) {
+      respondError(respond, error);
+    }
+  },
   "aics.mainFlow.attribution.prepare": ({ params, respond }) => {
     try {
       const result = new AicsMainFlowStore().update((state) =>
         prepareAttribution(state, toAttributionInput(params)),
+      );
+      respond(true, result);
+    } catch (error) {
+      respondError(respond, error);
+    }
+  },
+  "aics.mainFlow.attribution.confirm": ({ params, respond }) => {
+    try {
+      const result = new AicsMainFlowStore().update((state) =>
+        confirmAttribution(state, requireString(params, "attributionReportId")),
+      );
+      respond(true, result);
+    } catch (error) {
+      respondError(respond, error);
+    }
+  },
+  "aics.mainFlow.attribution.reject": ({ params, respond }) => {
+    try {
+      const result = new AicsMainFlowStore().update((state) =>
+        rejectAttribution(state, requireString(params, "attributionReportId")),
+      );
+      respond(true, result);
+    } catch (error) {
+      respondError(respond, error);
+    }
+  },
+  "aics.mainFlow.attribution.requestMoreData": ({ params, respond }) => {
+    try {
+      const result = new AicsMainFlowStore().update((state) =>
+        requestAttributionMoreData(
+          state,
+          requireString(params, "attributionReportId"),
+          stringParam(params, "summary") ?? undefined,
+        ),
       );
       respond(true, result);
     } catch (error) {
@@ -795,6 +938,43 @@ export const aicsMainFlowHandlers: GatewayRequestHandlers = {
     try {
       const result = new AicsMainFlowStore().update((state) =>
         materializeTaskPackage(state, toTaskPackageInput(params)),
+      );
+      respond(true, result);
+    } catch (error) {
+      respondError(respond, error);
+    }
+  },
+  "aics.mainFlow.execution.preflight.get": ({ params, respond }) => {
+    try {
+      respond(
+        true,
+        new AicsMainFlowStore().executionPreflight({
+          ...(stringParam(params, "taskPackageId")
+            ? { taskPackageId: stringParam(params, "taskPackageId") }
+            : {}),
+          ...(stringParam(params, "dispatchToRoleRequestId")
+            ? { dispatchToRoleRequestId: stringParam(params, "dispatchToRoleRequestId") }
+            : {}),
+        }),
+      );
+    } catch (error) {
+      respondError(respond, error);
+    }
+  },
+  "aics.mainFlow.execution.confirm": ({ params, respond }) => {
+    try {
+      const result = new AicsMainFlowStore().update((state) =>
+        confirmRoleExecution(state, toRunApprovedTaskInput(params)),
+      );
+      respond(true, result);
+    } catch (error) {
+      respondError(respond, error);
+    }
+  },
+  "aics.mainFlow.execution.cost.confirm": ({ params, respond }) => {
+    try {
+      const result = new AicsMainFlowStore().update((state) =>
+        confirmRoleExecutionCost(state, toRunApprovedTaskInput(params)),
       );
       respond(true, result);
     } catch (error) {

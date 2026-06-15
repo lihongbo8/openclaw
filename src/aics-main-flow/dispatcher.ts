@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { createRoleExecutionEngine } from "./role-execution-engine.js";
-import type { RoleExecutor, RoleExecutionContext, RoleResult } from "./role-execution-types.js";
-import { RoleInstanceStore } from "./role-instance-store.js";
+import type { RoleExecutor, RoleResult } from "./role-execution-types.js";
+import {
+  RoleInstanceStore,
+  type RoleArtifactRecord,
+  type RoleExecutionStepRecord,
+} from "./role-instance-store.js";
 import { AicsMainFlowStore } from "./store.js";
 
 // ======================================================================
@@ -66,6 +70,36 @@ function log(level: "info" | "warn" | "error", event: string, detail?: Record<st
   else console.warn(JSON.stringify(entry)); // stdout 避免与 stderr 混淆
 }
 
+function toMainFlowOutcome(outcome: RoleResult["outcome"]): "succeeded" | "failed" | "blocked" {
+  if (outcome === "succeeded" || outcome === "blocked") return outcome;
+  return "failed";
+}
+
+function toStepRecords(steps: RoleResult["steps"]): RoleExecutionStepRecord[] {
+  return steps.map((step) => ({
+    stepId: `${step.stepIndex}:${step.stepName}`,
+    order: step.stepIndex,
+    kind: step.stepName,
+    description: step.inputSummary,
+    status: step.status,
+    toolOutput: step.outputSummary,
+    startedAt: step.startedAt,
+    completedAt: step.completedAt,
+    durationMs: step.completedAt ? step.completedAt - step.startedAt : undefined,
+  }));
+}
+
+function toArtifactRecords(executionId: string, artifactRefs: string[]): RoleArtifactRecord[] {
+  const now = Date.now();
+  return artifactRefs.map((relPath, index) => ({
+    artifactId: `${executionId}:artifact:${index}`,
+    runId: executionId,
+    relPath,
+    kind: "document",
+    createdAt: now,
+  }));
+}
+
 export async function dispatchAndExecute(
   executor: RoleExecutor,
   config: DispatchConfig = {},
@@ -107,9 +141,9 @@ export async function dispatchAndExecute(
     try {
       // 1. 获取或创建岗位实例
       const instance = RoleInstanceStore.ensureInstance({
-        roleListingId: latestRequest?.roleListingId,
+        roleListingId: latestRequest?.roleListingId ?? latestTask.rolePlanItemId,
         roleTitle: latestRequest?.roleTitle ?? latestTask.title,
-        workspaceDir: latestRequest?.workspaceDir,
+        workspaceDir: latestRequest?.workspaceDir ?? config.workspaceRoot ?? process.cwd(),
       });
       logs.push(`Dispatcher: 岗位实例 "${instance.roleTitle}" (id=${instance.instanceId})`);
 
@@ -129,6 +163,7 @@ export async function dispatchAndExecute(
         taskPackageId: latestTask.id,
         executionId: context.executionId,
         status: "running",
+        summary: "岗位执行中",
         startedAt: Date.now(),
       });
       logs.push(`Dispatcher: 运行记录创建 (runId=${runRecord.runId})`);
@@ -137,22 +172,29 @@ export async function dispatchAndExecute(
       const roleResult = await engine.execute(context, executor);
 
       // 5. 更新运行记录
-      const completedRun = RoleInstanceStore.recordRun({
-        ...runRecord,
+      RoleInstanceStore.recordRun({
+        instanceId: runRecord.instanceId,
+        taskPackageId: runRecord.taskPackageId,
+        executionId: runRecord.executionId,
         status: roleResult.outcome === "succeeded" ? "completed" : "failed",
         summary: roleResult.summary.slice(0, 500),
         artifactRefs: roleResult.artifactRefs,
         error: roleResult.blockedReason,
+        startedAt: roleResult.startedAt,
         completedAt: roleResult.completedAt,
         durationMs: roleResult.durationMs,
       });
 
       // 6. 记录步骤和产物
-      RoleInstanceStore.recordSteps(instance.instanceId, context.executionId, roleResult.steps);
+      RoleInstanceStore.recordSteps(
+        instance.instanceId,
+        context.executionId,
+        toStepRecords(roleResult.steps),
+      );
       RoleInstanceStore.recordArtifacts({
         instanceId: instance.instanceId,
         executionId: context.executionId,
-        artifacts: roleResult.artifactRefs,
+        artifacts: toArtifactRecords(context.executionId, roleResult.artifactRefs),
       });
 
       // 7. 写回主流程
@@ -166,7 +208,7 @@ export async function dispatchAndExecute(
           auditRefs: [],
           taskPackageId: latestTask.id,
           dispatchToRoleRequestId: latestRequest?.id ?? "",
-          outcome: roleResult.outcome,
+          outcome: toMainFlowOutcome(roleResult.outcome),
           summary: roleResult.summary.slice(0, 500),
           artifactRefs: roleResult.artifactRefs,
         });
@@ -203,6 +245,7 @@ export async function dispatchAndExecute(
         taskPackageId: latestTask.id,
         executionId: dispatchRunId,
         status: "blocked",
+        summary: lastError,
         error: lastError,
         startedAt: Date.now(),
         completedAt: Date.now(),
