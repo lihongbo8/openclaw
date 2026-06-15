@@ -227,8 +227,60 @@ export const aicsMainFlow = {
   prepareObservation: (s: AppViewState, title: string, summary: string) =>
     callMainFlow(s, "aics.mainFlow.observation.prepare", { title, summary, signals: [] }),
 
-  prepareAttribution: (s: AppViewState, title: string, summary: string) =>
-    callMainFlow(s, "aics.mainFlow.attribution.prepare", { title, summary, findings: [] }),
+  confirmObservation: (s: AppViewState, observationPackageId: string) =>
+    callMainFlow(s, "aics.mainFlow.observation.confirm", { observationPackageId }),
+
+  rejectObservation: (s: AppViewState, observationPackageId: string) =>
+    callMainFlow(s, "aics.mainFlow.observation.reject", { observationPackageId }),
+
+  markObservationDataMissing: (s: AppViewState, observationPackageId: string) =>
+    callMainFlow(s, "aics.mainFlow.observation.markDataMissing", {
+      observationPackageId,
+      summary: "待补真实经营数据",
+    }),
+
+  prepareAttribution: (s: AppViewState, title: string, summary: string) => {
+    const readModel = s.aicsMainFlow?.readModel as Record<string, unknown> | null | undefined;
+    const latest = readModel?.latest as Record<string, unknown> | undefined;
+    const observation = latest?.observationPackage as Record<string, unknown> | undefined;
+    const signals = Array.isArray(observation?.signals)
+      ? (observation.signals as Array<Record<string, unknown>>)
+      : [];
+    const findings = signals.slice(0, 3).map((signal, index) => ({
+      id: `finding_${String(signal.id ?? index).replace(/[^a-zA-Z0-9_-]+/g, "_")}`,
+      title: `归因线索：${text(signal.title) || `观察信号 ${index + 1}`}`,
+      summary: `${text(signal.summary) || "观察信号需要进一步验证。"} 当前结论来自本地经营意图和观察包，待补真实经营数据验证。`,
+      confidence: "low",
+      observationSignalIds: [text(signal.id)].filter(Boolean),
+    }));
+    return callMainFlow(s, "aics.mainFlow.attribution.prepare", {
+      title,
+      summary,
+      findings: findings.length
+        ? findings
+        : [
+            {
+              id: "finding_data_gap",
+              title: "数据不足",
+              summary: "观察包缺少可归因信号，需要回到数据分析补充经营数据。",
+              confidence: "low",
+              observationSignalIds: [],
+            },
+          ],
+    });
+  },
+
+  confirmAttribution: (s: AppViewState, attributionReportId: string) =>
+    callMainFlow(s, "aics.mainFlow.attribution.confirm", { attributionReportId }),
+
+  rejectAttribution: (s: AppViewState, attributionReportId: string) =>
+    callMainFlow(s, "aics.mainFlow.attribution.reject", { attributionReportId }),
+
+  requestAttributionMoreData: (s: AppViewState, attributionReportId: string) =>
+    callMainFlow(s, "aics.mainFlow.attribution.requestMoreData", {
+      attributionReportId,
+      summary: "归因结论不足，需要补充真实经营数据。",
+    }),
 
   createGoalCandidate: (
     s: AppViewState,
@@ -353,16 +405,32 @@ export const aicsMainFlow = {
   },
 
   runApprovedTask: (s: AppViewState, taskPackageId: string) => {
-    const authorizedRole = selectAuthorizedRoleForDispatch(s);
     return callMainFlow(s, "aics.mainFlow.dispatch.runApprovedTask", {
       taskPackageId,
+    });
+  },
+
+  confirmExecution: (s: AppViewState, dispatchToRoleRequestId: string) => {
+    const authorizedRole = selectAuthorizedRoleForDispatch(s);
+    return callMainFlow(s, "aics.mainFlow.execution.confirm", {
+      dispatchToRoleRequestId,
       ...(authorizedRole
         ? {
             roleListingId: authorizedRole.roleListingId,
             ...(authorizedRole.roleTitle ? { roleTitle: authorizedRole.roleTitle } : {}),
             entitlementId: authorizedRole.entitlementId,
-            confirmExecution: true,
-            costConfirmed: true,
+          }
+        : {}),
+    });
+  },
+
+  confirmExecutionCost: (s: AppViewState, dispatchToRoleRequestId: string) => {
+    const authorizedRole = selectAuthorizedRoleForDispatch(s);
+    return callMainFlow(s, "aics.mainFlow.execution.cost.confirm", {
+      dispatchToRoleRequestId,
+      ...(authorizedRole
+        ? {
+            entitlementId: authorizedRole.entitlementId,
             ledgerRef: `ledger:pending:${authorizedRole.entitlementId}`,
           }
         : {}),

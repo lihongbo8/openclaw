@@ -28,7 +28,6 @@ import {
   businessProjectMilestoneStatusLabel,
   businessProjectRiskStatusLabel,
   buildBusinessFlowProjection,
-  type BusinessGoal,
   type BusinessProject,
 } from "./business-flow-store.ts";
 import { reconcileChatRunLifecycle } from "./chat/run-lifecycle.ts";
@@ -131,7 +130,6 @@ import {
 import type { ToolSupplyControlItem } from "./controllers/tool-supply-control.ts";
 import { captureSessionToWorkboard, getWorkboardState } from "./controllers/workboard.ts";
 import { getCronJobPayload } from "./cron-payload.ts";
-import { EXTERNAL_LINK_TARGET } from "./external-link.ts";
 import { formatTimeMs } from "./format.ts";
 import { formatRelativeTimestamp } from "./format.ts";
 import { icons } from "./icons.ts";
@@ -174,8 +172,6 @@ import {
   resolveModelPrimary,
   sortLocaleStrings,
 } from "./views/agents-utils.ts";
-import type { AicsMarketplaceRole } from "./views/aics.ts";
-import { renderBuildSessionWizard } from "./views/build-session.ts";
 import { renderChat } from "./views/chat.ts";
 import { renderCommandPalette } from "./views/command-palette.ts";
 import { getPresetById } from "./views/config-presets.ts";
@@ -224,37 +220,6 @@ function formatMainSystemCost(value: number | undefined | null) {
   return `$${Math.max(0, Number(value)).toFixed(2)}`;
 }
 
-function roleStatusLabel(role: AicsMarketplaceRole) {
-  const status = normalizeOptionalString(role.status) ?? "";
-  if (role.callable === false) {
-    return "能力阻塞";
-  }
-  if (role.entitlementId) {
-    return "已授权";
-  }
-  if (status.includes("update") || status.includes("可更新")) {
-    return "可更新";
-  }
-  if (status.includes("installed") || status.includes("已安装")) {
-    return "已安装";
-  }
-  return status || "可授权";
-}
-
-function roleDetailWithCapabilityState(role: AicsMarketplaceRole): string | undefined {
-  const parts = [
-    role.detail,
-    role.blockedCatalogRefs?.length
-      ? `阻塞能力：${role.blockedCatalogRefs.slice(0, 3).join(" / ")}`
-      : "",
-    role.unavailableReasons?.length
-      ? `不可执行原因：${role.unavailableReasons.slice(0, 3).join(" / ")}`
-      : "",
-    role.catalogRefs?.length ? `能力引用 ${role.catalogRefs.length} 项` : "",
-  ].filter(Boolean);
-  return parts.length ? parts.join("；") : undefined;
-}
-
 function toolSupplyStatusLabel(status: ToolSupplyControlItem["status"]) {
   switch (status) {
     case "available":
@@ -284,19 +249,6 @@ function toolSupplyKindLabel(kind: ToolSupplyControlItem["kind"]) {
       return "API 绑定";
     case "cloud_capability":
       return "云端商城能力";
-  }
-}
-
-function businessGoalStatusLabel(status: BusinessGoal["status"]) {
-  switch (status) {
-    case "running":
-      return "运行中";
-    case "review":
-      return "待复盘";
-    case "blocked":
-      return "已阻塞";
-    default:
-      return "已规划";
   }
 }
 
@@ -380,125 +332,6 @@ function renderSettingsWorkspace(state: AppViewState, body: unknown) {
   `;
 }
 
-function renderMyRolesProductPage(state: AppViewState, onNavigate: (tab: Tab) => void) {
-  const roles = state.aicsMarketplace.roles;
-  const authorized = roles.filter(
-    (role) => role.entitlementId || roleStatusLabel(role) === "已授权",
-  );
-  const callable = roles.filter(
-    (role) => role.callable !== false && (role.entitlementId || roleStatusLabel(role) === "已授权"),
-  );
-  const updatable = roles.filter((role) => roleStatusLabel(role) === "可更新");
-  const items: MainSystemItem[] = roles.slice(0, 12).map((role) => {
-    const status = roleStatusLabel(role);
-    const canUseRole =
-      role.callable !== false &&
-      (Boolean(role.entitlementId) || status === "已授权" || status === "已安装");
-    return {
-      title: role.title,
-      status,
-      meta: roleDetailWithCapabilityState(role),
-      icon: canUseRole ? "check" : "brain",
-      action: {
-        label: canUseRole ? "使用" : role.callable === false ? "配置" : "授权",
-        title: canUseRole
-          ? "在主对话中使用该岗位。"
-          : role.callable === false
-            ? "处理该岗位的能力对接或本地配置。"
-            : "在云端岗位商城授权该岗位。",
-        onClick: () => state.useAicsMarketplaceRole(role),
-      },
-    };
-  });
-
-  return renderMainSystemShell({
-    title: "我的岗位",
-    status: state.aicsMarketplace.loading ? "同步中" : roles.length ? "已同步" : "待同步",
-    icon: "brain",
-    loading: state.aicsMarketplace.loading,
-    error: state.aicsMarketplace.error,
-    emptyLabel: "暂无岗位",
-    metrics: [
-      { label: "已安装", value: roles.length, title: "已安装并同步到本机的岗位授权。" },
-      { label: "已授权", value: authorized.length, title: "已购买或已授权的岗位。" },
-      {
-        label: "可执行",
-        value: callable.length,
-        title: "云端 read-model 标记为 callable 的岗位。",
-      },
-      { label: "可更新", value: updatable.length, title: "存在新版本的岗位。" },
-      { label: "岗位列表", value: roles.length, title: "本机可用的岗位列表。" },
-    ],
-    items,
-    actions: [
-      {
-        label: "同步",
-        title: "同步云端岗位授权状态。",
-        icon: "loader",
-        onClick: () => state.refreshAicsMarketplaceRoles(),
-        disabled: state.aicsMarketplace.loading,
-      },
-    ],
-    onNavigate,
-  });
-}
-
-function renderGoalProgressBar(goal: {
-  title: string;
-  metric: string;
-  target: string;
-  totalTasks: number;
-  completedTasks: number;
-  status: string;
-  blockedReason?: string;
-  projectCount: number;
-}) {
-  const pct = goal.totalTasks > 0 ? Math.round((goal.completedTasks / goal.totalTasks) * 100) : 0;
-  const color =
-    goal.status === "blocked"
-      ? "#e53e3e"
-      : goal.status === "off_track"
-        ? "#dd6b20"
-        : pct >= 100
-          ? "#38a169"
-          : "#3182ce";
-  return html`
-    <div
-      class="aics-goal-progress"
-      style="border:1px solid var(--border-color,#e0e0e0);border-radius:6px;padding:12px;margin-bottom:8px"
-    >
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <strong style="font-size:14px">${goal.title}</strong>
-        <span style="font-size:12px;color:${color};font-weight:600"
-          >${goal.status === "blocked"
-            ? "🚫 阻塞"
-            : goal.status === "off_track"
-              ? "⚠️ 偏离"
-              : pct >= 100
-                ? "✅ 完成"
-                : pct > 0
-                  ? "⏳ 进行中"
-                  : "📋 待开始"}</span
-        >
-      </div>
-      <div style="font-size:12px;color:var(--text-secondary,#666);margin-bottom:4px">
-        ${goal.metric}：目标 ${goal.target} | ${goal.completedTasks}/${goal.totalTasks} 任务 |
-        ${goal.projectCount} 个项目承接
-      </div>
-      <div style="background:var(--bg-secondary,#eee);border-radius:4px;height:8px;overflow:hidden">
-        <div
-          style="width:${pct}%;height:100%;background:${color};border-radius:4px;transition:width .3s"
-        ></div>
-      </div>
-      ${goal.blockedReason
-        ? html`<div style="font-size:11px;color:#e53e3e;margin-top:4px">
-            阻塞原因：${goal.blockedReason}
-          </div>`
-        : ""}
-    </div>
-  `;
-}
-
 function renderBusinessOverviewPage(state: AppViewState, requestHostUpdate?: () => void) {
   const mf = state.aicsMainFlow;
   const readModel = mf?.readModel as Record<string, unknown> | null;
@@ -544,8 +377,8 @@ function renderBusinessOverviewPage(state: AppViewState, requestHostUpdate?: () 
     {
       title: "岗位执行",
       count: counts.roleResults ?? 0,
-      ready: readiness.canRunApprovedTask === true,
-      next: "只执行已授权 DispatchToRoleRequest",
+      ready: readiness.canEnterRoleExecution === true,
+      next: "确认授权、费用和执行条件后运行",
     },
   ];
 
@@ -764,6 +597,40 @@ function renderObservationPage(state: AppViewState, requestHostUpdate?: () => vo
           <p style="font-size:13px;color:var(--text-secondary,#666);margin:0 0 8px 0">
             ${obs.summary as string}
           </p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+            <button
+              type="button"
+              @click=${() =>
+                aicsMainFlow
+                  .confirmObservation(state, String(obs.id))
+                  .then(() => requestHostUpdate?.())}
+              style="padding:5px 10px;background:#38a169;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px"
+              ?disabled=${obs.status === "confirmed" || signals.length === 0}
+            >
+              确认观察包
+            </button>
+            <button
+              type="button"
+              @click=${() =>
+                aicsMainFlow
+                  .markObservationDataMissing(state, String(obs.id))
+                  .then(() => requestHostUpdate?.())}
+              style="padding:5px 10px;background:#dd6b20;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px"
+            >
+              标记数据缺失
+            </button>
+            <button
+              type="button"
+              @click=${() =>
+                aicsMainFlow
+                  .rejectObservation(state, String(obs.id))
+                  .then(() => requestHostUpdate?.())}
+              style="padding:5px 10px;background:var(--bg-secondary,#eee);border:1px solid var(--border-color,#ccc);border-radius:4px;cursor:pointer;font-size:12px"
+              ?disabled=${obs.status === "rejected"}
+            >
+              驳回观察包
+            </button>
+          </div>
           ${signals.length > 0
             ? signals.map(
                 (s: Record<string, unknown>) => html`<div
@@ -910,6 +777,40 @@ function renderAttributionPage(state: AppViewState, requestHostUpdate?: () => vo
           <p style="font-size:13px;color:var(--text-secondary,#666);margin:0 0 8px 0">
             ${attr.summary as string}
           </p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+            <button
+              type="button"
+              @click=${() =>
+                aicsMainFlow
+                  .confirmAttribution(state, String(attr.id))
+                  .then(() => requestHostUpdate?.())}
+              style="padding:5px 10px;background:#38a169;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px"
+              ?disabled=${attr.status === "confirmed" || findings.length === 0}
+            >
+              确认归因报告
+            </button>
+            <button
+              type="button"
+              @click=${() =>
+                aicsMainFlow
+                  .requestAttributionMoreData(state, String(attr.id))
+                  .then(() => requestHostUpdate?.())}
+              style="padding:5px 10px;background:#dd6b20;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px"
+            >
+              要求补数据
+            </button>
+            <button
+              type="button"
+              @click=${() =>
+                aicsMainFlow
+                  .rejectAttribution(state, String(attr.id))
+                  .then(() => requestHostUpdate?.())}
+              style="padding:5px 10px;background:var(--bg-secondary,#eee);border:1px solid var(--border-color,#ccc);border-radius:4px;cursor:pointer;font-size:12px"
+              ?disabled=${attr.status === "rejected"}
+            >
+              驳回归因报告
+            </button>
+          </div>
           ${findings.map(
             (f: Record<string, unknown>) =>
               html`<div
@@ -1934,7 +1835,6 @@ function renderWorkboardProductPage(state: AppViewState, requestHostUpdate?: () 
   const readModel = mf?.readModel as Record<string, unknown> | null;
   const loading = mf?.loading ?? false;
   const error = mf?.error ?? null;
-  const counts = (readModel?.counts ?? {}) as Record<string, number>;
   const objects = (readModel?.objects ?? {}) as Record<string, unknown>;
   const rolePlanItems = (objects.rolePlanItems ?? []) as Array<Record<string, unknown>>;
   const taskPackages = (objects.taskPackages ?? []) as Array<Record<string, unknown>>;
@@ -1947,9 +1847,6 @@ function renderWorkboardProductPage(state: AppViewState, requestHostUpdate?: () 
 
   const proposal = ((readModel?.latest as Record<string, unknown> | undefined)
     ?.dispatchProposalReview ?? null) as Record<string, unknown> | null;
-  const latestTask = ((readModel?.latest as Record<string, unknown> | undefined)?.taskPackage ??
-    null) as Record<string, unknown> | null;
-
   const columns = [
     {
       key: "backlog",
@@ -2048,18 +1945,6 @@ function renderWorkboardProductPage(state: AppViewState, requestHostUpdate?: () 
             ?disabled=${!readiness.canMaterializeTaskPackage}
           >
             生成任务包
-          </button>
-          <button
-            @click=${() =>
-              latestTask?.id
-                ? aicsMainFlow
-                    .runApprovedTask(state, String(latestTask.id))
-                    .then(() => requestHostUpdate?.())
-                : undefined}
-            style="padding:6px 12px;background:#2b6cb0;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px"
-            ?disabled=${!readiness.canRunApprovedTask || !latestTask}
-          >
-            执行已授权任务
           </button>
           <button
             @click=${() => {
@@ -2229,7 +2114,7 @@ function renderMemoryEvolutionProductPage(state: AppViewState, onNavigate: (tab:
 
 function renderBillingAuthorizationProductPage(
   state: AppViewState,
-  onNavigate: (tab: Tab) => void,
+  _onNavigate: (tab: Tab) => void,
 ) {
   const roles = state.aicsMarketplace.roles ?? [];
   const authorized = roles.filter((r) => r.entitlementId);
@@ -2408,10 +2293,6 @@ function renderApiManagementProductPage(state: AppViewState, onNavigate: (tab: T
     { value: "voice", label: "语音" },
     { value: "image", label: "图片" },
   ];
-  const metricValue = (key: string) =>
-    typeof metrics[key] === "number" || typeof metrics[key] === "string"
-      ? String(metrics[key])
-      : "0";
   const count = (value: unknown) =>
     typeof value === "number" || typeof value === "string" ? String(value) : "0";
   const marketplaceEntries = allEntries.filter((entry) => {
@@ -2419,7 +2300,6 @@ function renderApiManagementProductPage(state: AppViewState, onNavigate: (tab: T
     return entry.kind === "marketplace" || consumers.includes("marketplace");
   });
   const modelEntries = allEntries.filter((entry) => entry.kind === "model");
-  const toolSkillEntries = allEntries.filter((entry) => entry.kind === "tool_skill");
   const blockedConnections = Number(metrics.blocked ?? 0) || 0;
   const blockedTools = toolMetrics?.blocked ?? 0;
   const blockedRoles = Number(roleSummary.blockedRoles ?? 0) || 0;
@@ -2731,7 +2611,7 @@ function renderApiManagementProductPage(state: AppViewState, onNavigate: (tab: T
             ${selectedTemplate.connectionMode === "local"
               ? "本地服务选择“本地服务”，API Key 可以留空。"
               : selectedTemplate.id === "cloud-marketplace"
-                ? "云端商城 API 直接粘贴云端商城给你的真实 API Key；Base URL 和绑定路径系统会自动带出。"
+                ? "云端商城 API 用来连接本地 OpenClaw 和云端商城；本地开发默认 Base URL 是 127.0.0.1:9000，推荐用 DIJIE_CLOUD_ACCESS_TOKEN 这类 SecretRef，保存后再同步到 AICS runtime。"
                 : selectedTemplate.id === "openai"
                   ? "OpenAI 直接粘贴 sk- 开头的真实 API Key；不需要手填 Provider ID 或绑定路径。"
                   : selectedTemplate.id === "anthropic"
@@ -2882,6 +2762,25 @@ function renderApiManagementProductPage(state: AppViewState, onNavigate: (tab: T
                 )}
             />
           </label>
+          ${form.kind === "marketplace"
+            ? html`
+                <label
+                  style="display:grid;gap:4px;font-size:12px;color:var(--text-secondary,#666);margin-top:8px"
+                >
+                  云端 smoke 输出 JSON
+                  <textarea
+                    .value=${form.smokeJson}
+                    @input=${(event: Event) =>
+                      state.updateApiConnectionFormField?.(
+                        "smokeJson",
+                        (event.currentTarget as HTMLTextAreaElement).value,
+                      )}
+                    placeholder='{"roleListingId":"djrole_...","entitlementId":"djent_...","deviceId":"local-admin-device","workspaceRef":"local-admin-workspace","localGatewayId":"openclaw-local-gateway"}'
+                    style="min-height:88px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px"
+                  ></textarea>
+                </label>
+              `
+            : nothing}
           <div
             style="display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--text-secondary,#666);margin-top:8px"
           >
@@ -3039,6 +2938,7 @@ function renderToolsProductPage(state: AppViewState, onNavigate: (tab: Tab) => v
   const loading = state.toolSupplyControl.loading;
   const error = state.toolSupplyControl.error;
   const message = state.toolSupplyControl.message;
+  const toolRisks = model?.risks ?? [];
   const canAutoSync = state.connected && Boolean(state.client);
   if (!model && !loading && !error && canAutoSync) {
     queueMicrotask(() => {
@@ -3287,7 +3187,7 @@ function renderToolsProductPage(state: AppViewState, onNavigate: (tab: Tab) => v
                           item.missing?.length
                             ? `missing: ${item.missing.slice(0, 3).join(", ")}`
                             : "",
-                          item.blockedReasons.length
+                          (item.blockedReasons ?? []).length
                             ? `blocked: ${item.blockedReasons.join(", ")}`
                             : "",
                         ]
@@ -3599,10 +3499,10 @@ function renderToolsProductPage(state: AppViewState, onNavigate: (tab: Tab) => v
             这些 reason 会直接影响任务调度和岗位执行，不阻塞整个 OpenClaw。
           </p>
         </div>
-        ${model?.risks.length
+        ${toolRisks.length
           ? html`
               <div style="display:grid;gap:8px">
-                ${model.risks.slice(0, 24).map(
+                ${toolRisks.slice(0, 24).map(
                   (risk) => html`
                     <div
                       style="border:1px solid var(--border-color,#e0e0e0);border-radius:6px;padding:10px"
@@ -3957,7 +3857,6 @@ const lazyInstances = createLazyView(() => import("./views/instances.ts"), notif
 const lazyLogs = createLazyView(() => import("./views/logs.ts"), notifyLazyViewChanged);
 const lazyNodes = createLazyView(() => import("./views/nodes.ts"), notifyLazyViewChanged);
 const lazySessions = createLazyView(() => import("./views/sessions.ts"), notifyLazyViewChanged);
-const lazyWorkboard = createLazyView(() => import("./views/workboard.ts"), notifyLazyViewChanged);
 
 type ChatWorkspaceFilesState = {
   activeName: string | null;

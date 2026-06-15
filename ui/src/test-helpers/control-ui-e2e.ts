@@ -256,6 +256,30 @@ function installControlUiMockGateway(input: {
     params?: unknown;
     socket: { deliver: (frame: unknown) => void };
   };
+  type MainFlowEntity = {
+    auditRefs: unknown[];
+    createdAt: number;
+    id: string;
+    kind: string;
+    status: string;
+    updatedAt: number;
+  };
+  type MainFlowInteraction = MainFlowEntity & {
+    kind: "Interaction";
+    message: string;
+    proposedNextAction?: string;
+    stage: string;
+  };
+  type MainFlowObservation = MainFlowEntity & {
+    kind: "ObservationPackage";
+    signals: Array<Record<string, unknown>>;
+    summary: string;
+    title: string;
+  };
+  type MainFlowMockState = {
+    interactions: MainFlowInteraction[];
+    observations: MainFlowObservation[];
+  };
   type ExposedGateway = {
     closeLatest: (code?: number, reason?: string) => void;
     deferNext: (method: string) => void;
@@ -280,6 +304,10 @@ function installControlUiMockGateway(input: {
   const deferredResponses: DeferredResponse[] = [];
   const requests: BrowserRequest[] = [];
   const sockets: unknown[] = [];
+  const mainFlowState: MainFlowMockState = {
+    interactions: [],
+    observations: [],
+  };
   let seq = 0;
 
   function isRecord(value: unknown): value is Record<string, unknown> {
@@ -363,12 +391,215 @@ function installControlUiMockGateway(input: {
     };
   }
 
+  function makeEntityBase(kind: string, prefix: string, status = "prepared"): MainFlowEntity {
+    const now = Date.now();
+    return {
+      auditRefs: [{ createdAt: now, id: `audit_${seq + 1}`, kind: "system", label: "mock" }],
+      createdAt: now,
+      id: `${prefix}_${mainFlowState.interactions.length + mainFlowState.observations.length + 1}`,
+      kind,
+      status,
+      updatedAt: now,
+    };
+  }
+
+  function latestByCreatedAt<T extends { createdAt: number }>(items: T[]): T | null {
+    return items.length
+      ? ([...items].sort((left, right) => right.createdAt - left.createdAt)[0] ?? null)
+      : null;
+  }
+
+  function latestObservationReady(): boolean {
+    const observation = latestByCreatedAt(mainFlowState.observations);
+    return Boolean(
+      observation && observation.status === "confirmed" && observation.signals.length > 0,
+    );
+  }
+
+  function buildMainFlowReadModel() {
+    const observationReady = latestObservationReady();
+    const blockedReasons = [
+      ...(observationReady
+        ? []
+        : [
+            {
+              stage: "observation",
+              code: "missing_observation_package",
+              message: "ObservationPackage is required before attribution.",
+            },
+          ]),
+      {
+        stage: "attribution",
+        code: "missing_attribution_report",
+        message: "AttributionReport is required before creating goal rationale.",
+      },
+      {
+        stage: "goal",
+        code: "missing_confirmed_company_goal",
+        message: "A user-confirmed CompanyGoal is required before planning.",
+      },
+      {
+        stage: "planning",
+        code: "missing_confirmed_planning_package",
+        message:
+          "A confirmed PlanningPackage with RolePlanItem entries is required before dispatch.",
+      },
+      {
+        stage: "dispatch",
+        code: "missing_confirmed_dispatch_proposal",
+        message:
+          "A confirmed DispatchProposalReview is required before materializing a task package.",
+      },
+      {
+        stage: "dispatch",
+        code: "missing_task_package",
+        message: "TaskPackage is required before role execution.",
+      },
+      {
+        stage: "dispatch",
+        code: "missing_dispatch_to_role_request",
+        message: "DispatchToRoleRequest is required before role execution.",
+      },
+    ];
+    return {
+      version: 1,
+      updatedAt: Date.now(),
+      currentStage: blockedReasons[0]?.stage ?? "role",
+      readiness: {
+        canPrepareAttribution: observationReady,
+        canCreateGoalCandidate: false,
+        canPreparePlanning: false,
+        canCreateDispatchProposal: false,
+        canMaterializeTaskPackage: false,
+        canEnterRoleExecution: false,
+        canRunApprovedTask: false,
+      },
+      executionPreflight: {
+        canRun: false,
+        blockedReasons: [],
+      },
+      blockedReasons,
+      latest: {
+        interaction: latestByCreatedAt(mainFlowState.interactions),
+        observationPackage: latestByCreatedAt(mainFlowState.observations),
+        attributionReport: null,
+        companyGoal: null,
+        planningPackage: null,
+        rolePlanItem: null,
+        dispatchProposalReview: null,
+        taskPackage: null,
+        dispatchToRoleRequest: null,
+        roleResult: null,
+      },
+      counts: {
+        interactions: mainFlowState.interactions.length,
+        observations: mainFlowState.observations.length,
+        attributions: 0,
+        goals: 0,
+        planningPackages: 0,
+        rolePlanItems: 0,
+        dispatchProposalReviews: 0,
+        taskPackages: 0,
+        dispatchToRoleRequests: 0,
+        roleResults: 0,
+      },
+      objects: {
+        interactions: mainFlowState.interactions,
+        observations: mainFlowState.observations,
+        attributions: [],
+        goals: [],
+        planningPackages: [],
+        rolePlanItems: [],
+        dispatchProposalReviews: [],
+        taskPackages: [],
+        dispatchToRoleRequests: [],
+        roleResults: [],
+      },
+      workBlocks: [],
+      workBlockRoles: [],
+      workBlockTaskCandidates: [],
+      capabilities: {
+        categoryCommon: [],
+        uniqueRequests: [],
+        approved: [],
+        blocked: [],
+      },
+    };
+  }
+
+  function createMainFlowInteraction(params: unknown): MainFlowInteraction {
+    const record = isRecord(params) ? params : {};
+    const base = makeEntityBase("Interaction", "interaction");
+    const interaction: MainFlowInteraction = {
+      ...base,
+      kind: "Interaction",
+      stage: typeof record.stage === "string" ? record.stage : "observation",
+      message: typeof record.message === "string" ? record.message : "",
+      ...(typeof record.proposedNextAction === "string"
+        ? { proposedNextAction: record.proposedNextAction }
+        : {}),
+    };
+    mainFlowState.interactions.push(interaction);
+    return interaction;
+  }
+
+  function prepareMainFlowObservation(params: unknown): MainFlowObservation {
+    const record = isRecord(params) ? params : {};
+    const signals = Array.isArray(record.signals)
+      ? record.signals.filter(isRecord).map((signal) => ({ ...signal }))
+      : [];
+    const base = makeEntityBase("ObservationPackage", "obs_pkg");
+    const observation: MainFlowObservation = {
+      ...base,
+      kind: "ObservationPackage",
+      title: typeof record.title === "string" ? record.title : "经营意图初始观察包",
+      summary: typeof record.summary === "string" ? record.summary : "",
+      signals,
+    };
+    mainFlowState.observations.push(observation);
+    return observation;
+  }
+
+  function updateMainFlowObservation(
+    params: unknown,
+    status: "confirmed" | "rejected" | "prepared",
+    summarySuffix?: string,
+  ): MainFlowObservation {
+    const record = isRecord(params) ? params : {};
+    const observationPackageId =
+      typeof record.observationPackageId === "string" ? record.observationPackageId : "";
+    const observation =
+      mainFlowState.observations.find((item) => item.id === observationPackageId) ??
+      latestByCreatedAt(mainFlowState.observations);
+    if (!observation) {
+      throw new Error("No mock ObservationPackage exists.");
+    }
+    observation.status = status;
+    observation.updatedAt = Date.now();
+    if (summarySuffix && !observation.summary.includes(summarySuffix)) {
+      observation.summary = `${observation.summary} ${summarySuffix}`.trim();
+    }
+    return observation;
+  }
+
   function buildResponse(method: string, params: unknown): unknown {
     const configured = configuredResponse(method, params);
     if (configured.found) {
       return configured.value;
     }
     switch (method) {
+      case "aics.mainFlow.readModel.get":
+        return buildMainFlowReadModel();
+      case "aics.mainFlow.interaction.create":
+        return createMainFlowInteraction(params);
+      case "aics.mainFlow.observation.prepare":
+        return prepareMainFlowObservation(params);
+      case "aics.mainFlow.observation.confirm":
+        return updateMainFlowObservation(params, "confirmed");
+      case "aics.mainFlow.observation.reject":
+        return updateMainFlowObservation(params, "rejected");
+      case "aics.mainFlow.observation.markDataMissing":
+        return updateMainFlowObservation(params, "prepared", "待补真实经营数据");
       case "connect":
         return {
           auth: {

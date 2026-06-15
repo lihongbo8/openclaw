@@ -1,4 +1,4 @@
-import { html } from "lit";
+import { html, nothing } from "lit";
 import type { AppViewState } from "../app-view-state.js";
 import type { Tab } from "../navigation.js";
 
@@ -11,11 +11,17 @@ export function renderRoleTasksPage(state: AppViewState, _onNavigate: (tab: Tab)
     message: string;
   }>;
   const latest = (mf?.latest ?? {}) as Record<string, { title?: string; summary?: string } | null>;
+  const objects = (mf?.objects ?? {}) as Record<string, Array<Record<string, unknown>>>;
+  const dispatchRequests = objects.dispatchToRoleRequests ?? [];
+  const roleResults = objects.roleResults ?? [];
 
   const taskCount = counts.taskPackages ?? 0;
-  const runningCount = counts.dispatchToRoleRequests ?? 0;
-  const completedCount = counts.roleResults ?? 0;
-  const pendingCount = Math.max(0, taskCount - completedCount - runningCount);
+  const runningCount = dispatchRequests.filter((request) => request.status === "running").length;
+  const waitingConfirmCount = dispatchRequests.filter(
+    (request) => request.confirmExecution !== true || request.costConfirmed !== true,
+  ).length;
+  const completedCount = roleResults.length || (counts.roleResults ?? 0);
+  const pendingCount = Math.max(0, taskCount - completedCount - runningCount - waitingConfirmCount);
 
   return html`
     <div style="padding:16px;max-width:900px;margin:0 auto">
@@ -35,7 +41,7 @@ export function renderRoleTasksPage(state: AppViewState, _onNavigate: (tab: Tab)
         ${[
           { label: "队列", count: pendingCount, color: "#718096", bg: "#f7fafc" },
           { label: "运行中", count: runningCount, color: "#3182ce", bg: "#ebf8ff" },
-          { label: "待确认", count: 0, color: "#dd6b20", bg: "#fffaf0" },
+          { label: "待确认", count: waitingConfirmCount, color: "#dd6b20", bg: "#fffaf0" },
           { label: "已完成", count: completedCount, color: "#38a169", bg: "#f0fff4" },
           { label: "阻塞", count: blockedReasons.length, color: "#e53e3e", bg: "#fff5f5" },
         ].map(
@@ -55,7 +61,9 @@ export function renderRoleTasksPage(state: AppViewState, _onNavigate: (tab: Tab)
         ? html`
             <div style="text-align:center;padding:40px;color:var(--text-secondary,#666)">
               <p style="font-size:16px;margin-bottom:8px">暂无任务</p>
-              <p style="font-size:13px">在「目标管理」创建目标，系统规划后自动生成任务</p>
+              <p style="font-size:13px">
+                先在「任务调度」确认调度并生成 TaskPackage / DispatchToRoleRequest。
+              </p>
             </div>
           `
         : html`

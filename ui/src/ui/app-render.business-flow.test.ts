@@ -448,6 +448,146 @@ describe("renderApp business flow routing", () => {
     expect(text).not.toContain("AttributionReport is required before creating goal rationale");
   });
 
+  it("shows data analysis confirmation controls for an observation package", () => {
+    const harness = createBusinessFlowRenderHarness("observation");
+    harness.state.aicsMainFlow = {
+      loading: false,
+      error: null,
+      readModel: {
+        version: 1,
+        updatedAt: 2,
+        currentStage: "observation",
+        readiness: { canPrepareAttribution: false },
+        blockedReasons: [],
+        latest: {
+          observationPackage: {
+            id: "obs-1",
+            title: "经营意图初始观察包",
+            status: "prepared",
+            summary: "本地观察包",
+            signals: [
+              {
+                id: "business_intent",
+                title: "经营意图",
+                summary: "提升岗位商城授权转化",
+                evidenceRefs: ["interaction-1"],
+              },
+            ],
+          },
+        },
+        counts: { observations: 1 },
+      },
+    };
+
+    harness.render();
+
+    const text = expectPageText(harness.container);
+    expect(text).toContain("确认观察包");
+    expect(text).toContain("标记数据缺失");
+    expect(text).toContain("驳回观察包");
+  });
+
+  it("generates attribution findings from observation signals instead of an empty report", async () => {
+    const harness = createBusinessFlowRenderHarness("attribution");
+    const request = vi.fn(async (method: string) => {
+      if (method === "aics.mainFlow.readModel.get") {
+        return harness.state.aicsMainFlow.readModel;
+      }
+      return { ok: true };
+    });
+    harness.state.client = { request, stop: vi.fn() } as never;
+    harness.state.aicsMainFlow = {
+      loading: false,
+      error: null,
+      readModel: {
+        version: 1,
+        updatedAt: 2,
+        currentStage: "attribution",
+        readiness: { canPrepareAttribution: true },
+        blockedReasons: [],
+        latest: {
+          observationPackage: {
+            id: "obs-1",
+            title: "经营意图初始观察包",
+            status: "confirmed",
+            summary: "本地观察包",
+            signals: [
+              {
+                id: "business_intent",
+                title: "经营意图",
+                summary: "提升岗位商城授权转化",
+                evidenceRefs: ["interaction-1"],
+              },
+            ],
+          },
+          attributionReport: null,
+        },
+        counts: { observations: 1, attributions: 0 },
+      },
+    };
+
+    harness.render();
+
+    const button = Array.from(harness.container.querySelectorAll<HTMLButtonElement>("button")).find(
+      (candidate) => candidate.textContent?.trim() === "生成归因报告",
+    );
+    expect(button).toBeInstanceOf(HTMLButtonElement);
+    button?.click();
+    await flushPromises();
+
+    expect(request).toHaveBeenCalledWith(
+      "aics.mainFlow.attribution.prepare",
+      expect.objectContaining({
+        findings: [
+          expect.objectContaining({
+            title: "归因线索：经营意图",
+            observationSignalIds: ["business_intent"],
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("shows attribution confirmation controls for a prepared attribution report", () => {
+    const harness = createBusinessFlowRenderHarness("attribution");
+    harness.state.aicsMainFlow = {
+      loading: false,
+      error: null,
+      readModel: {
+        version: 1,
+        updatedAt: 2,
+        currentStage: "goal",
+        readiness: { canCreateGoalCandidate: false },
+        blockedReasons: [],
+        latest: {
+          attributionReport: {
+            id: "attr-1",
+            title: "岗位商城归因报告",
+            status: "prepared",
+            summary: "本地归因报告",
+            findings: [
+              {
+                id: "finding-1",
+                title: "授权转化不足",
+                summary: "待真实经营数据验证",
+                confidence: "low",
+                observationSignalIds: ["business_intent"],
+              },
+            ],
+          },
+        },
+        counts: { attributions: 1 },
+      },
+    };
+
+    harness.render();
+
+    const text = expectPageText(harness.container);
+    expect(text).toContain("确认归因报告");
+    expect(text).toContain("要求补数据");
+    expect(text).toContain("驳回归因报告");
+  });
+
   it("renders the company goal page without the old strategy target explainer", () => {
     const harness = createBusinessFlowRenderHarness("goals");
 
@@ -592,6 +732,87 @@ describe("renderApp business flow routing", () => {
     ]) {
       expect(text).not.toContain(hiddenWord);
     }
+  });
+
+  it("shows main-flow role execution controls before the legacy role queue loads", () => {
+    const harness = createBusinessFlowRenderHarness("aics");
+    harness.state.myRoles = {
+      loading: false,
+      runningExecutionId: null,
+      error: null,
+      readModel: null,
+      viewMode: "queue",
+      query: "",
+      statusFilter: "all",
+      capabilityFilter: null,
+      selectedRoleKey: null,
+      detailTab: "overview",
+    };
+    harness.state.aicsMainFlow = {
+      loading: false,
+      error: null,
+      readModel: {
+        version: 1,
+        updatedAt: 1,
+        currentStage: "role",
+        readiness: {
+          canEnterRoleExecution: true,
+          canRunApprovedTask: false,
+        },
+        executionPreflight: {
+          taskPackageId: "task-1",
+          dispatchToRoleRequestId: "dispatch-1",
+          hasTaskPackage: true,
+          hasDispatchToRoleRequest: true,
+          hasEntitlement: false,
+          hasExecutionConfirmation: false,
+          hasCostConfirmation: false,
+          hasToolSkillReadiness: true,
+          hasApiBinding: true,
+          blockedReasons: [
+            {
+              stage: "role",
+              code: "authorization_required",
+              message: "岗位执行需要云端岗位授权。",
+            },
+          ],
+          canRun: false,
+        },
+        blockedReasons: [],
+        latest: {
+          taskPackage: {
+            id: "task-1",
+            title: "结构化岗位任务包",
+          },
+          dispatchToRoleRequest: {
+            id: "dispatch-1",
+            roleTitle: "岗位商城运营",
+            confirmExecution: false,
+            costConfirmed: false,
+          },
+          roleResult: null,
+        },
+        counts: { taskPackages: 1, dispatchToRoleRequests: 1, roleResults: 0 },
+      },
+    };
+    harness.state.refreshAicsMainFlowReadModel = vi.fn();
+    harness.state.refreshMyRolesReadModel = vi.fn();
+
+    harness.render();
+
+    const text = expectPageText(harness.container);
+    expect(text).toContain("主流程岗位执行");
+    expect(text).toContain("确认执行");
+    expect(text).toContain("确认费用");
+    expect(text).toContain("运行已授权任务");
+    expect(text).toContain("岗位执行控制台尚未加载");
+    expect(text).toContain("authorization_required");
+
+    const runButton = Array.from(
+      harness.container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((candidate) => candidate.textContent?.trim() === "运行已授权任务");
+    expect(runButton).toBeInstanceOf(HTMLButtonElement);
+    expect(runButton?.disabled).toBe(true);
   });
 
   it("creates main-flow management breakdown from a confirmed company goal", async () => {

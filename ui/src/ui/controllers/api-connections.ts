@@ -24,6 +24,7 @@ export type ApiConnectionFormState = {
   secretEnvId: string;
   consumers: ApiConnectionConsumer[];
   bindingPath: string;
+  smokeJson: string;
 };
 
 export type ApiConnectionsPageState = {
@@ -61,13 +62,13 @@ export const API_CONNECTION_TEMPLATES: ApiConnectionTemplate[] = [
   {
     id: "cloud-marketplace",
     title: "云端商城 API",
-    description: "读取岗位、授权、execution-token、审计和账本状态。",
+    description: "本地开发默认连接云端商城，读取已授权岗位、申请 execution-token 并上传审计摘要。",
     category: "cloud_marketplace",
     kind: "marketplace",
     provider: "cloud-marketplace",
-    consumers: ["marketplace"],
+    consumers: ["marketplace", "dispatch"],
     bindingPath: "plugins.entries.aics.config.cloudAccessToken",
-    baseUrl: "https://api.openclaw.cloud",
+    baseUrl: "http://127.0.0.1:9000",
     requiresExternalSecret: true,
   },
   {
@@ -219,13 +220,16 @@ function formFromTemplate(template: ApiConnectionTemplate): ApiConnectionFormSta
     baseUrl: template.baseUrl ?? "",
     secretValue: "",
     secretEnvId:
-      template.id === "qwen-dashscope"
-        ? "DASHSCOPE_API_KEY"
-        : template.requiresExternalSecret
-          ? defaultSecretEnvId(template.provider)
-          : "",
+      template.id === "cloud-marketplace" || template.id === "dijie-cloud-bridge"
+        ? "DIJIE_CLOUD_ACCESS_TOKEN"
+        : template.id === "qwen-dashscope"
+          ? "DASHSCOPE_API_KEY"
+          : template.requiresExternalSecret
+            ? defaultSecretEnvId(template.provider)
+            : "",
     consumers: [...template.consumers],
     bindingPath: template.bindingPath,
+    smokeJson: "",
   };
 }
 
@@ -322,6 +326,7 @@ function templateIdForEntry(entry: Record<string, unknown>): string {
   const provider = typeof entry.provider === "string" ? entry.provider : "";
   const kind = typeof entry.kind === "string" ? entry.kind : "";
   const consumers = Array.isArray(entry.consumers) ? entry.consumers : [];
+  if (provider === "dijie-cloud-bridge") return "dijie-cloud-bridge";
   if (provider === "cloud-marketplace" || consumers.includes("marketplace"))
     return "cloud-marketplace";
   if (provider === "openclaw-local") return "openclaw-local";
@@ -369,6 +374,11 @@ export function editApiConnectionEntry(state: AppViewState, id: string): void {
       secretEnvId: String(secret.id ?? ""),
       consumers: Array.isArray(entry.consumers) ? (entry.consumers as ApiConnectionConsumer[]) : [],
       bindingPath: String(bindings[0]?.path ?? ""),
+      smokeJson: JSON.stringify(
+        (entry.metadata as Record<string, unknown> | undefined)?.dijie ?? {},
+        null,
+        2,
+      ),
     },
   };
   requestUpdate(state);
@@ -382,6 +392,62 @@ export function resetApiConnectionForm(state: AppViewState): void {
     form: createDefaultApiConnectionForm(),
   };
   requestUpdate(state);
+}
+
+const DIJIE_SMOKE_METADATA_KEYS = [
+  "roleListingId",
+  "entitlementId",
+  "deviceId",
+  "workspaceRef",
+  "localGatewayId",
+] as const;
+
+const DIJIE_SMOKE_NESTED_KEYS = [
+  "metadata",
+  "dijie",
+  "result",
+  "data",
+  "closedLoop",
+  "closedLoopReadiness",
+  "readiness",
+  "bridge",
+  "authorization",
+  "entitlement",
+  "role",
+  "listing",
+  "executionToken",
+  "execution",
+] as const;
+
+function collectDijieSmokeCandidates(value: unknown): Array<Record<string, unknown>> {
+  if (!value || typeof value !== "object") return [];
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectDijieSmokeCandidates(item));
+  }
+  const record = value as Record<string, unknown>;
+  return [
+    record,
+    ...DIJIE_SMOKE_NESTED_KEYS.flatMap((key) => collectDijieSmokeCandidates(record[key])),
+  ];
+}
+
+function parseDijieSmokeMetadata(
+  form: ApiConnectionFormState,
+): Record<string, unknown> | undefined {
+  const raw = form.smokeJson.trim();
+  if (!raw) return undefined;
+  const parsed = JSON.parse(raw) as unknown;
+  const dijie: Record<string, string> = {};
+  for (const candidate of collectDijieSmokeCandidates(parsed)) {
+    for (const key of DIJIE_SMOKE_METADATA_KEYS) {
+      if (dijie[key]) continue;
+      const value = candidate[key];
+      if (typeof value === "string" && value.trim()) {
+        dijie[key] = value.trim();
+      }
+    }
+  }
+  return Object.keys(dijie).length ? { dijie } : undefined;
 }
 
 function requestParamsFromForm(form: ApiConnectionFormState): Record<string, unknown> {
@@ -400,6 +466,7 @@ function requestParamsFromForm(form: ApiConnectionFormState): Record<string, unk
           : undefined,
     consumers: form.consumers,
     bindingPath: form.bindingPath || undefined,
+    metadata: parseDijieSmokeMetadata(form),
   };
 }
 
@@ -513,6 +580,7 @@ function createOptimisticReadModel(
     consumers: form.consumers,
     requestedScope: [],
     configBindings,
+    metadata: parseDijieSmokeMetadata(form),
     enabled: true,
     secret,
     status: configBindings.length ? "available" : "unbound",
@@ -541,6 +609,15 @@ function validateFormForSave(form: ApiConnectionFormState): string | null {
   }
   if (form.connectionMode === "env" && !form.secretEnvId.trim()) {
     return "请填写环境变量名，不能空保存。";
+  }
+  if (form.smokeJson.trim()) {
+    try {
+      if (!parseDijieSmokeMetadata(form)) {
+        return "Smoke JSON 里没有可识别的 roleListingId、entitlementId、deviceId、workspaceRef 或 localGatewayId。";
+      }
+    } catch {
+      return "Smoke JSON 不是有效 JSON。";
+    }
   }
   return null;
 }

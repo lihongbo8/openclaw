@@ -1,5 +1,6 @@
 import { html, nothing } from "lit";
 import type { AppViewState } from "../app-view-state.js";
+import { aicsMainFlow } from "../controllers/aics-main-flow.js";
 import type { MyRolesPageState } from "../controllers/my-roles.js";
 import {
   closeDetail,
@@ -89,23 +90,163 @@ function statusButton(ps: MyRolesPageState, key: string, label: string) {
   `;
 }
 
-export function renderMyRolesPage(state: AppViewState, onNavigate: (tab: Tab) => void) {
-  const ps = state.myRoles;
-  if (!ps.readModel && !ps.loading) {
-    return html`
-      <div style="padding:40px;text-align:center;color:var(--text-secondary,#666)">
-        <div style="font-size:16px;margin-bottom:8px">岗位执行控制台尚未加载</div>
+function renderMainFlowRoleExecutionCard(state: AppViewState, onNavigate: (tab: Tab) => void) {
+  const flow = state.aicsMainFlow.readModel;
+  const latest = (flow?.latest ?? {}) as Record<string, unknown>;
+  const task = latest.taskPackage as Record<string, unknown> | null | undefined;
+  const request = latest.dispatchToRoleRequest as Record<string, unknown> | null | undefined;
+  const result = latest.roleResult as Record<string, unknown> | null | undefined;
+  const preflight = (flow?.executionPreflight ?? {}) as Record<string, unknown>;
+  const blockedReasons = Array.isArray(preflight.blockedReasons)
+    ? (preflight.blockedReasons as Array<Record<string, unknown>>)
+    : [];
+  const requestId = text(request?.id, "");
+  const taskId = text(task?.id, "");
+  const readiness = (flow?.readiness ?? {}) as Record<string, unknown>;
+  const canEnter = readiness.canEnterRoleExecution === true;
+  const canRun = preflight.canRun === true;
+
+  return html`
+    <section
+      style="border:1px solid var(--border-color,#e0e0e0);border-radius:8px;padding:14px;background:var(--bg-elevated,#fff);margin-bottom:14px"
+    >
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
+        <div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:4px">主流程岗位执行</div>
+          <div style="font-size:12px;color:var(--text-secondary,#666);line-height:1.55">
+            这里只运行任务调度物化后的 TaskPackage / DispatchToRoleRequest。检查执行条件不修改状态。
+          </div>
+        </div>
         <button
           type="button"
-          @click=${() => state.refreshMyRolesReadModel?.()}
-          style="padding:6px 14px;background:var(--accent-color,#3366ff);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px"
+          @click=${() => state.refreshAicsMainFlowReadModel?.()}
+          style="padding:5px 10px;border:1px solid var(--border-color,#ccc);border-radius:4px;background:var(--bg-secondary,#eee);font-size:12px;cursor:pointer"
         >
-          加载岗位执行
+          检查执行条件
         </button>
       </div>
-    `;
-  }
 
+      <div
+        style="display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:8px;margin-top:12px"
+      >
+        ${metric("TaskPackage", taskId ? "已生成" : "缺失", taskId ? "#2f855a" : "#c53030")}
+        ${metric("调度请求", requestId ? "已生成" : "缺失", requestId ? "#2f855a" : "#c53030")}
+        ${metric(
+          "执行确认",
+          request?.confirmExecution === true ? "已确认" : "待确认",
+          request?.confirmExecution === true ? "#2f855a" : "#b7791f",
+        )}
+        ${metric(
+          "费用确认",
+          request?.costConfirmed === true ? "已确认" : "待确认",
+          request?.costConfirmed === true ? "#2f855a" : "#b7791f",
+        )}
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+        <div style="font-size:12px;line-height:1.65;color:var(--text-secondary,#666)">
+          <div>
+            <strong style="color:var(--text-primary,#333)">任务包：</strong>${text(
+              task?.title,
+              "未生成",
+            )}
+          </div>
+          <div>
+            <strong style="color:var(--text-primary,#333)">岗位：</strong>${text(
+              request?.roleTitle,
+              "未绑定授权岗位",
+            )}
+          </div>
+          <div>
+            <strong style="color:var(--text-primary,#333)">授权：</strong>${text(
+              request?.entitlementId,
+              "未确认 entitlement",
+            )}
+          </div>
+          <div>
+            <strong style="color:var(--text-primary,#333)">结果：</strong>${text(
+              result?.summary,
+              "尚未运行",
+            )}
+          </div>
+        </div>
+        <div style="font-size:12px;line-height:1.65;color:var(--text-secondary,#666)">
+          ${blockedReasons.length
+            ? blockedReasons.map(
+                (reason) => html`<div style="color:#c53030">
+                  ${text(reason.code)}: ${text(reason.message)}
+                </div>`,
+              )
+            : html`<div style="color:#2f855a">执行预检通过，可以运行已授权任务。</div>`}
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        <button
+          type="button"
+          @click=${() =>
+            requestId
+              ? aicsMainFlow.confirmExecution(state, requestId).then(() => {
+                  state.refreshAicsMainFlowReadModel?.();
+                  state.refreshMyRolesReadModel?.();
+                })
+              : undefined}
+          style="padding:6px 12px;background:#2b6cb0;color:#fff;border:none;border-radius:4px;cursor:${requestId
+            ? "pointer"
+            : "not-allowed"};font-size:12px"
+          ?disabled=${!requestId}
+        >
+          确认执行
+        </button>
+        <button
+          type="button"
+          @click=${() =>
+            requestId
+              ? aicsMainFlow.confirmExecutionCost(state, requestId).then(() => {
+                  state.refreshAicsMainFlowReadModel?.();
+                  state.refreshMyRolesReadModel?.();
+                })
+              : undefined}
+          style="padding:6px 12px;background:#805ad5;color:#fff;border:none;border-radius:4px;cursor:${requestId
+            ? "pointer"
+            : "not-allowed"};font-size:12px"
+          ?disabled=${!requestId}
+        >
+          确认费用
+        </button>
+        <button
+          type="button"
+          @click=${() =>
+            taskId
+              ? aicsMainFlow.runApprovedTask(state, taskId).then(() => {
+                  state.refreshAicsMainFlowReadModel?.();
+                  state.refreshMyRolesReadModel?.();
+                })
+              : undefined}
+          style="padding:6px 12px;background:${canRun
+            ? "#38a169"
+            : "#a0aec0"};color:#fff;border:none;border-radius:4px;cursor:${canRun
+            ? "pointer"
+            : "not-allowed"};font-size:12px"
+          ?disabled=${!canRun || !taskId}
+        >
+          运行已授权任务
+        </button>
+        <button
+          type="button"
+          @click=${() => onNavigate("workboard")}
+          style="padding:6px 12px;background:var(--bg-secondary,#eee);border:1px solid var(--border-color,#ccc);border-radius:4px;cursor:pointer;font-size:12px"
+          ?disabled=${canEnter}
+        >
+          去任务调度生成请求
+        </button>
+      </div>
+    </section>
+  `;
+}
+
+export function renderMyRolesPage(state: AppViewState, onNavigate: (tab: Tab) => void) {
+  const ps = state.myRoles;
   const readModel = (ps.readModel ?? {}) as Record<string, unknown>;
   const summary = (readModel.summary ?? {}) as Record<string, unknown>;
   const executions = (readModel.executions ?? []) as ExecutionRecord[];
@@ -150,7 +291,10 @@ export function renderMyRolesPage(state: AppViewState, onNavigate: (tab: Tab) =>
         <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
           <button
             type="button"
-            @click=${() => state.refreshMyRolesReadModel?.()}
+            @click=${() => {
+              state.refreshAicsMainFlowReadModel?.();
+              state.refreshMyRolesReadModel?.();
+            }}
             style="padding:6px 12px;background:var(--accent-color,#3366ff);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px"
             ?disabled=${ps.loading}
           >
@@ -172,6 +316,23 @@ export function renderMyRolesPage(state: AppViewState, onNavigate: (tab: Tab) =>
           >
             ${ps.error}
           </div>`
+        : nothing}
+      ${renderMainFlowRoleExecutionCard(state, onNavigate)}
+      ${!ps.readModel && !ps.loading
+        ? html`
+            <div
+              style="padding:18px;text-align:center;color:var(--text-secondary,#666);border:1px dashed var(--border-color,#ccc);border-radius:8px;margin-bottom:14px"
+            >
+              <div style="font-size:15px;margin-bottom:8px">岗位执行控制台尚未加载</div>
+              <button
+                type="button"
+                @click=${() => state.refreshMyRolesReadModel?.()}
+                style="padding:6px 14px;background:var(--accent-color,#3366ff);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px"
+              >
+                加载岗位执行
+              </button>
+            </div>
+          `
         : nothing}
 
       <div

@@ -397,6 +397,152 @@ describe("control UI routing", () => {
     expect(app.textContent ?? "").toContain("连接记录已删除");
   });
 
+  it("stores cloud smoke output as Dijie bridge metadata from API management", async () => {
+    const request = vi.fn(async () => ({}));
+    const app = mountApp("/api-management");
+    app.client = { request, stop: vi.fn() } as never;
+    app.connected = true;
+    app.updateApiConnectionFormField("templateId", "cloud-marketplace");
+    app.updateApiConnectionFormField("baseUrl", "http://127.0.0.1:9000");
+    app.updateApiConnectionFormField("secretValue", "cloud-token");
+    app.updateApiConnectionFormField(
+      "smokeJson",
+      JSON.stringify({
+        roleListingId: "djrole_marketplace_ops",
+        entitlementId: "djent_marketplace_ops",
+        deviceId: "local-admin-device",
+        workspaceRef: "local-admin-workspace",
+        localGatewayId: "openclaw-local-gateway",
+      }),
+    );
+    await app.updateComplete;
+
+    const form = expectElement(app, "[data-api-connection-form]", HTMLElement);
+    const connectButton = Array.from(form.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent?.trim() === "连接",
+    );
+    expect(connectButton).toBeInstanceOf(HTMLButtonElement);
+    connectButton?.click();
+
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        "aics.apiConnections.entry.create",
+        expect.objectContaining({
+          name: "云端商城 API",
+          kind: "marketplace",
+          provider: "cloud-marketplace",
+          baseUrl: "http://127.0.0.1:9000",
+          metadata: {
+            dijie: {
+              roleListingId: "djrole_marketplace_ops",
+              entitlementId: "djent_marketplace_ops",
+              deviceId: "local-admin-device",
+              workspaceRef: "local-admin-workspace",
+              localGatewayId: "openclaw-local-gateway",
+            },
+          },
+        }),
+      ),
+    );
+  });
+
+  it("stores nested Dijie cloud bridge smoke output from API management", async () => {
+    const request = vi.fn(async () => ({}));
+    const app = mountApp("/api-management");
+    app.client = { request, stop: vi.fn() } as never;
+    app.connected = true;
+    app.updateApiConnectionFormField("templateId", "dijie-cloud-bridge");
+    app.updateApiConnectionFormField("baseUrl", "https://api.dijie.ai");
+    app.updateApiConnectionFormField("secretValue", "cloud-token");
+    app.updateApiConnectionFormField(
+      "smokeJson",
+      JSON.stringify({
+        ok: true,
+        result: {
+          metadata: {
+            dijie: {
+              roleListingId: "djrole_nested_ops",
+              deviceId: "nested-device",
+            },
+          },
+          authorization: {
+            entitlementId: "djent_nested_ops",
+          },
+          bridge: {
+            workspaceRef: "nested-workspace",
+            localGatewayId: "nested-gateway",
+          },
+        },
+      }),
+    );
+    await app.updateComplete;
+
+    const form = expectElement(app, "[data-api-connection-form]", HTMLElement);
+    const connectButton = Array.from(form.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent?.trim() === "连接",
+    );
+    expect(connectButton).toBeInstanceOf(HTMLButtonElement);
+    connectButton?.click();
+
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        "aics.apiConnections.entry.create",
+        expect.objectContaining({
+          name: "迭界岗位商城云端桥",
+          kind: "marketplace",
+          provider: "dijie-cloud-bridge",
+          baseUrl: "https://api.dijie.ai",
+          metadata: {
+            dijie: {
+              roleListingId: "djrole_nested_ops",
+              entitlementId: "djent_nested_ops",
+              deviceId: "nested-device",
+              workspaceRef: "nested-workspace",
+              localGatewayId: "nested-gateway",
+            },
+          },
+        }),
+      ),
+    );
+  });
+
+  it("edits Dijie cloud bridge entries with the bridge template selected", async () => {
+    const app = mountApp("/api-management");
+    app.apiConnections = {
+      ...app.apiConnections,
+      readModel: {
+        entries: [
+          {
+            id: "marketplace-dijie-cloud-bridge",
+            name: "迭界岗位商城云端桥",
+            kind: "marketplace",
+            provider: "dijie-cloud-bridge",
+            baseUrl: "https://api.dijie.ai",
+            consumers: ["marketplace", "dispatch"],
+            secret: {
+              mode: "secret_ref",
+              source: "env",
+              provider: "default",
+              id: "DIJIE_CLOUD_ACCESS_TOKEN",
+            },
+            metadata: {
+              dijie: {
+                roleListingId: "djrole_edit",
+                entitlementId: "djent_edit",
+              },
+            },
+          },
+        ],
+      },
+    };
+
+    app.editApiConnectionEntry("marketplace-dijie-cloud-bridge");
+
+    expect(app.apiConnections.form.templateId).toBe("dijie-cloud-bridge");
+    expect(app.apiConnections.form.provider).toBe("dijie-cloud-bridge");
+    expect(app.apiConnections.form.smokeJson).toContain("djrole_edit");
+  });
+
   it("treats API connection save during gateway restart as submitted", async () => {
     const request = vi.fn(async (method: string) => {
       if (method === "aics.apiConnections.entry.create") {
@@ -546,11 +692,11 @@ describe("control UI routing", () => {
       ok: true,
       roles: [
         {
-          entitlementId: "djent_smart_lock",
+          entitlementId: "djent_role_marketplace_designer",
           role: {
-            id: "djrole_smart_lock",
-            title: "智能门锁电商美工岗位",
-            description: "检查智能门锁电商主图和视觉卖点。",
+            id: "djrole_role_marketplace_designer",
+            title: "岗位商城电商美工岗位",
+            description: "检查首批岗位商品页主图、详情结构和视觉转化卖点。",
             listingStatus: "published",
           },
         },
@@ -573,15 +719,15 @@ describe("control UI routing", () => {
     expect(app.aicsMarketplace.error).toBeNull();
     expect(app.aicsMarketplace.roles).toEqual([
       {
-        id: "djrole_smart_lock",
-        title: "智能门锁电商美工岗位",
-        detail: "检查智能门锁电商主图和视觉卖点。",
+        id: "djrole_role_marketplace_designer",
+        title: "岗位商城电商美工岗位",
+        detail: "检查首批岗位商品页主图、详情结构和视觉转化卖点。",
         status: "published",
-        roleListingId: "djrole_smart_lock",
-        entitlementId: "djent_smart_lock",
+        roleListingId: "djrole_role_marketplace_designer",
+        entitlementId: "djent_role_marketplace_designer",
       },
     ]);
-    expect(app.aicsMarketplace.roles[0]?.title).toBe("智能门锁电商美工岗位");
+    expect(app.aicsMarketplace.roles[0]?.title).toBe("岗位商城电商美工岗位");
   });
 
   it("syncs installed marketplace roles from gateway read-model shaped responses", async () => {
@@ -591,9 +737,9 @@ describe("control UI routing", () => {
       readModel: {
         roles: [
           {
-            roleListingId: "djrole_smart_lock",
-            title: "智能门锁电商美工岗位",
-            subtitle: "检查智能门锁电商主图和视觉卖点。",
+            roleListingId: "djrole_role_marketplace_designer",
+            title: "岗位商城电商美工岗位",
+            subtitle: "检查首批岗位商品页主图、详情结构和视觉转化卖点。",
             callable: true,
             reviewSignal: { listingStatus: "published", reviewState: "approved" },
             packageContext: {
@@ -607,7 +753,7 @@ describe("control UI routing", () => {
               ],
             },
             entitlement: {
-              id: "djent_smart_lock",
+              id: "djent_role_marketplace_designer",
               status: "authorized",
               source: "checkout",
               authorizedAt: "2026-06-08T00:00:00.000Z",
@@ -629,18 +775,18 @@ describe("control UI routing", () => {
     expect(app.aicsMarketplace.error).toBeNull();
     expect(app.aicsMarketplace.roles).toEqual([
       {
-        id: "djrole_smart_lock",
-        title: "智能门锁电商美工岗位",
-        detail: "检查智能门锁电商主图和视觉卖点。",
+        id: "djrole_role_marketplace_designer",
+        title: "岗位商城电商美工岗位",
+        detail: "检查首批岗位商品页主图、详情结构和视觉转化卖点。",
         status: "published",
-        roleListingId: "djrole_smart_lock",
-        entitlementId: "djent_smart_lock",
+        roleListingId: "djrole_role_marketplace_designer",
+        entitlementId: "djent_role_marketplace_designer",
         catalogRefs: ["image.inspect", "api.opencloud.image_generation"],
         callable: true,
         requiredCapabilities: ["image.inspect"],
       },
     ]);
-    expect(app.aicsMarketplace.roles[0]?.title).toBe("智能门锁电商美工岗位");
+    expect(app.aicsMarketplace.roles[0]?.title).toBe("岗位商城电商美工岗位");
     expect(JSON.stringify(app.aicsMarketplace.result)).not.toContain("云端授权凭证");
   });
 
