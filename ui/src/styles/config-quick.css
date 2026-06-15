@@ -194,6 +194,15 @@
   grid-column: span 4;
 }
 
+.qs-card--appearance,
+.qs-card--gateway {
+  grid-column: span 6;
+}
+
+.qs-card--automations {
+  grid-column: 1 / -1;
+}
+
 .qs-card--personal {
   grid-column: span 9;
 }
@@ -1216,6 +1225,7 @@
   .qs-card--channels,
   .qs-card--security,
   .qs-card--appearance,
+  .qs-card--gateway,
   .qs-card--automations {
     grid-column: span 1;
   }
@@ -1241,17 +1251,21 @@
     order: 5;
   }
 
+  .qs-card--gateway {
+    order: 6;
+  }
+
   .qs-card--personal {
     order: 4;
   }
 
   .qs-card--automations {
     grid-column: 1 / -1;
-    order: 6;
+    order: 7;
   }
 
   .qs-card--span-all {
-    order: 7;
+    order: 8;
   }
 }
 

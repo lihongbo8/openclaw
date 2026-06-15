@@ -1,3 +1,7 @@
+import {
+  normalizeApiConnectionEntry,
+  normalizeApiConnectionId,
+} from "../../api-connections/model.js";
 import { mutateConfigFileWithRetry } from "../../config/config.js";
 import { REDACTED_SENTINEL } from "../../config/redact-snapshot.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
@@ -52,6 +56,49 @@ export function patchSkillConfigEntry(
   };
 }
 
+function syncSkillApiConnectionEntry(
+  cfg: OpenClawConfig,
+  skillKey: string,
+  apiKey: string | undefined,
+): OpenClawConfig {
+  if (typeof apiKey !== "string" || apiKey === REDACTED_SENTINEL) {
+    return cfg;
+  }
+  const trimmed = normalizeSecretInput(apiKey);
+  const id = `skill-${normalizeApiConnectionId(skillKey)}`;
+  const entries = { ...(cfg.apiConnections?.entries ?? {}) };
+  if (!trimmed) {
+    delete entries[id];
+    return {
+      ...cfg,
+      apiConnections: {
+        ...cfg.apiConnections,
+        entries,
+      },
+    };
+  }
+  entries[id] = normalizeApiConnectionEntry(
+    {
+      id,
+      name: `${skillKey} Skill API`,
+      kind: "tool_skill",
+      provider: skillKey,
+      authMode: "plaintext",
+      secret: trimmed,
+      consumers: ["skill"],
+      configBindings: [{ path: `skills.entries.${skillKey}.apiKey`, owner: "apiConnections" }],
+    },
+    entries[id],
+  );
+  return {
+    ...cfg,
+    apiConnections: {
+      ...cfg.apiConnections,
+      entries,
+    },
+  };
+}
+
 export async function updateSkillConfigEntry(params: {
   skillKey: string;
   enabled?: boolean;
@@ -61,7 +108,11 @@ export async function updateSkillConfigEntry(params: {
   const committed = await mutateConfigFileWithRetry<Record<string, unknown>>({
     afterWrite: { mode: "auto" },
     mutate: (draft) => {
-      const next = patchSkillConfigEntry(draft, params.skillKey, params);
+      const next = syncSkillApiConnectionEntry(
+        patchSkillConfigEntry(draft, params.skillKey, params),
+        params.skillKey,
+        params.apiKey,
+      );
       Object.assign(draft, next);
       return next.skills?.entries?.[params.skillKey] ?? {};
     },

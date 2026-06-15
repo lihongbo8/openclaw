@@ -1070,9 +1070,9 @@ function renderChatSchedulerPanel(props: ChatProps): TemplateResult {
   ] as const;
 
   return html`
-    <aside class="agent-chat__scheduler-panel" aria-label="调度层状态">
+    <aside class="agent-chat__scheduler-panel" aria-label="任务状态">
       <div class="agent-chat__scheduler-title">
-        <strong>调度层</strong>
+        <strong>任务状态</strong>
       </div>
       <div class="agent-chat__scheduler-list">
         ${rows.map(

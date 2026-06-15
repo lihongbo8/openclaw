@@ -63,6 +63,30 @@ const loadAicsMainFlowHandlers = lazyHandlerModule(
   () => import("./server-methods/aics-main-flow.js"),
   (module) => module.aicsMainFlowHandlers,
 );
+const loadAicsApiConnectionsHandlers = lazyHandlerModule(
+  () => import("./server-methods/aics-api-connections.js"),
+  (module) => module.aicsApiConnectionsHandlers,
+);
+const loadAicsToolSupplyHandlers = lazyHandlerModule(
+  () => import("./server-methods/aics-tool-supply.js"),
+  (module) => module.aicsToolSupplyHandlers,
+);
+const loadAicsBuildSessionHandlers = lazyHandlerModule(
+  () => import("./server-methods/aics-build-session.js"),
+  (module) => module.aicsBuildSessionHandlers,
+);
+const loadAicsRolesHandlers = lazyHandlerModule(
+  () => import("./server-methods/aics-roles.js"),
+  (module) => module.aicsRolesHandlers,
+);
+const loadAicsMemoryHandlers = lazyHandlerModule(
+  () => import("./server-methods/aics-memory.js"),
+  (module) => module.aicsMemoryHandlers,
+);
+const loadAicsExecutionHandlers = lazyHandlerModule(
+  () => import("./server-methods/aics-execution.js"),
+  (module) => module.aicsExecutionHandlers,
+);
 const loadAgentsHandlers = lazyHandlerModule(
   () => import("./server-methods/agents.js"),
   (module) => module.agentsHandlers,
@@ -561,6 +585,36 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
   }),
   ...createLazyCoreHandlers({
     methods: [
+      "aics.apiConnections.readModel.get",
+      "aics.apiConnections.entry.create",
+      "aics.apiConnections.entry.update",
+      "aics.apiConnections.entry.delete",
+      "aics.apiConnections.entry.bindConfigPath",
+      "aics.apiConnections.entry.materialize",
+      "aics.apiConnections.riskReport.get",
+    ],
+    loadHandlers: loadAicsApiConnectionsHandlers,
+  }),
+  ...createLazyCoreHandlers({
+    methods: [
+      "aics.toolSupply.readModel.get",
+      "aics.toolSupply.grant.set",
+      "aics.toolSupply.skill.setEnabled",
+      "aics.toolSupply.plugin.setEnabled",
+      "aics.toolSupply.uniqueCapabilityRequest.prepare",
+    ],
+    loadHandlers: loadAicsToolSupplyHandlers,
+  }),
+  ...createLazyCoreHandlers({
+    methods: [
+      "aics.cloudMarketplace.auditQueue.get",
+      "aics.cloudMarketplace.capabilities.get",
+      "aics.cloudMarketplace.uniqueCapabilityRequests.get",
+      "aics.cloudMarketplace.businessSummary.get",
+      "aics.cloudMarketplace.dispatcherRoleReadModel.get",
+      "aics.cloudMarketplace.dispatcherRoleSelection.create",
+      "aics.cloudMarketplace.apiHealth.get",
+      "aics.closedLoop.readiness.get",
       "aics.mainFlow.readModel.get",
       "aics.mainFlow.interaction.create",
       "aics.mainFlow.observation.prepare",
@@ -573,8 +627,45 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
       "aics.mainFlow.dispatch.confirm",
       "aics.mainFlow.dispatch.materializeTaskPackage",
       "aics.mainFlow.dispatch.runApprovedTask",
+      "aics.mainFlow.auto.generatePipeline",
     ],
     loadHandlers: loadAicsMainFlowHandlers,
+  }),
+  ...createLazyCoreHandlers({
+    methods: [
+      "aics.buildSession.create",
+      "aics.buildSession.load",
+      "aics.buildSession.list",
+      "aics.buildSession.startBriefing",
+      "aics.buildSession.submitBrief",
+      "aics.buildSession.confirm",
+      "aics.buildSession.generate",
+      "aics.buildSession.progress",
+      "aics.buildSession.repair",
+      "aics.buildSession.cancel",
+    ],
+    loadHandlers: loadAicsBuildSessionHandlers,
+  }),
+  ...createLazyCoreHandlers({
+    methods: ["aics.roles.mine.readModel.get"],
+    loadHandlers: loadAicsRolesHandlers,
+  }),
+  ...createLazyCoreHandlers({
+    methods: [
+      "aics.memory.candidates.list",
+      "aics.memory.candidates.confirm",
+      "aics.memory.candidates.reject",
+      "aics.memory.formal.search",
+    ],
+    loadHandlers: loadAicsMemoryHandlers,
+  }),
+  ...createLazyCoreHandlers({
+    methods: [
+      "aics.executionConsole.readModel.get",
+      "aics.execution.run",
+      "aics.execution.result.record",
+    ],
+    loadHandlers: loadAicsExecutionHandlers,
   }),
   ...createLazyCoreHandlers({
     methods: [

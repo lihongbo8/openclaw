@@ -57,10 +57,17 @@ function getPaletteBaseItems(): PaletteItem[] {
     },
     {
       id: "nav-skills",
-      label: "已安装工具",
+      label: "工具与 Skill",
       icon: "zap",
       category: "navigation",
       action: "nav:skills",
+    },
+    {
+      id: "nav-api-management",
+      label: "API 管理",
+      icon: "link",
+      category: "navigation",
+      action: "nav:apiManagement",
     },
     {
       id: "nav-sessions",
@@ -77,15 +84,8 @@ function getPaletteBaseItems(): PaletteItem[] {
       action: "nav:dreams",
     },
     {
-      id: "nav-marketplace",
-      label: "岗位商城",
-      icon: "globe",
-      category: "navigation",
-      action: "nav:marketplace",
-    },
-    {
       id: "nav-config",
-      label: "设置",
+      label: "Settings",
       icon: "settings",
       category: "navigation",
       action: "nav:config",

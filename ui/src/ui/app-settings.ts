@@ -25,7 +25,7 @@ import {
   type AgentIdentityState,
 } from "./controllers/agent-identity.ts";
 import { loadAgentSkills, type AgentSkillsState } from "./controllers/agent-skills.ts";
-import { loadAgents, type AgentsState } from "./controllers/agents.ts";
+import { loadAgents, loadToolsCatalog, type AgentsState } from "./controllers/agents.ts";
 import { loadChannels, type ChannelsState } from "./controllers/channels.ts";
 import { loadConfig, loadConfigSchema, type ConfigState } from "./controllers/config.ts";
 import {
@@ -118,6 +118,9 @@ type SettingsHost = {
   controlUiOverviewRefreshSeq?: number;
   controlUiCronRefreshSeq?: number;
   sessionsChangedReloadTimer?: number | ReturnType<typeof globalThis.setTimeout> | null;
+  refreshAicsMainFlowReadModel?: () => Promise<void>;
+  refreshMyRolesReadModel?: () => Promise<void>;
+  refreshToolSupplyControlReadModel?: () => Promise<void>;
   dreamingStatusLoading: boolean;
   dreamingStatusError: string | null;
   dreamingStatus: import("./controllers/dreaming.js").DreamingStatus | null;
@@ -452,6 +455,17 @@ export async function refreshActiveTab(host: SettingsHost, opts?: { chatStartup?
           }),
         ]);
         break;
+      case "aics":
+        await host.refreshMyRolesReadModel?.();
+        break;
+      case "goals":
+      case "businessOverview":
+      case "observation":
+      case "attribution":
+      case "company":
+      case "projects":
+        await host.refreshAicsMainFlowReadModel?.();
+        break;
       case "channels":
         await loadChannelsTab(host);
         break;
@@ -467,9 +481,17 @@ export async function refreshActiveTab(host: SettingsHost, opts?: { chatStartup?
       case "cron":
         await loadCron(host);
         break;
-      case "skills":
-        await loadSkills(app);
+      case "skills": {
+        await loadAgents(app);
+        const agentId =
+          host.agentsSelectedId ?? host.agentsList?.defaultId ?? host.agentsList?.agents?.[0]?.id;
+        await Promise.all([
+          loadSkills(app),
+          agentId ? loadToolsCatalog(app, agentId) : undefined,
+          host.refreshToolSupplyControlReadModel?.(),
+        ]);
         break;
+      }
       case "skillWorkshop":
         await loadSkillWorkshopProposals(app, { force: true });
         break;

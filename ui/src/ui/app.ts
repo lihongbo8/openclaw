@@ -77,6 +77,13 @@ import {
 } from "./app-tool-stream.ts";
 import type { AppViewState } from "./app-view-state.ts";
 import { normalizeAssistantIdentity } from "./assistant-identity.ts";
+import {
+  applyBusinessFlowSelection,
+  loadBusinessFlowState,
+  saveBusinessFlowState,
+  type BusinessFlowSelectionPatch,
+  type BusinessFlowState,
+} from "./business-flow-store.ts";
 import { restoreChatComposerState } from "./chat/composer-persistence.ts";
 import { exportChatMarkdown } from "./chat/export.ts";
 import {
@@ -96,7 +103,26 @@ import {
   loadToolsEffective as loadToolsEffectiveInternal,
   refreshVisibleToolsEffectiveForCurrentSession as refreshVisibleToolsEffectiveForCurrentSessionInternal,
 } from "./controllers/agents.ts";
+import { refreshAicsMainFlowReadModel } from "./controllers/aics-main-flow.ts";
+import {
+  checkClosedLoopReadiness,
+  createApiConnectionEntry,
+  createDefaultApiConnectionsPageState,
+  deleteApiConnectionEntry,
+  editApiConnectionEntry,
+  materializeApiConnectionEntry,
+  refreshApiConnectionsReadModel,
+  resetApiConnectionForm,
+  testApiConnectionEntry,
+  updateApiConnectionFormField,
+  type ApiConnectionConsumer,
+  type ApiConnectionFormState,
+} from "./controllers/api-connections.ts";
 import { loadAssistantIdentity as loadAssistantIdentityInternal } from "./controllers/assistant-identity.ts";
+import {
+  createDefaultBuildSessionState,
+  type BuildSessionPageState,
+} from "./controllers/build-session.ts";
 import type { DevicePairingList } from "./controllers/devices.ts";
 import type {
   DreamingStatus,
@@ -110,12 +136,28 @@ import {
   type ExecApprovalRequest,
 } from "./controllers/exec-approval.ts";
 import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals.ts";
+import { createDefaultGoalsPageState, type GoalsPageState } from "./controllers/goals.ts";
+import {
+  createDefaultMyRolesState,
+  refreshMyRolesReadModel,
+  type MyRolesPageState,
+} from "./controllers/my-roles.ts";
 import type {
   ClawHubSearchResult,
   ClawHubSkillSecurityVerdict,
   ClawHubSkillDetail,
   SkillMessage,
 } from "./controllers/skills.ts";
+import { installFromClawHub } from "./controllers/skills.ts";
+import {
+  createDefaultToolSupplyControlState,
+  prepareToolSupplyUniqueCapabilityRequest,
+  refreshToolSupplyControlReadModel,
+  setToolSupplyGrant,
+  setToolSupplyPluginEnabled,
+  setToolSupplySkillEnabled,
+  type ToolSupplyControlItem,
+} from "./controllers/tool-supply-control.ts";
 import { importCustomThemeFromUrl } from "./custom-theme.ts";
 import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
@@ -238,11 +280,28 @@ function toAicsUserErrorMessage(value: unknown, fallback: string): string {
   }
   const normalized = text.replaceAll("_", "").toLowerCase();
   if (
+    normalized.includes("fetchfailed") ||
+    normalized.includes("network") ||
+    (normalized.includes("request") &&
+      normalized.includes("received") &&
+      normalized.includes("response"))
+  ) {
+    return "迭界AI云端不可达，请检查 cloudBaseUrl、Marketplace API 服务和本机网络。";
+  }
+  if (
     normalized.includes("notauthorized") ||
     normalized.includes("not authorized") ||
-    normalized.includes("unauthorized")
+    normalized.includes("unauthorized") ||
+    normalized.includes("http401") ||
+    normalized.includes("http403")
   ) {
     return "当前迭界AI账号没有这个岗位的有效授权。";
+  }
+  if (
+    (normalized.includes("listing") || normalized.includes("rolelisting")) &&
+    (normalized.includes("notfound") || normalized.includes("http404"))
+  ) {
+    return "云端没有找到这个岗位 listing，请重新同步岗位授权。";
   }
   if (
     normalized.includes("cloudaccesstoken") ||
@@ -254,7 +313,208 @@ function toAicsUserErrorMessage(value: unknown, fallback: string): string {
   if (normalized.includes("cloudbaseurl") || normalized.includes("cloud base url")) {
     return "Gateway 后端没有配置迭界AI云端地址，暂时不能连接岗位商城。";
   }
+  if (normalized.includes("executiontoken") || normalized.includes("execution token")) {
+    return "迭界AI执行授权 token 获取失败，请先确认岗位授权、设备编号和工作区配置。";
+  }
   return /[A-Za-z_]/.test(text) ? fallback : text;
+}
+
+function normalizeAicsCatalogRefValues(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => normalizeAicsCatalogRefValues(entry));
+  }
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+  const record = value as Record<string, unknown>;
+  return normalizeAicsCatalogRefValues(
+    record.catalogRef ?? record.catalog_ref ?? record.ref ?? record.id,
+  );
+}
+
+function normalizeAicsStringArray(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+  if (Array.isArray(value)) {
+    return Array.from(
+      new Set(
+        value
+          .filter((entry): entry is string => typeof entry === "string")
+          .map((entry) => entry.trim())
+          .filter(Boolean),
+      ),
+    );
+  }
+  return [];
+}
+
+function normalizeAicsBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function aicsPackageContext(record: Record<string, unknown>): Record<string, unknown> {
+  return record.packageContext &&
+    typeof record.packageContext === "object" &&
+    !Array.isArray(record.packageContext)
+    ? (record.packageContext as Record<string, unknown>)
+    : record.package_context &&
+        typeof record.package_context === "object" &&
+        !Array.isArray(record.package_context)
+      ? (record.package_context as Record<string, unknown>)
+      : {};
+}
+
+function normalizeAicsCatalogRefs(...records: Array<Record<string, unknown>>): string[] {
+  const refs = new Set<string>();
+  for (const record of records) {
+    const packageContext = aicsPackageContext(record);
+    for (const value of [
+      record.catalogRefs,
+      record.catalog_refs,
+      record.requiredCatalogRefs,
+      record.required_catalog_refs,
+      record.capabilityRefs,
+      record.capability_refs,
+      record.requiredCapabilities,
+      record.required_capabilities,
+      record.capabilities,
+      record.catalogBindings,
+      record.catalog_bindings,
+      record.capabilityRequirements,
+      record.capability_requirements,
+      record.blockedCapabilities,
+      record.blocked_capabilities,
+      packageContext.catalogRefs,
+      packageContext.catalog_refs,
+      packageContext.requiredCapabilities,
+      packageContext.required_capabilities,
+      packageContext.catalogBindings,
+      packageContext.catalog_bindings,
+      packageContext.capabilityRequirements,
+      packageContext.capability_requirements,
+      packageContext.blockedCapabilities,
+      packageContext.blocked_capabilities,
+    ]) {
+      for (const ref of normalizeAicsCatalogRefValues(value)) {
+        refs.add(ref);
+      }
+    }
+  }
+  return [...refs];
+}
+
+function normalizeAicsBlockedCatalogRefs(...records: Array<Record<string, unknown>>): string[] {
+  const refs = new Set<string>();
+  for (const record of records) {
+    const packageContext = aicsPackageContext(record);
+    for (const value of [
+      record.blockedCatalogRefs,
+      record.blocked_catalog_refs,
+      record.blockedCapabilities,
+      record.blocked_capabilities,
+      packageContext.blockedCatalogRefs,
+      packageContext.blocked_catalog_refs,
+      packageContext.blockedCapabilities,
+      packageContext.blocked_capabilities,
+    ]) {
+      for (const ref of normalizeAicsCatalogRefValues(value)) {
+        refs.add(ref);
+      }
+    }
+  }
+  return [...refs];
+}
+
+function normalizeAicsRequiredCapabilities(...records: Array<Record<string, unknown>>): string[] {
+  const capabilities = new Set<string>();
+  for (const record of records) {
+    const packageContext = aicsPackageContext(record);
+    for (const value of [
+      record.requiredCapabilities,
+      record.required_capabilities,
+      record.capabilities,
+      packageContext.requiredCapabilities,
+      packageContext.required_capabilities,
+      packageContext.capabilities,
+    ]) {
+      for (const capability of normalizeAicsStringArray(value)) {
+        capabilities.add(capability);
+      }
+    }
+  }
+  return [...capabilities];
+}
+
+function normalizeAicsCategoryInfo(...records: Array<Record<string, unknown>>) {
+  for (const record of records) {
+    const packageContext = aicsPackageContext(record);
+    const category =
+      packageContext.category && typeof packageContext.category === "object"
+        ? (packageContext.category as Record<string, unknown>)
+        : {};
+    const categoryRef =
+      typeof record.categoryRef === "string" && record.categoryRef.trim()
+        ? record.categoryRef.trim()
+        : typeof record.category_ref === "string" && record.category_ref.trim()
+          ? record.category_ref.trim()
+          : typeof category.categoryRef === "string" && category.categoryRef.trim()
+            ? category.categoryRef.trim()
+            : typeof category.category_ref === "string" && category.category_ref.trim()
+              ? category.category_ref.trim()
+              : "";
+    const categoryName =
+      typeof record.categoryName === "string" && record.categoryName.trim()
+        ? record.categoryName.trim()
+        : typeof record.category_name === "string" && record.category_name.trim()
+          ? record.category_name.trim()
+          : typeof category.name === "string" && category.name.trim()
+            ? category.name.trim()
+            : "";
+    const categoryPackRef =
+      typeof record.categoryPackRef === "string" && record.categoryPackRef.trim()
+        ? record.categoryPackRef.trim()
+        : typeof category.categoryPackRef === "string" && category.categoryPackRef.trim()
+          ? category.categoryPackRef.trim()
+          : "";
+    const skillPackRef =
+      typeof record.skillPackRef === "string" && record.skillPackRef.trim()
+        ? record.skillPackRef.trim()
+        : typeof category.skillPackRef === "string" && category.skillPackRef.trim()
+          ? category.skillPackRef.trim()
+          : "";
+    const toolPackRef =
+      typeof record.toolPackRef === "string" && record.toolPackRef.trim()
+        ? record.toolPackRef.trim()
+        : typeof category.toolPackRef === "string" && category.toolPackRef.trim()
+          ? category.toolPackRef.trim()
+          : "";
+    if (categoryRef || categoryPackRef || skillPackRef || toolPackRef) {
+      return {
+        categoryRef,
+        categoryName,
+        categoryPackRef,
+        skillPackRef,
+        toolPackRef,
+      };
+    }
+  }
+  return {
+    categoryRef: "",
+    categoryName: "",
+    categoryPackRef: "",
+    skillPackRef: "",
+    toolPackRef: "",
+  };
 }
 
 function normalizeAicsMarketplaceRoles(value: unknown): AicsMarketplaceRole[] {
@@ -323,6 +583,35 @@ function normalizeAicsMarketplaceRoles(value: unknown): AicsMarketplaceRole[] {
           : typeof record.status === "string" && record.status.trim()
             ? record.status.trim()
             : undefined;
+    const catalogRefs = normalizeAicsCatalogRefs(record, roleRecord);
+    const blockedCatalogRefs = normalizeAicsBlockedCatalogRefs(record, roleRecord);
+    const categoryInfo = normalizeAicsCategoryInfo(record, roleRecord);
+    const recordPackageContext = aicsPackageContext(record);
+    const rolePackageContext = aicsPackageContext(roleRecord);
+    const inheritedCatalogRefs = normalizeAicsCatalogRefValues(
+      roleRecord.inheritedCatalogRefs ??
+        roleRecord.inherited_catalog_refs ??
+        recordPackageContext.inheritedCatalogRefs ??
+        recordPackageContext.inherited_catalog_refs ??
+        rolePackageContext.inheritedCatalogRefs ??
+        rolePackageContext.inherited_catalog_refs,
+    );
+    const inheritedCapabilityRefs = normalizeAicsStringArray(
+      roleRecord.inheritedCapabilityRefs ??
+        roleRecord.inherited_capability_refs ??
+        recordPackageContext.inheritedCapabilityRefs ??
+        recordPackageContext.inherited_capability_refs ??
+        rolePackageContext.inheritedCapabilityRefs ??
+        rolePackageContext.inherited_capability_refs,
+    );
+    const unavailableReasons = normalizeAicsStringArray(
+      roleRecord.unavailableReasons ??
+        roleRecord.unavailable_reasons ??
+        record.unavailableReasons ??
+        record.unavailable_reasons,
+    );
+    const callable = normalizeAicsBoolean(roleRecord.callable ?? record.callable);
+    const requiredCapabilities = normalizeAicsRequiredCapabilities(record, roleRecord);
     return [
       {
         id,
@@ -331,6 +620,18 @@ function normalizeAicsMarketplaceRoles(value: unknown): AicsMarketplaceRole[] {
         status,
         roleListingId: id,
         ...(entitlementId ? { entitlementId } : {}),
+        ...(categoryInfo.categoryRef ? { categoryRef: categoryInfo.categoryRef } : {}),
+        ...(categoryInfo.categoryName ? { categoryName: categoryInfo.categoryName } : {}),
+        ...(categoryInfo.categoryPackRef ? { categoryPackRef: categoryInfo.categoryPackRef } : {}),
+        ...(categoryInfo.skillPackRef ? { skillPackRef: categoryInfo.skillPackRef } : {}),
+        ...(categoryInfo.toolPackRef ? { toolPackRef: categoryInfo.toolPackRef } : {}),
+        ...(catalogRefs.length > 0 ? { catalogRefs } : {}),
+        ...(callable !== undefined ? { callable } : {}),
+        ...(unavailableReasons.length > 0 ? { unavailableReasons } : {}),
+        ...(blockedCatalogRefs.length > 0 ? { blockedCatalogRefs } : {}),
+        ...(requiredCapabilities.length > 0 ? { requiredCapabilities } : {}),
+        ...(inheritedCatalogRefs.length > 0 ? { inheritedCatalogRefs } : {}),
+        ...(inheritedCapabilityRefs.length > 0 ? { inheritedCapabilityRefs } : {}),
       },
     ];
   });
@@ -412,6 +713,20 @@ export class OpenClawApp extends LitElement {
     error: null,
   };
   @state() aicsMarketplace: AicsMarketplaceState = { ...DEFAULT_AICS_MARKETPLACE_STATE };
+  @state() selectedCapabilityCategoryRef = "";
+  @state() businessFlow: BusinessFlowState = loadBusinessFlowState();
+  @state() businessIntentDraft = "";
+  @state() aicsMainFlow: AppViewState["aicsMainFlow"] = {
+    loading: false,
+    error: null,
+    readModel: null,
+  };
+  @state() apiConnections: AppViewState["apiConnections"] = createDefaultApiConnectionsPageState();
+  @state() toolSupplyControl: AppViewState["toolSupplyControl"] =
+    createDefaultToolSupplyControlState();
+  @state() goalsState: GoalsPageState = createDefaultGoalsPageState();
+  @state() buildSession: BuildSessionPageState = createDefaultBuildSessionState();
+  @state() myRoles: MyRolesPageState = createDefaultMyRolesState();
   @state() aicsConversationMode: AicsConversationMode = "user";
   @state() aicsConversationStage: AicsConversationStage = "ready";
   @state() theme: ThemeName = this.settings.theme ?? "claw";
@@ -1130,7 +1445,29 @@ export class OpenClawApp extends LitElement {
     if (next !== "chat") {
       this.setChatMobileControlsOpen(false);
     }
+    if (next === "apiManagement" && !this.apiConnections.loading) {
+      void this.refreshApiConnectionsReadModel();
+      void this.refreshToolSupplyControlReadModel();
+      void this.refreshMyRolesReadModel();
+    }
+    if (next === "skills" && !this.toolSupplyControl.loading) {
+      void this.refreshToolSupplyControlReadModel();
+    }
     this.navDrawerOpen = false;
+  }
+
+  updateBusinessFlowSelection(patch: BusinessFlowSelectionPatch) {
+    const next = applyBusinessFlowSelection(this.businessFlow, patch);
+    this.businessFlow = next;
+    saveBusinessFlowState(next);
+  }
+
+  selectCapabilityCategoryPack(categoryRef: string) {
+    this.selectedCapabilityCategoryRef = categoryRef;
+  }
+
+  async installCapabilityCategorySkillPack(slug: string) {
+    await installFromClawHub(this, slug);
   }
 
   updateAicsRoleBuilderField(field: keyof AicsRoleBuilderForm, value: string) {
@@ -1195,6 +1532,81 @@ export class OpenClawApp extends LitElement {
     this.setTab("chat");
   }
 
+  async refreshAicsMainFlowReadModel() {
+    await refreshAicsMainFlowReadModel(this as unknown as AppViewState);
+  }
+
+  async refreshApiConnectionsReadModel() {
+    await refreshApiConnectionsReadModel(this as unknown as AppViewState);
+  }
+
+  updateApiConnectionFormField(
+    field: keyof ApiConnectionFormState,
+    value: string | boolean | ApiConnectionConsumer[] | null,
+  ) {
+    updateApiConnectionFormField(this as unknown as AppViewState, field, value);
+  }
+
+  async createApiConnectionEntry() {
+    await createApiConnectionEntry(this as unknown as AppViewState);
+  }
+
+  editApiConnectionEntry(id: string) {
+    editApiConnectionEntry(this as unknown as AppViewState, id);
+  }
+
+  async deleteApiConnectionEntry(id: string) {
+    await deleteApiConnectionEntry(this as unknown as AppViewState, id);
+  }
+
+  resetApiConnectionForm() {
+    resetApiConnectionForm(this as unknown as AppViewState);
+  }
+
+  testApiConnectionEntry(id: string) {
+    testApiConnectionEntry(this as unknown as AppViewState, id);
+  }
+
+  async materializeApiConnectionEntry(id?: string) {
+    await materializeApiConnectionEntry(this as unknown as AppViewState, id);
+  }
+
+  async checkClosedLoopReadiness() {
+    await checkClosedLoopReadiness(this as unknown as AppViewState);
+  }
+
+  async refreshToolSupplyControlReadModel() {
+    await refreshToolSupplyControlReadModel(this as unknown as AppViewState);
+  }
+
+  async setToolSupplyGrant(
+    item: ToolSupplyControlItem,
+    status: "approved" | "blocked" | "pending_review",
+  ) {
+    await setToolSupplyGrant(this as unknown as AppViewState, item, status);
+  }
+
+  async setToolSupplySkillEnabled(skillKey: string, enabled: boolean) {
+    await setToolSupplySkillEnabled(this as unknown as AppViewState, skillKey, enabled);
+  }
+
+  async setToolSupplyPluginEnabled(pluginId: string, enabled: boolean) {
+    await setToolSupplyPluginEnabled(this as unknown as AppViewState, pluginId, enabled);
+  }
+
+  async prepareToolSupplyUniqueCapabilityRequest(params: {
+    title: string;
+    capabilityRef: string;
+    category?: string;
+    reason?: string;
+  }) {
+    await prepareToolSupplyUniqueCapabilityRequest(this as unknown as AppViewState, params);
+  }
+
+  async refreshMyRolesReadModel() {
+    await refreshMyRolesReadModel(this as unknown as AppViewState, this.myRoles);
+  }
+
   async refreshAicsMarketplaceRoles() {
     if (this.aicsMarketplace.loading) {
       return;
@@ -1250,6 +1662,93 @@ export class OpenClawApp extends LitElement {
         error: toAicsUserErrorMessage(
           error instanceof Error ? error.message : String(error),
           "岗位同步失败，请检查本机 Gateway 的迭界AI账号配置。",
+        ),
+      };
+    }
+  }
+
+  async authorizeAicsMarketplaceRole(roleListingId?: string) {
+    if (this.aicsMarketplace.loading) {
+      return;
+    }
+    if (!this.client || !this.connected) {
+      this.aicsMarketplace = {
+        ...this.aicsMarketplace,
+        error: "本机连接未就绪，暂时不能创建岗位授权。",
+      };
+      return;
+    }
+    const targetRoleListingId =
+      roleListingId?.trim() ||
+      this.aicsRoleBuilder.form.roleListingId.trim() ||
+      this.aicsMarketplace.roles.find((role) => role.roleListingId || role.id)?.roleListingId ||
+      this.aicsMarketplace.roles.find((role) => role.roleListingId || role.id)?.id ||
+      "";
+    if (!targetRoleListingId) {
+      this.aicsMarketplace = {
+        ...this.aicsMarketplace,
+        error: "请先填写要授权的云端岗位编号 roleListingId。",
+      };
+      return;
+    }
+
+    const cloudAccessToken = this.aicsRoleBuilder.form.cloudAccessToken.trim();
+    this.aicsMarketplace = {
+      ...this.aicsMarketplace,
+      loading: true,
+      error: null,
+    };
+    try {
+      const payload: Record<string, unknown> = {
+        role_listing_id: targetRoleListingId,
+      };
+      if (cloudAccessToken) {
+        payload.cloud_access_token = cloudAccessToken;
+      }
+      const result = await this.client.request("dijie.roleAuthorization.create", payload);
+      const safeResult = redactAicsCloudAccessTokenValue(result, cloudAccessToken);
+      const resultRecord =
+        safeResult && typeof safeResult === "object" ? (safeResult as Record<string, unknown>) : {};
+      if (resultRecord.ok === false) {
+        this.aicsMarketplace = {
+          ...this.aicsMarketplace,
+          loading: false,
+          result: safeResult,
+          error: toAicsUserErrorMessage(
+            resultRecord.error ?? resultRecord.summary,
+            "岗位正式授权失败，请检查岗位是否为 0 元可授权岗位。",
+          ),
+        };
+        return;
+      }
+      const entitlementId =
+        typeof resultRecord.entitlementId === "string" && resultRecord.entitlementId.trim()
+          ? resultRecord.entitlementId.trim()
+          : resultRecord.entitlement &&
+              typeof resultRecord.entitlement === "object" &&
+              !Array.isArray(resultRecord.entitlement) &&
+              typeof (resultRecord.entitlement as Record<string, unknown>).id === "string"
+            ? ((resultRecord.entitlement as Record<string, unknown>).id as string).trim()
+            : "";
+      this.aicsRoleBuilder = {
+        ...this.aicsRoleBuilder,
+        form: {
+          ...this.aicsRoleBuilder.form,
+          roleListingId: targetRoleListingId,
+          entitlementId: entitlementId || this.aicsRoleBuilder.form.entitlementId,
+        },
+        result: safeResult,
+        error: null,
+      };
+      await this.refreshAicsMarketplaceRoles();
+      await this.refreshAicsMainFlowReadModel();
+    } catch (error) {
+      this.aicsMarketplace = {
+        ...this.aicsMarketplace,
+        loading: false,
+        error: toAicsUserErrorMessage(
+          error instanceof Error ? error.message : String(error),
+          "岗位正式授权失败，请检查本机 Gateway 的迭界AI账号配置。",
         ),
       };
     }

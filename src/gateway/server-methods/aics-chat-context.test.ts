@@ -17,7 +17,7 @@ describe("AICS chat context", () => {
     expect(
       buildAicsModelPrompt({
         context: context!,
-        message: "我要开发一个智能门锁电商美工岗位",
+        message: "我要开发一个岗位商城电商美工岗位",
       }),
     ).toContain("岗位开发专属助手");
   });
@@ -43,7 +43,7 @@ describe("AICS chat context", () => {
 
     const prompt = buildAicsModelPrompt({
       context: context!,
-      message: "用商品图检查岗位检查这张智能门锁主图",
+      message: "用商品图检查岗位检查这张岗位商城主图",
     });
 
     expect(prompt).toContain("本地业务对话助手");
@@ -62,12 +62,30 @@ describe("AICS chat context", () => {
     expect(prompt).toContain("entitlement");
   });
 
+  it("guides company management as a goal breakdown status board without bypassing dispatch", () => {
+    const prompt = buildAicsMainWorkflowModelPrompt({
+      context: {
+        mode: "openclaw_main",
+        executionChannel: "local_openclaw",
+      },
+      message: "公司管理里看岗位商城首批岗位授权转化拆解后的详情页转化完成程度",
+    });
+
+    expect(prompt).toContain("经营拆解状态看板");
+    expect(prompt).toContain("岗位供给");
+    expect(prompt).toContain("详情页转化");
+    expect(prompt).toContain("授权费用");
+    expect(prompt).toContain("不要在这里重复展示公司目标页的总目标摘要");
+    expect(prompt).toContain("不能生成正式 TaskPackage");
+    expect(prompt).toContain("DispatchProposal");
+  });
+
   it("keeps personal cloud execution in user center instead of local OpenClaw", () => {
     const prompt = buildAicsMainWorkflowModelPrompt({
       context: {
         mode: "user",
         executionChannel: "cloud_user_center",
-        roleQuery: "智能门锁美工岗位",
+        roleQuery: "岗位商城美工岗位",
       },
       message: "帮我执行这个岗位任务",
     });

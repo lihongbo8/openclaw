@@ -42,6 +42,7 @@ export type MainSystemShellProps = {
   emptyLabel: string;
   actions: MainSystemAction[];
   onNavigate: (tab: Tab) => void;
+  topContent?: unknown;
 };
 
 function renderHelp(text: string) {
@@ -133,6 +134,7 @@ export function renderMainSystemShell(props: MainSystemShellProps): TemplateResu
             ${props.error}
           </div>`
         : nothing}
+      ${props.topContent ?? nothing}
 
       <div class="main-system-shell__metrics">${props.metrics.map(renderMetric)}</div>
 

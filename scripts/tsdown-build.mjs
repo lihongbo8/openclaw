@@ -135,6 +135,119 @@ function cleanOutputRootExcept(rootPath, protectedPaths, fsImpl) {
   }
 }
 
+function findDistChunkExporting(distDir, exportPattern) {
+  let entries;
+  try {
+    entries = fs.readdirSync(distDir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".js")) {
+      continue;
+    }
+    const filePath = path.join(distDir, entry.name);
+    let source;
+    try {
+      source = fs.readFileSync(filePath, "utf8");
+    } catch {
+      continue;
+    }
+    if (exportPattern.test(source)) {
+      return entry.name;
+    }
+  }
+  return null;
+}
+
+function listDistJsFiles(rootDir) {
+  const result = [];
+  const visit = (dir) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const filePath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (
+          filePath.includes(`${path.sep}extensions${path.sep}diffs-language-pack${path.sep}assets`)
+        ) {
+          continue;
+        }
+        visit(filePath);
+      } else if (entry.isFile() && entry.name.endsWith(".js")) {
+        result.push(filePath);
+      }
+    }
+  };
+  visit(rootDir);
+  return result;
+}
+
+function normalizeRelativeImportSpecifier(fromFile, toFile) {
+  let specifier = path.relative(path.dirname(fromFile), toFile).replaceAll(path.sep, "/");
+  if (!specifier.startsWith(".")) {
+    specifier = `./${specifier}`;
+  }
+  return specifier;
+}
+
+function patchBareRuntimeInitImports(cwd = process.cwd()) {
+  const distDir = path.join(cwd, "dist");
+  const files = listDistJsFiles(distDir);
+  if (!files.length) {
+    return;
+  }
+
+  const initExports = new Map();
+  for (const filePath of files) {
+    const source = fs.readFileSync(filePath, "utf8");
+    for (const match of source.matchAll(/\b(init_[A-Za-z0-9_]+)\s+as\s+([A-Za-z_$][\w$]*)/gu)) {
+      initExports.set(match[1], { filePath, alias: match[2] });
+    }
+  }
+
+  for (const filePath of files) {
+    const source = fs.readFileSync(filePath, "utf8");
+    const needed = [
+      ...new Set([...source.matchAll(/\b(init_[A-Za-z0-9_]+)\s*\(/gu)].map((match) => match[1])),
+    ].filter((name) => {
+      if (new RegExp(`\\b(?:var|let|const|function)\\s+${name}\\b`, "u").test(source)) {
+        return false;
+      }
+      if (new RegExp(`\\bas\\s+${name}\\b`, "u").test(source)) {
+        return false;
+      }
+      return initExports.has(name);
+    });
+    if (!needed.length) {
+      continue;
+    }
+    const imports = [];
+    for (const name of needed) {
+      const exportInfo = initExports.get(name);
+      if (!exportInfo || exportInfo.filePath === filePath) {
+        continue;
+      }
+      const specifier = normalizeRelativeImportSpecifier(filePath, exportInfo.filePath);
+      const importLine = `import { ${exportInfo.alias} as ${name} } from "${specifier}";`;
+      if (!source.includes(importLine)) {
+        imports.push(importLine);
+      }
+    }
+    if (!imports.length) {
+      continue;
+    }
+    fs.writeFileSync(filePath, `${imports.join("\n")}\n${source}`);
+    console.error(
+      `[tsdown-build] patched runtime init imports in ${path.relative(cwd, filePath)} (${needed.join(", ")})`,
+    );
+  }
+}
+
 function listExistingDeclarationOutputPaths({ cwd, fs: fsImpl, roots }) {
   const protectedPaths = new Set();
   for (const root of roots) {
@@ -685,6 +798,9 @@ if (isMainModule()) {
   cleanTsdownOutputRoots();
   const invocation = resolveTsdownBuildInvocation({ args: args.forwardedArgs });
   const result = await runTsdownBuildInvocation(invocation);
+  if (result.status === 0) {
+    patchBareRuntimeInitImports();
+  }
 
   if (result.status === 0 && result.hasIneffectiveDynamicImport) {
     console.error(

@@ -3,11 +3,17 @@ import type { AicsConversationMode, AicsConversationStage } from "./aics-convers
 import type { ChatAbortOptions, ChatSendOptions } from "./app-chat.ts";
 import type { EventLogEntry } from "./app-events.ts";
 import type { CompactionStatus, FallbackStatus } from "./app-tool-stream.ts";
+import type { BusinessFlowSelectionPatch, BusinessFlowState } from "./business-flow-store.ts";
 import type { ChatInputHistoryKeyInput, ChatInputHistoryKeyResult } from "./chat/input-history.ts";
 import type { RealtimeTalkConversationEntry } from "./chat/realtime-talk-conversation.ts";
 import type { RealtimeTalkStatus } from "./chat/realtime-talk.ts";
 import type { ChatRunUiStatus } from "./chat/run-lifecycle.ts";
 import type { ChatSideResult } from "./chat/side-result.ts";
+import type {
+  ApiConnectionConsumer,
+  ApiConnectionsPageState,
+  ApiConnectionFormState,
+} from "./controllers/api-connections.ts";
 import type { CronModelSuggestionsState, CronState } from "./controllers/cron.ts";
 import type { DevicePairingList } from "./controllers/devices.ts";
 import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
@@ -71,6 +77,11 @@ export type AppViewState = {
   connected: boolean;
   aicsRoleBuilder: AicsRoleBuilderState;
   aicsMarketplace: AicsMarketplaceState;
+  selectedCapabilityCategoryRef?: string;
+  selectCapabilityCategoryPack?: (categoryRef: string) => void;
+  installCapabilityCategorySkillPack?: (slug: string) => Promise<void>;
+  businessFlow: BusinessFlowState;
+  updateBusinessFlowSelection: (patch: BusinessFlowSelectionPatch) => void;
   aicsConversationMode: AicsConversationMode;
   aicsConversationStage: AicsConversationStage;
   setAicsConversationMode: (mode: AicsConversationMode) => void;
@@ -78,10 +89,49 @@ export type AppViewState = {
   startAicsDeveloperMode: () => void;
   updateAicsRoleBuilderField: (field: keyof AicsRoleBuilderForm, value: string) => void;
   refreshAicsMarketplaceRoles: () => Promise<void>;
+  authorizeAicsMarketplaceRole: (roleListingId?: string) => Promise<void>;
   useAicsMarketplaceRole: (role: AicsMarketplaceRole) => void;
   requestAicsExecutionToken: () => Promise<void>;
   readAicsExecutionAudit: () => Promise<void>;
   runAicsRoleBuilder: () => Promise<void>;
+  businessIntentDraft?: string;
+  aicsMainFlow: {
+    loading: boolean;
+    error: string | null;
+    readModel: Record<string, unknown> | null;
+  };
+  refreshAicsMainFlowReadModel: () => Promise<void>;
+  apiConnections: ApiConnectionsPageState;
+  refreshApiConnectionsReadModel: () => Promise<void>;
+  createApiConnectionEntry: () => Promise<void>;
+  editApiConnectionEntry: (id: string) => void;
+  deleteApiConnectionEntry: (id: string) => Promise<void>;
+  resetApiConnectionForm: () => void;
+  testApiConnectionEntry: (id: string) => void;
+  materializeApiConnectionEntry: (id?: string) => Promise<void>;
+  checkClosedLoopReadiness: () => Promise<void>;
+  updateApiConnectionFormField: (
+    field: keyof ApiConnectionFormState,
+    value: string | boolean | ApiConnectionConsumer[] | null,
+  ) => void;
+  toolSupplyControl: import("./controllers/tool-supply-control.ts").ToolSupplyControlPageState;
+  refreshToolSupplyControlReadModel: () => Promise<void>;
+  setToolSupplyGrant: (
+    item: import("./controllers/tool-supply-control.ts").ToolSupplyControlItem,
+    status: "approved" | "blocked" | "pending_review",
+  ) => Promise<void>;
+  setToolSupplySkillEnabled: (skillKey: string, enabled: boolean) => Promise<void>;
+  setToolSupplyPluginEnabled: (pluginId: string, enabled: boolean) => Promise<void>;
+  prepareToolSupplyUniqueCapabilityRequest: (params: {
+    title: string;
+    capabilityRef: string;
+    category?: string;
+    reason?: string;
+  }) => Promise<void>;
+  buildSession: import("./controllers/build-session.ts").BuildSessionPageState;
+  myRoles: import("./controllers/my-roles.ts").MyRolesPageState;
+  refreshMyRolesReadModel: () => Promise<void>;
+  goalsState: import("./controllers/goals.ts").GoalsPageState;
   theme: ThemeName;
   themeMode: ThemeMode;
   themeResolved: ResolvedTheme;

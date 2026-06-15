@@ -955,3 +955,4 @@
     justify-self: start;
   }
 }
+.aics-pipeline-bar{display:flex;align-items:center;gap:4px;padding:6px 12px;background:var(--bg-secondary, #f5f5f5);border-bottom:1px solid var(--border-color, #e0e0e0);font-size:12px;flex-wrap:wrap}.aics-pipeline-bar__stage{padding:2px 8px;border-radius:4px;color:var(--text-secondary, #666)}.aics-pipeline-bar__stage--active{background:var(--accent-color, #3366ff);color:#fff;font-weight:600}.aics-pipeline-bar__stage--done{color:var(--text-primary, #333)}.aics-pipeline-bar--error{color:var(--error-color, #c00)}.aics-pipeline-bar button{margin-left:8px;font-size:11px}

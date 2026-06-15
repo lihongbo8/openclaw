@@ -281,6 +281,15 @@ export type WorkboardNotificationSubscription = {
   updatedAt: number;
 };
 
+export type WorkboardBusinessFlowRef = {
+  cadenceId: "year" | "quarter" | "month" | "week";
+  projectId: string;
+  goalIds: string[];
+  departmentId: string;
+  source: "planning" | "dispatch" | "manual";
+  capabilityRefs?: string[];
+};
+
 export type WorkboardMetadata = {
   attempts?: WorkboardRunAttempt[];
   comments?: WorkboardComment[];
@@ -295,6 +304,7 @@ export type WorkboardMetadata = {
   diagnostics?: WorkboardDiagnostic[];
   notifications?: WorkboardNotification[];
   templateId?: WorkboardTemplateId;
+  businessFlow?: WorkboardBusinessFlowRef;
   archivedAt?: number;
   stale?: WorkboardStaleState;
   failureCount?: number;

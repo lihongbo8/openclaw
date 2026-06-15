@@ -1076,4 +1076,35 @@ describe("sessions view", () => {
     expect(emptyCell?.textContent?.trim()).toBe("No sessions found.");
     expect(emptyCell?.querySelector("button")).toBeNull();
   });
+
+  it("does not render a destructive delete action for protected sessions", async () => {
+    const container = document.createElement("div");
+    const onDeleteSession = vi.fn();
+    render(
+      renderSessions({
+        ...buildProps(
+          buildMultiResult([
+            {
+              key: "agent:main:main",
+              kind: "direct",
+              updatedAt: Date.now(),
+            },
+          ]),
+        ),
+        isProtectedSession: (key) => key === "agent:main:main",
+        onDeleteSession,
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    expect(container.querySelector('[aria-label="删除对话记录：agent:main:main"]')).toBeNull();
+    const protectedAction = container.querySelector<HTMLButtonElement>(
+      '[aria-label="主/当前会话受保护：agent:main:main"]',
+    );
+    expect(protectedAction).toBeInstanceOf(HTMLButtonElement);
+    expect(protectedAction?.disabled).toBe(true);
+    protectedAction?.click();
+    expect(onDeleteSession).not.toHaveBeenCalled();
+  });
 });

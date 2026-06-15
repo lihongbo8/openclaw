@@ -1241,6 +1241,42 @@ describe("gateway server chat", () => {
     });
   });
 
+  test("chat.send uses lightweight bootstrap for ordinary UI text", async () => {
+    await withGatewayChatHarness(async ({ ws, createSessionDir }) => {
+      const spy = getReplyFromConfig;
+      await connectOk(ws, {
+        client: {
+          id: GATEWAY_CLIENT_NAMES.TUI,
+          version: "1.0.0",
+          platform: "test",
+          mode: GATEWAY_CLIENT_MODES.UI,
+        },
+      });
+
+      await createSessionDir();
+      await writeMainSessionStore();
+      let capturedOpts: GetReplyOptions | undefined;
+      mockGetReplyFromConfigOnce(async (_ctx, opts) => {
+        capturedOpts = opts;
+        return undefined;
+      });
+
+      const sendRes = await rpcReq(ws, "chat.send", {
+        sessionKey: "main",
+        message: "你好",
+        idempotencyKey: "idem-light-conversation",
+      });
+      expect(sendRes.ok).toBe(true);
+
+      await vi.waitFor(() => {
+        expect(spy.mock.calls.length).toBeGreaterThan(0);
+      }, FAST_WAIT_OPTS);
+
+      expect(capturedOpts?.fastModeOverride).toBe(true);
+      expect(capturedOpts?.bootstrapContextMode).toBe("lightweight");
+    });
+  });
+
   test("chat.send diagnostics timeline carries run correlation attributes", async () => {
     const timelineDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-chat-timeline-"));
     const timelinePath = path.join(timelineDir, "timeline.jsonl");

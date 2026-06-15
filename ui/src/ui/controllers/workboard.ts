@@ -1,3 +1,9 @@
+import {
+  businessFlowTaskRefMatchesProject,
+  resolveBusinessFlowTaskRef,
+  type BusinessFlowTaskDraft,
+  type BusinessFlowTaskRef,
+} from "../business-flow-store.ts";
 import type { GatewayBrowserClient } from "../gateway.ts";
 import type { GatewaySessionRow } from "../types.ts";
 
@@ -249,6 +255,7 @@ export type WorkboardMetadata = {
   diagnostics?: WorkboardDiagnostic[];
   notifications?: WorkboardNotification[];
   templateId?: WorkboardTemplateId;
+  businessFlow?: BusinessFlowTaskRef;
   archivedAt?: number;
   stale?: WorkboardStaleState;
   failureCount?: number;
@@ -346,6 +353,8 @@ export type WorkboardUiState = {
   draftAgentId: string;
   draftSessionKey: string;
   draftTemplateId: WorkboardTemplateId | "";
+  draftBusinessFlow: BusinessFlowTaskRef | null;
+  businessProjectFilterId: string | null;
   draftCommentBody: string;
   detailCardId: string | null;
   detailCommentBody: string;
@@ -390,6 +399,8 @@ function createDefaultState(): WorkboardUiState {
     draftAgentId: "",
     draftSessionKey: "",
     draftTemplateId: "",
+    draftBusinessFlow: null,
+    businessProjectFilterId: null,
     draftCommentBody: "",
     detailCardId: null,
     detailCommentBody: "",
@@ -553,6 +564,42 @@ function normalizeAutomation(value: unknown): WorkboardAutomation | undefined {
     ...(typeof value.lastDispatchAt === "number" ? { lastDispatchAt: value.lastDispatchAt } : {}),
   };
   return Object.keys(automation).length ? automation : undefined;
+}
+
+function normalizeBusinessFlowTaskSource(value: unknown): BusinessFlowTaskRef["source"] {
+  if (value === "dispatch" || value === "manual") {
+    return value;
+  }
+  return "planning";
+}
+
+function normalizeBusinessFlowCadenceId(
+  value: unknown,
+): BusinessFlowTaskRef["cadenceId"] | undefined {
+  if (value === "year" || value === "quarter" || value === "month" || value === "week") {
+    return value;
+  }
+  return undefined;
+}
+
+function normalizeBusinessFlowTaskRef(value: unknown): BusinessFlowTaskRef | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const cadenceId = normalizeBusinessFlowCadenceId(value.cadenceId);
+  const projectId = typeof value.projectId === "string" ? value.projectId.trim() : "";
+  const departmentId = typeof value.departmentId === "string" ? value.departmentId.trim() : "";
+  if (!cadenceId || !projectId || !departmentId) {
+    return undefined;
+  }
+  return {
+    cadenceId,
+    projectId,
+    goalIds: normalizeStringArray(value.goalIds).slice(0, 8),
+    departmentId,
+    source: normalizeBusinessFlowTaskSource(value.source),
+    capabilityRefs: normalizeStringArray(value.capabilityRefs).slice(0, 16),
+  };
 }
 
 function normalizeMetadata(value: unknown): WorkboardMetadata | undefined {
@@ -812,6 +859,7 @@ function normalizeMetadata(value: unknown): WorkboardMetadata | undefined {
       }
     : undefined;
   const automation = normalizeAutomation(value.automation);
+  const businessFlow = normalizeBusinessFlowTaskRef(value.businessFlow);
   const metadata: WorkboardMetadata = {
     ...(attempts.length ? { attempts } : {}),
     ...(comments.length ? { comments } : {}),
@@ -828,6 +876,7 @@ function normalizeMetadata(value: unknown): WorkboardMetadata | undefined {
     ...(WORKBOARD_TEMPLATE_IDS.includes(value.templateId as WorkboardTemplateId)
       ? { templateId: value.templateId as WorkboardTemplateId }
       : {}),
+    ...(businessFlow ? { businessFlow } : {}),
     ...(typeof value.archivedAt === "number" ? { archivedAt: value.archivedAt } : {}),
     ...(stale ? { stale } : {}),
     ...(typeof value.failureCount === "number" ? { failureCount: value.failureCount } : {}),
@@ -1162,6 +1211,7 @@ function resetDraftState(state: WorkboardUiState) {
   state.draftAgentId = "";
   state.draftSessionKey = "";
   state.draftTemplateId = "";
+  state.draftBusinessFlow = null;
   state.draftCommentBody = "";
 }
 
@@ -1189,7 +1239,44 @@ function draftPayload(state: WorkboardUiState) {
     agentId: state.draftAgentId,
     sessionKey: state.draftSessionKey,
     ...(state.draftTemplateId ? { templateId: state.draftTemplateId } : {}),
+    ...(state.draftBusinessFlow ? { metadata: { businessFlow: state.draftBusinessFlow } } : {}),
   };
+}
+
+export function openBusinessFlowWorkboardDraft(params: {
+  host: WorkboardHost;
+  draft: BusinessFlowTaskDraft;
+  requestUpdate?: () => void;
+}): void {
+  const state = getWorkboardState(params.host);
+  resetDraftState(state);
+  state.draftOpen = true;
+  state.draftTitle = params.draft.title;
+  state.draftNotes = params.draft.notes;
+  state.draftStatus = "triage";
+  state.draftPriority = "low";
+  state.draftLabels = params.draft.labels.join(", ");
+  state.draftBusinessFlow = params.draft.businessFlow;
+  state.businessProjectFilterId = params.draft.businessFlow.projectId;
+  params.requestUpdate?.();
+}
+
+export function setWorkboardBusinessProjectFilter(params: {
+  host: WorkboardHost;
+  projectId: string | null;
+  requestUpdate?: () => void;
+}): void {
+  const state = getWorkboardState(params.host);
+  const projectId = params.projectId?.trim() || null;
+  state.businessProjectFilterId = projectId;
+  params.requestUpdate?.();
+}
+
+export function workboardCardMatchesBusinessProject(
+  card: WorkboardCard,
+  projectId: string | null | undefined,
+): boolean {
+  return businessFlowTaskRefMatchesProject(card.metadata?.businessFlow, projectId);
 }
 
 function isFailedSessionStatus(status: GatewaySessionRow["status"]): boolean {
@@ -1835,6 +1922,28 @@ function buildCardPrompt(card: WorkboardCard): string {
   }
   if (card.labels.length > 0) {
     lines.push("", `Labels: ${card.labels.join(", ")}`);
+  }
+  const businessFlow = resolveBusinessFlowTaskRef(card.metadata?.businessFlow);
+  if (businessFlow) {
+    lines.push("", "Business context:");
+    if (businessFlow.cadence) {
+      lines.push(`- Operating cadence: ${businessFlow.cadence.label}`);
+    }
+    if (businessFlow.project) {
+      lines.push(`- Project: ${businessFlow.project.name}`);
+      lines.push(`- Project theme: ${businessFlow.project.theme}`);
+      lines.push(`- Expected deliverable: ${businessFlow.project.deliverable}`);
+    }
+    if (businessFlow.department) {
+      lines.push(`- Responsible department: ${businessFlow.department.name}`);
+    }
+    if (businessFlow.goals.length) {
+      lines.push(`- Linked goals: ${businessFlow.goals.map((goal) => goal.title).join(", ")}`);
+    }
+    if (businessFlow.ref.capabilityRefs?.length) {
+      lines.push(`- Required capability refs: ${businessFlow.ref.capabilityRefs.join(", ")}`);
+    }
+    lines.push(`- Source: ${businessFlow.ref.source}`);
   }
   const parents = card.metadata?.links
     ?.filter((link) => link.type === "parent" && link.targetCardId)

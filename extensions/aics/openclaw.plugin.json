@@ -12,6 +12,7 @@
       "dijie_execution_token_request",
       "dijie_execution_audit_read",
       "dijie_marketplace_roles_list",
+      "dijie_role_authorization_create",
       "dijie_role_task_run",
       "dijie_role_builder"
     ],
@@ -20,6 +21,7 @@
       "dijie.executionToken.request",
       "dijie.executionAudit.read",
       "dijie.marketplace.roles.list",
+      "dijie.roleAuthorization.create",
       "dijie.roleTask.run",
       "dijie.roleBuilder.run"
     ]
@@ -104,6 +106,13 @@
       "cloudMarketplaceInstalledRolesPath": {
         "type": "string",
         "default": "/dijie/my-roles"
+      },
+      "cloudAuthorizationUrl": {
+        "type": "string"
+      },
+      "cloudAuthorizationPath": {
+        "type": "string",
+        "default": "/dijie/authorizations"
       },
       "cloudAuditUrl": {
         "type": "string"

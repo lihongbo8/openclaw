@@ -40,6 +40,7 @@ type AicsConfig = {
   cloudExecutionTokenUrl?: string;
   cloudExecutionReadUrl?: string;
   cloudMarketplaceInstalledRolesUrl?: string;
+  cloudAuthorizationUrl?: string;
   cloudAuditUrl?: string;
   cloudAccessToken?: string;
   defaultDeviceId?: string;
@@ -200,6 +201,7 @@ const DEFAULT_MAX_OUTPUT_CHARS = 12000;
 const DEFAULT_CLOUD_EXECUTION_TOKEN_PATH = "/dijie/execution-token";
 const DEFAULT_CLOUD_EXECUTION_READ_PATH = "/dijie/executions";
 const DEFAULT_CLOUD_MARKETPLACE_INSTALLED_ROLES_PATH = "/dijie/my-roles";
+const DEFAULT_CLOUD_AUTHORIZATION_PATH = "/dijie/authorizations";
 const DEFAULT_CLOUD_AUDIT_PATH = "/dijie/audit";
 const DEFAULT_ROLE_TASK_TIMEOUT_MS = 120000;
 const ROLE_TASK_AUDIT_RETURN_BUFFER_MS = 10000;
@@ -495,6 +497,20 @@ const MarketplaceInstalledRolesParamsSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const RoleAuthorizationCreateParamsSchema = Type.Object(
+  {
+    cloud_access_token: Type.Optional(
+      Type.String({
+        minLength: 1,
+        description:
+          "Optional transient Dijie cloud customer bearer token. If omitted, the backend-only plugin cloudAccessToken is used.",
+      }),
+    ),
+    role_listing_id: Type.String({ minLength: 1 }),
+  },
+  { additionalProperties: false },
+);
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -631,6 +647,16 @@ function readPluginConfig(raw: unknown): AicsConfig {
       : cloudBaseUrl
         ? new URL(cloudMarketplaceInstalledRolesPath, cloudBaseUrl).toString()
         : undefined;
+  const cloudAuthorizationPath =
+    typeof record.cloudAuthorizationPath === "string" && record.cloudAuthorizationPath.trim()
+      ? record.cloudAuthorizationPath.trim()
+      : DEFAULT_CLOUD_AUTHORIZATION_PATH;
+  const cloudAuthorizationUrl =
+    typeof record.cloudAuthorizationUrl === "string" && record.cloudAuthorizationUrl.trim()
+      ? record.cloudAuthorizationUrl.trim()
+      : cloudBaseUrl
+        ? new URL(cloudAuthorizationPath, cloudBaseUrl).toString()
+        : undefined;
   const cloudAuditPath =
     typeof record.cloudAuditPath === "string" && record.cloudAuditPath.trim()
       ? record.cloudAuditPath.trim()
@@ -686,6 +712,7 @@ function readPluginConfig(raw: unknown): AicsConfig {
     cloudExecutionTokenUrl,
     cloudExecutionReadUrl,
     cloudMarketplaceInstalledRolesUrl,
+    cloudAuthorizationUrl,
     cloudAuditUrl,
     cloudAccessToken,
     defaultDeviceId,
@@ -1339,7 +1366,7 @@ function roleTaskNeedsDesignBriefArtifact(params: {
 
 function extractQuotedProductName(taskText: string): string {
   const match = taskText.match(/产品(?:是|为)?[「“"]([^」”"]+)[」”"]/u);
-  return match?.[1]?.trim() || "智能门锁商品";
+  return match?.[1]?.trim() || "岗位商城首批岗位商品";
 }
 
 function buildRoleTaskDesignBriefContent(params: {
@@ -1354,46 +1381,46 @@ function buildRoleTaskDesignBriefContent(params: {
   const productName = extractQuotedProductName(params.taskText);
   const referenceReadable = params.taskText.includes("e.tb.cn")
     ? "参考页为淘宝短链，正式执行侧可能需要登录或扫码，当前文本方案按商品标题、中国风要求和电商详情页通用规范产出。"
-    : "未提供可直接读取的参考页，当前文本方案按任务描述和电商详情页通用规范产出。";
+    : "未提供可直接读取的参考页，当前文本方案按任务描述、岗位商城授权转化目标和电商详情页通用规范产出。";
 
   return [
-    "# 智能门锁电商美工设计方案",
+    "# 岗位商城电商美工展示优化方案",
     "",
     `- 岗位：${roleTitle}`,
     `- roleListingId：${params.roleListingId}`,
     `- entitlementId：${params.entitlementId}`,
     `- 产出时间：${params.startedAt}`,
-    `- 产品：${productName}`,
+    `- 服务对象：${productName}`,
     `- 参考页状态：${referenceReadable}`,
     "",
-    "## 5 张主图方案",
+    "## 5 张岗位商品主图方案",
     "",
-    "1. 新中式门庭主图：深胡桃木门、留白宣纸纹背景、产品正面居中，文案突出“中式别墅门锁 / 指纹密码 / 双开门适配”。",
-    "2. 安全守护主图：门锁特写叠加细金线锁芯结构，背景用山水屏风与暗纹，文案突出“防盗大门锁 / 多重开锁 / 稳固守护”。",
-    "3. 材质工艺主图：拉手、滑盖、锁体细节三宫格，配合宋体标题与朱砂印章角标，强调实木门适配和质感。",
-    "4. 场景氛围主图：中式庭院入户场景，左右双开门完整露出，产品高亮，强化“别墅大门 / 欧式拉手 / 中式风格统一”。",
-    "5. 功能组合主图：指纹、密码、钥匙、远程/临时密码等图标围绕产品，控制信息密度，适合搜索流量首图或详情页首屏。",
+    "1. 岗位价值主图：岗位名称居中，突出“授权后可执行 / 产物可回写 / 审计可追踪”，适合作为首图。",
+    "2. 使用场景主图：展示经营后台到岗位执行的路径，强调从观察、规划、调度到产物回写的闭环。",
+    "3. 能力边界主图：用三栏展示可做、需确认、不可做，降低授权前误解。",
+    "4. 结果样例主图：展示方案文本、图片建议、详情结构等产物类型，强化购买后的确定性。",
+    "5. 授权费用主图：清晰展示一次授权、执行费用确认和 ledger 记录，减少费用顾虑。",
     "",
     "## 主图巡检报告",
     "",
-    "- 主体占比：首图建议产品主体占画面 55%-70%，双开门场景图占比可降到 40%-55%。",
-    "- 信息密度：每张主图保留 1 个主卖点和 2-3 个辅助标签，避免卖点堆满导致移动端不可读。",
-    "- 风格一致性：中国风建议使用深木色、米白宣纸、细金线、朱砂印章，不使用过度喜庆或低价促销风。",
-    "- 合规风险：避免“绝对防盗”“永久安全”“全网第一”等绝对化词汇；可使用“多重安全设计”“入户守护”等稳妥表达。",
+    "- 主体占比：首图建议岗位名称和核心收益占画面 50%-65%，辅助流程信息控制在 3 个以内。",
+    "- 信息密度：每张主图保留 1 个主卖点和 2-3 个辅助标签，避免授权、费用、能力说明混在一屏。",
+    "- 风格一致性：岗位商城建议使用清晰的运营后台视觉语言，避免营销噪音压过能力边界。",
+    "- 合规风险：避免“全自动赚钱”“永久可用”“效果保证”等绝对化词汇；可使用“人工确认执行”“产物可追踪”等稳妥表达。",
     "- 图片能力备注：本 artifact 为正式文本设计方案；图片生成产物可作为后续增强任务单独发起。",
     "",
-    "## 详情页结构与尺寸规范",
+    "## 岗位商品详情页结构与尺寸规范",
     "",
     "- 详情页宽度：淘宝/天猫无线详情建议按 750px 宽设计，模块高度按内容分段，单屏控制在 900-1400px。",
-    "- 首屏：产品全景 + 标题卖点 + 核心开锁方式，建议 750x1000。",
-    "- 卖点模块：安全、防盗、指纹识别、密码开锁、滑盖保护、双开门适配，每个模块 750x900 左右。",
-    "- 材质工艺：锁体、拉手、滑盖、面板、锁芯细节，建议 750x1200，搭配局部放大图。",
-    "- 场景模块：中式别墅门、实木门、庭院入户，建议 750x1000，突出安装后的整体协调。",
-    "- 安装售后：尺寸测量、适配门型、安装说明、售后保障，建议 750x900。",
+    "- 首屏：岗位名称 + 一句话服务结果 + 授权状态说明，建议 750x1000。",
+    "- 能力模块：输入要求、可调用能力、输出产物、失败边界，每个模块 750x900 左右。",
+    "- 流程模块：购买/授权、费用确认、调度执行、产物回写、审计读取，建议 750x1200。",
+    "- 案例模块：用首批岗位商品的示例任务和示例产物说明实际价值，建议 750x1000。",
+    "- 费用授权模块：一次授权费、执行费用确认、ledger 记录和退款/失败边界，建议 750x900。",
     "",
     "## 使用说明",
     "",
-    "- 使用者后续若要生成图片，请提供产品实拍图、门体场景图、品牌/Logo、主色、禁用词、平台尺寸要求。",
+    "- 使用者后续若要生成图片，请提供岗位商品名称、能力边界、目标用户、品牌/Logo、主色、禁用词、平台尺寸要求。",
     "- 若只提供文字需求，本岗位应至少返回设计方案文本 artifact，不能空产物标记业务成功。",
   ].join("\n");
 }
@@ -1431,7 +1458,7 @@ function createRoleTaskTextArtifact(params: {
     artifact: {
       id: `artifact_${safeRoleTaskSlug(params.runId)}_design_brief`,
       type: "role_task_design_brief",
-      title: "智能门锁电商美工设计方案文本",
+      title: "岗位商城电商美工展示优化方案文本",
       path: relativePath,
       sizeBytes: Buffer.byteLength(content, "utf8"),
       sha256: crypto.createHash("sha256").update(content).digest("hex"),
@@ -3529,6 +3556,83 @@ function createMarketplaceInstalledRolesTool(config: AicsConfig): AnyAgentTool {
   };
 }
 
+function createRoleAuthorizationTool(config: AicsConfig): AnyAgentTool {
+  return {
+    name: "dijie_role_authorization_create",
+    label: "迭界AI Role Authorization",
+    description:
+      "Create a formal zero-price Dijie role entitlement through the cloud marketplace. Paid roles still require checkout facts.",
+    parameters: RoleAuthorizationCreateParamsSchema,
+    execute: async (_toolCallId, rawParams) => {
+      const params = asRecord(rawParams);
+      if (!config.cloudAuthorizationUrl) {
+        throw new Error(
+          "cloudAuthorizationUrl or cloudBaseUrl is required before creating Dijie role authorizations.",
+        );
+      }
+      if (typeof globalThis.fetch !== "function") {
+        throw new Error("global fetch is unavailable for Dijie role authorization requests.");
+      }
+      const cloudAccessToken = resolveCloudAccessTokenParam(
+        config,
+        params,
+        "cloud_access_token or backend aics.cloudAccessToken is required for Dijie role authorization",
+      );
+      const roleListingId = requireStringParam(params, "role_listing_id");
+
+      let response: Response;
+      try {
+        response = await globalThis.fetch(config.cloudAuthorizationUrl, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${cloudAccessToken}`,
+            "content-type": "application/json",
+            accept: "application/json",
+          },
+          body: JSON.stringify({ roleListingId }),
+        });
+      } catch (error) {
+        return jsonResult({
+          ok: false,
+          summary: "迭界AI role authorization request failed",
+          error: cloudFetchDiagnostic({
+            operation: "岗位正式授权",
+            url: config.cloudAuthorizationUrl,
+            error,
+            cloudAccessToken,
+          }),
+        });
+      }
+
+      const responseText = await response.text();
+      const payload = responseText ? asRecord(parseAuditUploadResponse(responseText)) : {};
+      if (!response.ok || payload.ok !== true) {
+        return jsonResult({
+          ok: false,
+          summary: "迭界AI role authorization was rejected",
+          statusCode: response.status,
+          code: stringField(payload, "code"),
+          error: redactCloudAccessTokenText(
+            stringField(payload, "error") ??
+              stringField(payload, "reason") ??
+              `Dijie marketplace returned HTTP ${response.status}`,
+            cloudAccessToken,
+          ),
+        });
+      }
+
+      return jsonResult({
+        ok: true,
+        summary: "迭界AI role authorization completed",
+        entitlementId: stringField(payload, "entitlementId"),
+        entitlement: redactCloudAccessTokenValue(payload.entitlement, cloudAccessToken),
+        ledgerEntry: redactCloudAccessTokenValue(payload.ledgerEntry, cloudAccessToken),
+        source: "cloud",
+      });
+    },
+  };
+}
+
 function createStatusTool(config: AicsConfig): AnyAgentTool {
   return {
     name: "aics_status",
@@ -4002,6 +4106,7 @@ export default definePluginEntry({
     const executionAuditReadTool = createExecutionAuditReadTool(config);
     const executionTokenRequestTool = createExecutionTokenRequestTool(config);
     const marketplaceInstalledRolesTool = createMarketplaceInstalledRolesTool(config);
+    const roleAuthorizationTool = createRoleAuthorizationTool(config);
     const roleTaskRunTool = createRoleTaskRunTool(config, api.runtime, api.config);
     const roleBuilderTool = createRoleBuilderTool(config, api.runtime, api.config);
     api.registerGatewayMethod(
@@ -4047,6 +4152,16 @@ export default definePluginEntry({
       { scope: "operator.read" },
     );
     api.registerGatewayMethod(
+      "dijie.roleAuthorization.create",
+      async ({ params }) =>
+        (await runRoleBuilderGatewayRequest(
+          roleAuthorizationTool,
+          params,
+          "迭界AI role authorization failed before cloud authorization could complete",
+        )) as never,
+      { scope: "operator.write" },
+    );
+    api.registerGatewayMethod(
       "dijie.roleTask.run",
       async ({ params }) =>
         (await runAicsGatewayToolRequest(
@@ -4061,6 +4176,7 @@ export default definePluginEntry({
     api.registerTool(executionAuditReadTool);
     api.registerTool(executionTokenRequestTool);
     api.registerTool(marketplaceInstalledRolesTool);
+    api.registerTool(roleAuthorizationTool);
     api.registerTool(roleTaskRunTool);
     api.registerTool(roleBuilderTool);
   },

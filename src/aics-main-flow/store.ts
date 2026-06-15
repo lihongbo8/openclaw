@@ -2,15 +2,20 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { resolveStateDir } from "../config/paths.js";
+import { getPipelineDb, createPipelineTables } from "./db.js";
 import {
   AICS_MAIN_FLOW_VERSION,
   AicsMainFlowGateError,
   type AicsAuditRef,
   type AicsMainFlowBlockedReason,
+  type AicsCapability,
+  type AicsCapabilityMatchResult,
   type AicsMainFlowInteraction,
   type AicsMainFlowReadModel,
   type AicsMainFlowStage,
   type AicsMainFlowState,
+  type AicsOperationCheck,
+  type AicsUniqueCapabilityRequest,
   type AttributionFinding,
   type AttributionReport,
   type CompanyGoal,
@@ -50,6 +55,8 @@ export type PrepareAttributionInput = EntityInput & {
 
 export type CreateGoalCandidateInput = EntityInput & {
   attributionReportId?: string;
+  /** 观察包 ID——CompanyGoal 是观察+归因+目标三方共同确认的结果 */
+  observationPackageId?: string;
   title: string;
   owner: string;
   metric: string;
@@ -64,6 +71,7 @@ export type PreparePlanningInput = EntityInput & {
   rolePlanItems: Array<
     EntityInput & {
       title: string;
+      category?: string;
       roleCapabilityRef: string;
       taskIntent: string;
       expectedOutput: string;
@@ -94,6 +102,20 @@ export type MaterializeTaskPackageInput = EntityInput & {
 export type RunApprovedTaskInput = {
   taskPackageId?: string;
   dispatchToRoleRequestId?: string;
+  /** 云端岗位编号。调度物化时缺失时，可由正式授权执行补齐。 */
+  roleListingId?: string;
+  /** 云端岗位标题。调度物化时缺失时，可由正式授权执行补齐。 */
+  roleTitle?: string;
+  /** 岗位商城授权引用。没有授权不能进入岗位执行。 */
+  entitlementId?: string;
+  /** 人工执行确认。岗位执行必须由管理者显式确认。 */
+  confirmExecution?: boolean;
+  /** 本次岗位执行费用确认。v1 只做确认门禁，不接真实支付。 */
+  costConfirmed?: boolean;
+  /** 费用/ledger 引用，可作为执行结果审计事实回写。 */
+  ledgerRef?: string;
+  /** 记忆候选引用，可作为执行结果审计事实回写。 */
+  memoryCandidateRef?: string;
   result?: EntityInput & {
     outcome: RoleResult["outcome"];
     summary: string;
@@ -130,10 +152,6 @@ export function createEmptyAicsMainFlowState(now = Date.now()): AicsMainFlowStat
   };
 }
 
-function cloneState(state: AicsMainFlowState): AicsMainFlowState {
-  return JSON.parse(JSON.stringify(state)) as AicsMainFlowState;
-}
-
 function latestByCreatedAt<T extends { createdAt: number }>(items: T[]): T | null {
   return items.reduce<T | null>(
     (latest, item) => (!latest || item.createdAt >= latest.createdAt ? item : latest),
@@ -161,6 +179,12 @@ function latestConfirmed<T extends { status: string; createdAt: number }>(items:
   return confirmed(latestByCreatedAt(items.filter((item) => item.status === "confirmed")));
 }
 
+function observationHasSignals(
+  observation: ObservationPackage | null | undefined,
+): observation is ObservationPackage {
+  return Boolean(observation && observation.signals.length > 0);
+}
+
 function getReadiness(state: AicsMainFlowState) {
   const latestObservation = latestByCreatedAt(state.observations);
   const latestAttribution = latestByCreatedAt(state.attributions);
@@ -170,12 +194,19 @@ function getReadiness(state: AicsMainFlowState) {
   const latestTaskPackage = latestByCreatedAt(state.taskPackages);
   const latestDispatchRequest = latestByCreatedAt(state.dispatchToRoleRequests);
   return {
-    canPrepareAttribution: Boolean(latestObservation),
+    canPrepareAttribution: observationHasSignals(latestObservation),
     canCreateGoalCandidate: Boolean(latestAttribution),
     canPreparePlanning: Boolean(latestConfirmedGoal),
     canCreateDispatchProposal: Boolean(latestConfirmedPlanning),
     canMaterializeTaskPackage: Boolean(latestConfirmedDispatch),
-    canRunApprovedTask: Boolean(latestTaskPackage && latestDispatchRequest),
+    canRunApprovedTask: Boolean(
+      latestTaskPackage &&
+      latestDispatchRequest &&
+      !(
+        (latestTaskPackage.status === "blocked" || latestDispatchRequest.status === "blocked") &&
+        latestDispatchRequest.capabilityRequestId
+      ),
+    ),
   };
 }
 
@@ -244,16 +275,302 @@ function requireGate(state: AicsMainFlowState, code: AicsMainFlowBlockedReason["
   }
 }
 
+function inferCategory(...texts: Array<string | undefined>): string {
+  const source = texts.filter(Boolean).join(" ").toLowerCase();
+  if (/岗位商城|岗位商品|授权转化|执行成功率|role marketplace|marketplace/.test(source))
+    return "岗位商城";
+  if (/电商|商品|主图|详情页|sku|商城|ecommerce/.test(source)) return "电商商品";
+  if (/短视频|视频|直播|douyin|抖音/.test(source)) return "内容视频";
+  if (/客服|售后|退款|投诉/.test(source)) return "客服售后";
+  if (/库存|供应链|采购|交期/.test(source)) return "供应链";
+  return "通用品类";
+}
+
+function categoryCommonCapability(category: string): AicsCapability {
+  const slug = category.replace(/\s+/g, "-").toLowerCase();
+  return {
+    id: `category_common:${slug}`,
+    scope: "category_common",
+    category,
+    label: `${category}通用能力`,
+    description:
+      "品类通用能力 = 已授权工具权限 + 通用 Skill，用于完成读取、分析、差距判断、建议和统一 JSON 输出。",
+    tools: [
+      { id: "tool.read.product_profile", label: "读取产品资料", kind: "read", status: "granted" },
+      {
+        id: "tool.read.business_context",
+        label: "读取经营上下文",
+        kind: "read",
+        status: "granted",
+      },
+      {
+        id: "tool.execute.report_draft",
+        label: "生成报告/建议草稿",
+        kind: "execute",
+        status: "granted",
+      },
+      {
+        id: "tool.high_risk.external_action",
+        label: "对外发布/改价/资金动作",
+        kind: "high_risk",
+        status: "needs_human_confirm",
+      },
+    ],
+    skills: [
+      {
+        id: "skill.current_to_target_gap",
+        label: "当前状态到目标状态差距分析",
+        version: "local-v1",
+        status: "granted",
+        outputSchema: "unified_json",
+      },
+      {
+        id: "skill.category_common_output",
+        label: `${category}通用输出规则`,
+        version: "local-v1",
+        status: "granted",
+        outputSchema: "unified_json",
+      },
+    ],
+    approvalStatus: "approved",
+    humanConfirmRequired: false,
+  };
+}
+
+function needsUniqueCapability(item: RolePlanItem): boolean {
+  const text =
+    `${item.title} ${item.taskIntent} ${item.expectedOutput} ${item.roleCapabilityRef}`.toLowerCase();
+  return /独特|专属|掌静脉|合规|comfy|发布|改价|退款|资金|采购|外部/.test(text);
+}
+
+function buildCapabilityReadModel(state: AicsMainFlowState): AicsMainFlowReadModel["capabilities"] {
+  const categoryByItem = new Map<string, string>();
+  for (const item of state.rolePlanItems) {
+    const planning = state.planningPackages.find((pkg) => pkg.id === item.planningPackageId);
+    const goal = planning ? state.goals.find((g) => g.id === planning.goalId) : undefined;
+    categoryByItem.set(
+      item.id,
+      item.category ??
+        inferCategory(
+          item.title,
+          item.taskIntent,
+          item.expectedOutput,
+          goal?.title,
+          goal?.rationale,
+        ),
+    );
+  }
+  const categories = [...new Set([...categoryByItem.values(), "通用品类"])];
+  const categoryCommon = categories.map(categoryCommonCapability);
+  const uniqueRequests: AicsUniqueCapabilityRequest[] = [];
+  const matches: AicsCapabilityMatchResult[] = [];
+
+  for (const item of state.rolePlanItems) {
+    const category = categoryByItem.get(item.id) ?? "通用品类";
+    const common =
+      categoryCommon.find((cap) => cap.category === category) ?? categoryCommonCapability(category);
+    const requestId = `unique_cap_req:${item.id}`;
+    const requiresUnique = needsUniqueCapability(item);
+    if (requiresUnique) {
+      uniqueRequests.push({
+        id: requestId,
+        category,
+        rolePlanItemId: item.id,
+        missingCapability: `${category}独特能力：${item.roleCapabilityRef}`,
+        capabilityType: "both",
+        neededTools: ["tool.execute.category_specific"],
+        neededSkills: [`skill.${category}.specific_rules`],
+        reason: "品类通用能力只能覆盖读取、分析、建议和统一输出；该任务需要额外 tool/skill 授权。",
+        riskLevel: item.humanConfirmationRequired ? "high" : "medium",
+        status: "requested",
+        humanConfirmRequired: true,
+      });
+    }
+    matches.push({
+      rolePlanItemId: item.id,
+      category,
+      requiredCapabilityRef: item.roleCapabilityRef,
+      commonCapabilityId: common.id,
+      ...(requiresUnique ? { uniqueCapabilityRequestId: requestId } : {}),
+      status: requiresUnique ? "needs_unique_capability" : "satisfied",
+      allowedTools: common.tools.filter((tool) => tool.status === "granted").map((tool) => tool.id),
+      allowedSkills: common.skills
+        .filter((skill) => skill.status === "granted")
+        .map((skill) => skill.id),
+      missingTools: requiresUnique ? ["tool.execute.category_specific"] : [],
+      missingSkills: requiresUnique ? [`skill.${category}.specific_rules`] : [],
+      summary: requiresUnique
+        ? "通用能力不足，必须先提交独特能力申请，确认 tool/skill 后才能执行。"
+        : "品类通用能力已满足，允许调度生成结构化任务包。",
+    });
+  }
+
+  return { categoryCommon, uniqueRequests, matches };
+}
+
+function checkStatus(done: boolean, ready: boolean, blocked = false): AicsOperationCheck["status"] {
+  if (done) return "done";
+  if (blocked) return "blocked";
+  return ready ? "ready" : "waiting";
+}
+
+function buildOperationChecks(params: {
+  state: AicsMainFlowState;
+  readiness: ReturnType<typeof getReadiness>;
+  blockedReasons: AicsMainFlowBlockedReason[];
+  capabilities: AicsMainFlowReadModel["capabilities"];
+}): AicsOperationCheck[] {
+  const { state, readiness, blockedReasons, capabilities } = params;
+  const latestTask = latestByCreatedAt(state.taskPackages);
+  const latestRequest = latestByCreatedAt(state.dispatchToRoleRequests);
+  const latestResult = latestByCreatedAt(state.roleResults);
+  const hasCapabilityBlock = capabilities.matches.some((match) => match.status !== "satisfied");
+  const hasRoleExecutionBlock =
+    latestTask?.status === "blocked" ||
+    latestRequest?.status === "blocked" ||
+    blockedReasons.some(
+      (reason) => reason.code === "authorization_required" || reason.code === "cost_not_confirmed",
+    );
+  const artifactRefs = latestResult?.artifactRefs ?? [];
+  const hasLedgerRef = artifactRefs.some((ref) => ref.startsWith("ledger:"));
+  const hasMemoryCandidateRef = artifactRefs.some((ref) => ref.startsWith("memory_candidate:"));
+
+  return [
+    {
+      id: "main_flow.observation",
+      title: "经营概览到数据分析",
+      layer: "main_flow",
+      status: checkStatus(state.observations.length > 0, Boolean(state.interactions.length)),
+      summary: "经营意图生成岗位商城观察包，覆盖岗位供给、授权转化、执行质量、费用和审核阻塞。",
+      routeTab: "observation",
+      nextAction:
+        state.observations.length > 0 ? "查看数据分析包" : "在经营概览发起岗位商城经营意图",
+    },
+    {
+      id: "main_flow.attribution",
+      title: "数据分析到归因分析",
+      layer: "main_flow",
+      status: checkStatus(state.attributions.length > 0, readiness.canPrepareAttribution),
+      summary: "归因层只解释岗位商城运营差距，不直接定目标或执行岗位。",
+      routeTab: "attribution",
+      nextAction: state.attributions.length > 0 ? "查看归因报告" : "基于观察信号生成归因报告",
+    },
+    {
+      id: "main_flow.goal",
+      title: "归因分析到公司目标",
+      layer: "main_flow",
+      status: checkStatus(Boolean(latestConfirmed(state.goals)), readiness.canCreateGoalCandidate),
+      summary: "目标层确认提升首批岗位授权转化与执行成功率。",
+      routeTab: "goals",
+      nextAction: latestConfirmed(state.goals) ? "查看已确认目标" : "创建并确认公司目标候选",
+    },
+    {
+      id: "main_flow.planning",
+      title: "公司目标到规划方案",
+      layer: "main_flow",
+      status: checkStatus(
+        Boolean(latestConfirmed(state.planningPackages)),
+        readiness.canPreparePlanning,
+      ),
+      summary: "规划层拆成岗位供给、详情页转化、执行质量、授权费用和审核治理。",
+      routeTab: "company",
+      nextAction: latestConfirmed(state.planningPackages) ? "查看规划方案" : "生成并确认规划方案",
+    },
+    {
+      id: "main_flow.dispatch",
+      title: "规划方案到任务调度",
+      layer: "main_flow",
+      status: checkStatus(
+        Boolean(latestConfirmed(state.dispatchProposalReviews)),
+        readiness.canCreateDispatchProposal,
+      ),
+      summary: "调度层是 TaskPackage 和 DispatchToRoleRequest 的唯一物化入口。",
+      routeTab: "workboard",
+      nextAction: latestConfirmed(state.dispatchProposalReviews)
+        ? "查看已确认调度"
+        : "创建并确认调度建议",
+    },
+    {
+      id: "main_flow.execution",
+      title: "任务调度到岗位执行",
+      layer: "main_flow",
+      status: checkStatus(
+        Boolean(latestResult),
+        readiness.canRunApprovedTask,
+        hasRoleExecutionBlock,
+      ),
+      summary: "岗位执行只能消费已授权、已确认费用的调度请求，并回写 RoleResult。",
+      routeTab: "aics",
+      ...(hasRoleExecutionBlock ? { blockedReason: "岗位授权、费用确认或能力匹配尚未完成。" } : {}),
+      nextAction: latestResult ? "查看岗位执行结果" : "在岗位执行页运行已授权调度请求",
+    },
+    {
+      id: "support.tools_skills",
+      title: "工具与 Skill 核对",
+      layer: "support",
+      status: checkStatus(
+        capabilities.matches.length > 0 && !hasCapabilityBlock,
+        capabilities.matches.length > 0,
+        hasCapabilityBlock,
+      ),
+      summary: "核对岗位所需能力是否已由通用品类能力、工具和 Skill 满足。",
+      routeTab: "skills",
+      ...(hasCapabilityBlock ? { blockedReason: "存在独特能力或 tool/skill 未满足项。" } : {}),
+      nextAction: hasCapabilityBlock ? "到工具与 Skill 处理能力缺口" : "能力满足后返回任务调度",
+    },
+    {
+      id: "support.usage_billing",
+      title: "费用与授权核对",
+      layer: "support",
+      status: checkStatus(
+        hasLedgerRef,
+        Boolean(latestRequest?.roleListingId),
+        hasRoleExecutionBlock && !hasLedgerRef,
+      ),
+      summary:
+        "核对 roleListingId、entitlementId、confirmExecution、costConfirmed 和 ledger 回写。",
+      routeTab: "usage",
+      ...(hasRoleExecutionBlock && !hasLedgerRef
+        ? { blockedReason: "缺少岗位授权、人工执行确认或本次费用确认。" }
+        : {}),
+      nextAction: hasLedgerRef ? "查看费用/ledger 回写" : "到费用与授权完成执行前确认",
+    },
+    {
+      id: "support.api_management",
+      title: "API 管理核对",
+      layer: "support",
+      status: checkStatus(Boolean(latestRequest?.roleListingId), state.rolePlanItems.length > 0),
+      summary: "核对云端岗位桥、岗位目录、授权状态和执行审计读取入口是否可用。",
+      routeTab: "apiManagement",
+      nextAction: latestRequest?.roleListingId
+        ? "API 桥已绑定到调度请求"
+        : "到 API 管理确认云端岗位桥配置",
+    },
+    {
+      id: "support.memory_audit",
+      title: "审计与记忆回写",
+      layer: "support",
+      status: checkStatus(hasMemoryCandidateRef, Boolean(latestResult)),
+      summary: "核对 RoleResult、artifact、audit、ledger 和 memory candidate 是否形成回写证据。",
+      routeTab: "businessOverview",
+      nextAction: hasMemoryCandidateRef ? "查看回写证据" : "执行岗位后生成记忆候选引用",
+    },
+  ];
+}
+
 export function createAicsMainFlowReadModel(state: AicsMainFlowState): AicsMainFlowReadModel {
   const blockedReasons = getAicsMainFlowBlockedReasons(state);
   const currentStage = blockedReasons[0]?.stage ?? "role";
+  const capabilities = buildCapabilityReadModel(state);
+  const readiness = getReadiness(state);
   return {
     version: AICS_MAIN_FLOW_VERSION,
     updatedAt: state.updatedAt,
     currentStage,
-    readiness: getReadiness(state),
+    readiness,
     blockedReasons,
     latest: {
+      interaction: latestByCreatedAt(state.interactions),
       observationPackage: latestByCreatedAt(state.observations),
       attributionReport: latestByCreatedAt(state.attributions),
       companyGoal: latestByCreatedAt(state.goals),
@@ -265,6 +582,7 @@ export function createAicsMainFlowReadModel(state: AicsMainFlowState): AicsMainF
       roleResult: latestByCreatedAt(state.roleResults),
     },
     counts: {
+      interactions: state.interactions.length,
       observations: state.observations.length,
       attributions: state.attributions.length,
       goals: state.goals.length,
@@ -275,6 +593,24 @@ export function createAicsMainFlowReadModel(state: AicsMainFlowState): AicsMainF
       dispatchToRoleRequests: state.dispatchToRoleRequests.length,
       roleResults: state.roleResults.length,
     },
+    objects: {
+      interactions: state.interactions,
+      observations: state.observations,
+      attributions: state.attributions,
+      goals: state.goals,
+      planningPackages: state.planningPackages,
+      rolePlanItems: state.rolePlanItems,
+      dispatchProposalReviews: state.dispatchProposalReviews,
+      taskPackages: state.taskPackages,
+      dispatchToRoleRequests: state.dispatchToRoleRequests,
+      roleResults: state.roleResults,
+    },
+    // managementBreakdown: 公司管理拆解数据
+    workBlocks: (state.workBlocks ?? []).filter((w) => !w.isStale),
+    workBlockRoles: state.workBlockRoles ?? [],
+    workBlockTaskCandidates: state.workBlockTaskCandidates ?? [],
+    operationChecks: buildOperationChecks({ state, readiness, blockedReasons, capabilities }),
+    capabilities,
   };
 }
 
@@ -323,17 +659,15 @@ export function prepareAttribution(
   input: PrepareAttributionInput,
   now = Date.now(),
 ): AttributionReport {
-  requireGate(state, "missing_observation_package");
   const observationPackageId =
     input.observationPackageId ?? latestByCreatedAt(state.observations)?.id;
-  if (
-    !observationPackageId ||
-    !state.observations.some((item) => item.id === observationPackageId)
-  ) {
+  const observation = state.observations.find((item) => item.id === observationPackageId);
+  if (!observation || !observationHasSignals(observation)) {
     throw new AicsMainFlowGateError({
       stage: "observation",
       code: "missing_observation_package",
-      message: "ObservationPackage is required before attribution.",
+      message:
+        "ObservationPackage with at least one observation signal is required before attribution.",
     });
   }
   const attribution: AttributionReport = {
@@ -357,14 +691,27 @@ export function createGoalCandidate(
   input: CreateGoalCandidateInput,
   now = Date.now(),
 ): CompanyGoal {
+  // CompanyGoal = 观察+归因+目标的共同结果，需要两层的门禁
   requireGate(state, "missing_attribution_report");
+  const observationPackageId =
+    input.observationPackageId ?? latestByCreatedAt(state.observations)?.id;
   const attributionReportId =
     input.attributionReportId ?? latestByCreatedAt(state.attributions)?.id;
+  const observation = state.observations.find((item) => item.id === observationPackageId);
+  if (!observationPackageId || !observationHasSignals(observation)) {
+    throw new AicsMainFlowGateError({
+      stage: "observation",
+      code: "missing_observation_package",
+      message:
+        "ObservationPackage with at least one observation signal is required before creating a CompanyGoal candidate. CompanyGoal 是观察+归因+目标三方共同确认的结果。",
+    });
+  }
   if (!attributionReportId || !state.attributions.some((item) => item.id === attributionReportId)) {
     throw new AicsMainFlowGateError({
       stage: "attribution",
       code: "missing_attribution_report",
-      message: "AttributionReport is required before creating goal rationale.",
+      message:
+        "AttributionReport is required before creating goal rationale. CompanyGoal 是观察+归因+目标三方共同确认的结果。",
     });
   }
   const goal: CompanyGoal = {
@@ -374,6 +721,7 @@ export function createGoalCandidate(
     ...timestamps(now),
     auditRefs: auditRefs(input),
     attributionReportId,
+    observationPackageId,
     title: input.title,
     owner: input.owner,
     metric: input.metric,
@@ -427,6 +775,7 @@ export function preparePlanning(
     auditRefs: auditRefs(item),
     planningPackageId,
     title: item.title,
+    ...(item.category ? { category: item.category } : {}),
     roleCapabilityRef: item.roleCapabilityRef,
     taskIntent: item.taskIntent,
     expectedOutput: item.expectedOutput,
@@ -557,10 +906,21 @@ export function materializeTaskPackage(
       message: "PlanningPackage is required before materializing a task package.",
     });
   }
+  const rolePlanItem = state.rolePlanItems.find((item) => item.id === proposal.rolePlanItemId);
+  const match = buildCapabilityReadModel(state).matches.find(
+    (item) => item.rolePlanItemId === proposal.rolePlanItemId,
+  );
+  const category =
+    match?.category ??
+    rolePlanItem?.category ??
+    inferCategory(rolePlanItem?.title, rolePlanItem?.taskIntent);
+  const requiredCapabilityRefs = rolePlanItem?.roleCapabilityRef
+    ? [rolePlanItem.roleCapabilityRef]
+    : [];
   const taskPackage: TaskPackage = {
     kind: "TaskPackage",
     id: makeId("task_pkg", input.id),
-    status: "materialized",
+    status: match?.status === "needs_unique_capability" ? "blocked" : "materialized",
     ...timestamps(now),
     auditRefs: auditRefs(input),
     goalId: planning.goalId,
@@ -569,15 +929,24 @@ export function materializeTaskPackage(
     dispatchProposalReviewId: proposal.id,
     title: input.title,
     taskText: input.taskText,
+    category,
+    requiredCapabilityRefs,
   };
   const dispatchToRoleRequest: DispatchToRoleRequest = {
     kind: "DispatchToRoleRequest",
     id: makeId("dispatch_role_req", input.request?.id),
-    status: "ready",
+    status: match?.status === "needs_unique_capability" ? "blocked" : "ready",
     ...timestamps(now),
     auditRefs: auditRefs(input.request),
     taskPackageId: taskPackage.id,
     rolePlanItemId: proposal.rolePlanItemId,
+    category,
+    requiredCapabilityRefs,
+    allowedTools: match?.allowedTools ?? [],
+    allowedSkills: match?.allowedSkills ?? [],
+    ...(match?.uniqueCapabilityRequestId
+      ? { capabilityRequestId: match.uniqueCapabilityRequestId }
+      : {}),
     ...(input.request?.roleListingId ? { roleListingId: input.request.roleListingId } : {}),
     ...(input.request?.roleTitle ? { roleTitle: input.request.roleTitle } : {}),
     ...(input.request?.workspaceDir ? { workspaceDir: input.request.workspaceDir } : {}),
@@ -617,10 +986,58 @@ export function runApprovedTask(
       message: "DispatchToRoleRequest is required before role execution.",
     });
   }
+  if (taskPackage.status === "blocked" || request.status === "blocked") {
+    if (request.capabilityRequestId) {
+      throw new AicsMainFlowGateError({
+        stage: "role",
+        code: "missing_dispatch_to_role_request",
+        message:
+          "DispatchToRoleRequest is blocked by missing category capability. Confirm the required tool/skill capability before role execution.",
+      });
+    }
+  }
+  if (!request.roleListingId && input.roleListingId) {
+    request.roleListingId = input.roleListingId;
+  }
+  if (!request.roleTitle && input.roleTitle) {
+    request.roleTitle = input.roleTitle;
+  }
+  const missingAuthorization =
+    !request.roleListingId || !input.entitlementId || input.confirmExecution !== true;
+  if (missingAuthorization) {
+    request.status = "blocked";
+    request.updatedAt = now;
+    taskPackage.status = "blocked";
+    taskPackage.updatedAt = now;
+    state.updatedAt = now;
+    throw new AicsMainFlowGateError({
+      stage: "role",
+      code: "authorization_required",
+      message:
+        "岗位执行需要先完成岗位授权和人工执行确认。请到「费用与授权」确认 roleListingId、entitlementId 和 confirmExecution 后再运行。",
+    });
+  }
+  if (input.costConfirmed !== true) {
+    request.status = "blocked";
+    request.updatedAt = now;
+    taskPackage.status = "blocked";
+    taskPackage.updatedAt = now;
+    state.updatedAt = now;
+    throw new AicsMainFlowGateError({
+      stage: "role",
+      code: "cost_not_confirmed",
+      message: "岗位执行需要先确认本次费用。请到「费用与授权」确认 costConfirmed 后再运行。",
+    });
+  }
   request.status = input.result ? "completed" : "running";
   request.updatedAt = now;
   taskPackage.status = input.result ? "completed" : "running";
   taskPackage.updatedAt = now;
+  const artifactRefs = [
+    ...(input.result?.artifactRefs ? [...input.result.artifactRefs] : []),
+    ...(input.ledgerRef ? [input.ledgerRef] : []),
+    ...(input.memoryCandidateRef ? [input.memoryCandidateRef] : []),
+  ];
   const roleResult: RoleResult | null = input.result
     ? {
         kind: "RoleResult" as const,
@@ -632,7 +1049,7 @@ export function runApprovedTask(
         dispatchToRoleRequestId: request.id,
         outcome: input.result.outcome,
         summary: input.result.summary,
-        artifactRefs: input.result.artifactRefs ? [...input.result.artifactRefs] : [],
+        artifactRefs,
       }
     : null;
   if (roleResult) {
@@ -642,50 +1059,619 @@ export function runApprovedTask(
   return { dispatchToRoleRequest: request, roleResult };
 }
 
-function loadStateFromPath(storePath: string): AicsMainFlowState {
-  if (!fs.existsSync(storePath)) {
-    return createEmptyAicsMainFlowState();
+// ═══ SQLite persistence ═══
+
+function loadStateFromSqlite(): AicsMainFlowState {
+  const db = getPipelineDb();
+  const all = (sql: string, ...params: unknown[]): Record<string, unknown>[] =>
+    db.prepare(sql).all(...(params as any)) as Record<string, unknown>[];
+
+  const observations: ObservationPackage[] = [];
+  for (const row of all("SELECT * FROM observations ORDER BY created_at")) {
+    const signals = all("SELECT * FROM observation_signals WHERE observation_id = ?", row.id);
+    observations.push({
+      kind: "ObservationPackage",
+      id: row.id as string,
+      status: row.status as ObservationPackage["status"],
+      createdAt: row.created_at as number,
+      updatedAt: row.updated_at as number,
+      auditRefs: JSON.parse((row.audit_refs as string) || "[]"),
+      title: row.title as string,
+      summary: row.summary as string,
+      signals: signals.map((s) => ({
+        id: s.id as string,
+        title: s.title as string,
+        summary: s.summary as string,
+        evidenceRefs: JSON.parse((s.evidence_refs as string) || "[]"),
+      })),
+    });
   }
-  const parsed = JSON.parse(fs.readFileSync(storePath, "utf-8")) as AicsMainFlowState;
-  if (parsed.version !== AICS_MAIN_FLOW_VERSION) {
-    return createEmptyAicsMainFlowState();
+
+  const attributions: AttributionReport[] = [];
+  for (const row of all("SELECT * FROM attributions ORDER BY created_at")) {
+    const findings = all("SELECT * FROM attribution_findings WHERE attribution_id = ?", row.id);
+    attributions.push({
+      kind: "AttributionReport",
+      id: row.id as string,
+      status: row.status as AttributionReport["status"],
+      createdAt: row.created_at as number,
+      updatedAt: row.updated_at as number,
+      auditRefs: JSON.parse((row.audit_refs as string) || "[]"),
+      observationPackageId: row.observation_package_id as string,
+      title: row.title as string,
+      summary: row.summary as string,
+      findings: findings.map((f) => ({
+        id: f.id as string,
+        title: f.title as string,
+        summary: f.summary as string,
+        confidence: f.confidence as "low" | "medium" | "high",
+        observationSignalIds: JSON.parse((f.observation_signal_ids as string) || "[]"),
+      })),
+    });
   }
-  return parsed;
+
+  const goals: CompanyGoal[] = all("SELECT * FROM goals ORDER BY created_at").map((row) => ({
+    kind: "CompanyGoal" as const,
+    id: row.id as string,
+    status: row.status as CompanyGoal["status"],
+    createdAt: row.created_at as number,
+    updatedAt: row.updated_at as number,
+    auditRefs: JSON.parse((row.audit_refs as string) || "[]"),
+    attributionReportId: row.attribution_report_id as string,
+    observationPackageId: row.observation_package_id as string | undefined,
+    title: row.title as string,
+    owner: row.owner as string,
+    metric: row.metric as string,
+    target: row.target as string,
+    rationale: row.rationale as string,
+  }));
+
+  const planningPackages: PlanningPackage[] = [];
+  for (const row of all("SELECT * FROM planning_packages ORDER BY created_at")) {
+    const items = all("SELECT * FROM role_plan_items WHERE planning_package_id = ?", row.id);
+    planningPackages.push({
+      kind: "PlanningPackage",
+      id: row.id as string,
+      status: row.status as PlanningPackage["status"],
+      createdAt: row.created_at as number,
+      updatedAt: row.updated_at as number,
+      auditRefs: JSON.parse((row.audit_refs as string) || "[]"),
+      goalId: row.goal_id as string,
+      title: row.title as string,
+      summary: row.summary as string,
+      rolePlanItemIds: items.map((r) => r.id as string),
+    });
+  }
+
+  const allRolePlanItems: RolePlanItem[] = all(
+    "SELECT * FROM role_plan_items ORDER BY created_at",
+  ).map((row) => ({
+    kind: "RolePlanItem",
+    id: row.id as string,
+    status: row.status as RolePlanItem["status"],
+    createdAt: row.created_at as number,
+    updatedAt: row.updated_at as number,
+    auditRefs: JSON.parse((row.audit_refs as string) || "[]"),
+    planningPackageId: row.planning_package_id as string,
+    title: row.title as string,
+    roleCapabilityRef: row.role_capability_ref as string,
+    taskIntent: row.task_intent as string,
+    expectedOutput: row.expected_output as string,
+    humanConfirmationRequired: Boolean(row.human_confirmation_required),
+  }));
+
+  const dispatchProposalReviews: DispatchProposalReview[] = all(
+    "SELECT * FROM dispatch_proposal_reviews ORDER BY created_at",
+  ).map((row) => ({
+    kind: "DispatchProposalReview" as const,
+    id: row.id as string,
+    status: row.status as DispatchProposalReview["status"],
+    createdAt: row.created_at as number,
+    updatedAt: row.updated_at as number,
+    auditRefs: JSON.parse((row.audit_refs as string) || "[]"),
+    planningPackageId: row.planning_package_id as string,
+    rolePlanItemId: row.role_plan_item_id as string,
+    title: row.title as string,
+    riskSummary: row.risk_summary as string,
+    confirmationSummary: row.confirmation_summary as string,
+  }));
+
+  const taskPackages: TaskPackage[] = all("SELECT * FROM task_packages ORDER BY created_at").map(
+    (row) => ({
+      kind: "TaskPackage" as const,
+      id: row.id as string,
+      status: row.status as TaskPackage["status"],
+      createdAt: row.created_at as number,
+      updatedAt: row.updated_at as number,
+      auditRefs: JSON.parse((row.audit_refs as string) || "[]"),
+      goalId: row.goal_id as string,
+      planningPackageId: row.planning_package_id as string,
+      rolePlanItemId: row.role_plan_item_id as string,
+      dispatchProposalReviewId: row.dispatch_proposal_review_id as string,
+      title: row.title as string,
+      taskText: row.task_text as string,
+    }),
+  );
+
+  const dispatchToRoleRequests: DispatchToRoleRequest[] = all(
+    "SELECT * FROM dispatch_to_role_requests ORDER BY created_at",
+  ).map((row) => {
+    const r: DispatchToRoleRequest = {
+      kind: "DispatchToRoleRequest" as const,
+      id: row.id as string,
+      status: row.status as DispatchToRoleRequest["status"],
+      createdAt: row.created_at as number,
+      updatedAt: row.updated_at as number,
+      auditRefs: JSON.parse((row.audit_refs as string) || "[]"),
+      taskPackageId: row.task_package_id as string,
+      rolePlanItemId: row.role_plan_item_id as string,
+      confirmExecution: Boolean(row.confirm_execution) as true,
+    };
+    if (row.role_listing_id) r.roleListingId = row.role_listing_id as string;
+    if (row.role_title) r.roleTitle = row.role_title as string;
+    if (row.workspace_dir) r.workspaceDir = row.workspace_dir as string;
+    return r;
+  });
+
+  const roleResults: RoleResult[] = all("SELECT * FROM role_results ORDER BY created_at").map(
+    (row) => ({
+      kind: "RoleResult" as const,
+      id: row.id as string,
+      status: row.status as RoleResult["status"],
+      createdAt: row.created_at as number,
+      updatedAt: row.updated_at as number,
+      auditRefs: JSON.parse((row.audit_refs as string) || "[]"),
+      taskPackageId: row.task_package_id as string,
+      dispatchToRoleRequestId: row.dispatch_to_role_request_id as string,
+      outcome: row.outcome as RoleResult["outcome"],
+      summary: row.summary as string,
+      artifactRefs: JSON.parse((row.artifact_refs as string) || "[]"),
+    }),
+  );
+
+  // managementBreakdown
+  const workBlocks = all("SELECT * FROM work_blocks WHERE is_stale = 0 ORDER BY created_at").map(
+    (r) => ({
+      id: r.id as string,
+      goalId: r.goal_id as string,
+      name: r.name as string,
+      purpose: r.purpose as string,
+      progressGauge: r.progress_gauge as string,
+      status: r.status as string,
+      blockedReason: r.blocked_reason as string | undefined,
+      nextConfirm: r.next_confirm as string | undefined,
+      revision: r.revision as number,
+      isStale: Boolean(r.is_stale),
+      createdAt: r.created_at as number,
+      updatedAt: r.updated_at as number,
+    }),
+  );
+  const workBlockRoles = all("SELECT * FROM work_block_roles ORDER BY created_at").map((r) => ({
+    id: r.id as string,
+    workBlockId: r.work_block_id as string,
+    roleListingId: r.role_listing_id as string,
+    roleTitle: r.role_title as string,
+    status: r.status as string,
+    createdAt: r.created_at as number,
+    updatedAt: r.updated_at as number,
+  }));
+  const workBlockTaskCandidates = all(
+    "SELECT * FROM work_block_task_candidates ORDER BY created_at",
+  ).map((r) => ({
+    id: r.id as string,
+    workBlockId: r.work_block_id as string,
+    roleId: r.role_id as string | undefined,
+    title: r.title as string,
+    targetDeliverable: r.target_deliverable as string,
+    status: r.status as string,
+    completionPct: r.completion_pct as number,
+    blockedReason: r.blocked_reason as string | undefined,
+    nextConfirm: r.next_confirm as string | undefined,
+    createdAt: r.created_at as number,
+    updatedAt: r.updated_at as number,
+  }));
+
+  return {
+    version: AICS_MAIN_FLOW_VERSION,
+    updatedAt: Date.now(),
+    interactions: [],
+    observations,
+    attributions,
+    goals,
+    planningPackages,
+    rolePlanItems: allRolePlanItems,
+    dispatchProposalReviews,
+    taskPackages,
+    dispatchToRoleRequests,
+    roleResults,
+    workBlocks,
+    workBlockRoles,
+    workBlockTaskCandidates,
+  };
 }
 
-function saveStateToPath(storePath: string, state: AicsMainFlowState): void {
-  fs.mkdirSync(path.dirname(storePath), { recursive: true, mode: 0o700 });
-  const tempPath = `${storePath}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tempPath, `${JSON.stringify(state, null, 2)}\n`, {
-    encoding: "utf-8",
-    mode: 0o600,
-  });
-  fs.renameSync(tempPath, storePath);
+function syncStateToSqlite(state: AicsMainFlowState): void {
+  const db = getPipelineDb();
+  const run = (sql: string, ...params: unknown[]) => db.prepare(sql).run(...(params as any));
+
+  for (const t of [
+    "role_results",
+    "dispatch_to_role_requests",
+    "task_packages",
+    "dispatch_proposal_reviews",
+    "role_plan_items",
+    "planning_packages",
+    "work_block_task_candidates",
+    "work_block_roles",
+    "work_blocks",
+    "goals",
+    "attribution_findings",
+    "attributions",
+    "observation_signals",
+    "observations",
+  ]) {
+    run(`DELETE FROM ${t}`);
+  }
+
+  for (const o of state.observations) {
+    run(
+      "INSERT INTO observations(id,status,title,summary,created_at,updated_at,audit_refs) VALUES(?,?,?,?,?,?,?)",
+      o.id,
+      o.status,
+      o.title,
+      o.summary,
+      o.createdAt,
+      o.updatedAt,
+      JSON.stringify(o.auditRefs),
+    );
+    for (const s of o.signals)
+      run(
+        "INSERT INTO observation_signals(id,observation_id,title,summary,evidence_refs) VALUES(?,?,?,?,?)",
+        s.id,
+        o.id,
+        s.title,
+        s.summary,
+        JSON.stringify(s.evidenceRefs),
+      );
+  }
+  for (const a of state.attributions) {
+    run(
+      "INSERT INTO attributions(id,status,observation_package_id,title,summary,created_at,updated_at,audit_refs) VALUES(?,?,?,?,?,?,?,?)",
+      a.id,
+      a.status,
+      a.observationPackageId,
+      a.title,
+      a.summary,
+      a.createdAt,
+      a.updatedAt,
+      JSON.stringify(a.auditRefs),
+    );
+    for (const f of a.findings)
+      run(
+        "INSERT INTO attribution_findings(id,attribution_id,title,summary,confidence,observation_signal_ids) VALUES(?,?,?,?,?,?)",
+        f.id,
+        a.id,
+        f.title,
+        f.summary,
+        f.confidence,
+        JSON.stringify(f.observationSignalIds),
+      );
+  }
+  for (const g of state.goals)
+    run(
+      "INSERT INTO goals(id,status,attribution_report_id,observation_package_id,title,owner,metric,target,rationale,created_at,updated_at,audit_refs) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+      g.id,
+      g.status,
+      g.attributionReportId,
+      g.observationPackageId ?? null,
+      g.title,
+      g.owner,
+      g.metric,
+      g.target,
+      g.rationale,
+      g.createdAt,
+      g.updatedAt,
+      JSON.stringify(g.auditRefs),
+    );
+  for (const p of state.planningPackages)
+    run(
+      "INSERT INTO planning_packages(id,status,goal_id,title,summary,created_at,updated_at,audit_refs) VALUES(?,?,?,?,?,?,?,?)",
+      p.id,
+      p.status,
+      p.goalId,
+      p.title,
+      p.summary,
+      p.createdAt,
+      p.updatedAt,
+      JSON.stringify(p.auditRefs),
+    );
+  for (const r of state.rolePlanItems)
+    run(
+      "INSERT INTO role_plan_items(id,status,planning_package_id,title,role_capability_ref,task_intent,expected_output,human_confirmation_required,created_at,updated_at,audit_refs) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+      r.id,
+      r.status,
+      r.planningPackageId,
+      r.title,
+      r.roleCapabilityRef,
+      r.taskIntent,
+      r.expectedOutput,
+      r.humanConfirmationRequired ? 1 : 0,
+      r.createdAt,
+      r.updatedAt,
+      JSON.stringify(r.auditRefs),
+    );
+  for (const d of state.dispatchProposalReviews)
+    run(
+      "INSERT INTO dispatch_proposal_reviews(id,status,planning_package_id,role_plan_item_id,title,risk_summary,confirmation_summary,created_at,updated_at,audit_refs) VALUES(?,?,?,?,?,?,?,?,?,?)",
+      d.id,
+      d.status,
+      d.planningPackageId,
+      d.rolePlanItemId,
+      d.title,
+      d.riskSummary,
+      d.confirmationSummary,
+      d.createdAt,
+      d.updatedAt,
+      JSON.stringify(d.auditRefs),
+    );
+  for (const t of state.taskPackages)
+    run(
+      "INSERT INTO task_packages(id,status,goal_id,planning_package_id,role_plan_item_id,dispatch_proposal_review_id,title,task_text,created_at,updated_at,audit_refs) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+      t.id,
+      t.status,
+      t.goalId,
+      t.planningPackageId,
+      t.rolePlanItemId,
+      t.dispatchProposalReviewId,
+      t.title,
+      t.taskText,
+      t.createdAt,
+      t.updatedAt,
+      JSON.stringify(t.auditRefs),
+    );
+  for (const r of state.dispatchToRoleRequests)
+    run(
+      "INSERT INTO dispatch_to_role_requests(id,status,task_package_id,role_plan_item_id,role_listing_id,role_title,workspace_dir,confirm_execution,created_at,updated_at,audit_refs) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+      r.id,
+      r.status,
+      r.taskPackageId,
+      r.rolePlanItemId,
+      r.roleListingId ?? null,
+      r.roleTitle ?? null,
+      r.workspaceDir ?? null,
+      1,
+      r.createdAt,
+      r.updatedAt,
+      JSON.stringify(r.auditRefs),
+    );
+  for (const r of state.roleResults)
+    run(
+      "INSERT INTO role_results(id,status,task_package_id,dispatch_to_role_request_id,outcome,summary,artifact_refs,created_at,updated_at,audit_refs) VALUES(?,?,?,?,?,?,?,?,?,?)",
+      r.id,
+      r.status,
+      r.taskPackageId,
+      r.dispatchToRoleRequestId,
+      r.outcome,
+      r.summary,
+      JSON.stringify(r.artifactRefs),
+      r.createdAt,
+      r.updatedAt,
+      JSON.stringify(r.auditRefs),
+    );
+
+  // managementBreakdown
+  for (const w of state.workBlocks ?? [])
+    run(
+      "INSERT INTO work_blocks(id,goal_id,name,purpose,progress_gauge,status,blocked_reason,next_confirm,revision,is_stale,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+      w.id,
+      w.goalId,
+      w.name,
+      w.purpose,
+      w.progressGauge,
+      w.status,
+      w.blockedReason ?? null,
+      w.nextConfirm ?? null,
+      w.revision,
+      w.isStale ? 1 : 0,
+      w.createdAt,
+      w.updatedAt,
+    );
+  for (const r of state.workBlockRoles ?? [])
+    run(
+      "INSERT INTO work_block_roles(id,work_block_id,role_listing_id,role_title,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+      r.id,
+      r.workBlockId,
+      r.roleListingId,
+      r.roleTitle,
+      r.status,
+      r.createdAt,
+      r.updatedAt,
+    );
+  for (const t of state.workBlockTaskCandidates ?? [])
+    run(
+      "INSERT INTO work_block_task_candidates(id,work_block_id,role_id,title,target_deliverable,status,completion_pct,blocked_reason,next_confirm,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+      t.id,
+      t.workBlockId,
+      t.roleId ?? null,
+      t.title,
+      t.targetDeliverable,
+      t.status,
+      t.completionPct,
+      t.blockedReason ?? null,
+      t.nextConfirm ?? null,
+      t.createdAt,
+      t.updatedAt,
+    );
 }
 
 export class AicsMainFlowStore {
-  readonly storePath: string;
-
-  constructor(storePath = resolveAicsMainFlowStorePath()) {
-    this.storePath = storePath;
+  constructor(private readonly statePath?: string) {
+    if (!statePath) createPipelineTables();
   }
-
-  load(): AicsMainFlowState {
-    return loadStateFromPath(this.storePath);
+  private readState(): AicsMainFlowState {
+    if (!this.statePath) return loadStateFromSqlite();
+    if (!fs.existsSync(this.statePath)) return createEmptyAicsMainFlowState();
+    return JSON.parse(fs.readFileSync(this.statePath, "utf8")) as AicsMainFlowState;
   }
-
-  save(state: AicsMainFlowState): void {
-    saveStateToPath(this.storePath, state);
+  private writeState(state: AicsMainFlowState): void {
+    if (!this.statePath) {
+      syncStateToSqlite(state);
+      return;
+    }
+    fs.mkdirSync(path.dirname(this.statePath), { recursive: true });
+    fs.writeFileSync(this.statePath, JSON.stringify(state, null, 2));
   }
-
   readModel(): AicsMainFlowReadModel {
-    return createAicsMainFlowReadModel(this.load());
+    return createAicsMainFlowReadModel(this.readState());
   }
-
   update<T>(mutate: (state: AicsMainFlowState) => T): T {
-    const state = cloneState(this.load());
+    const state = this.readState();
     const result = mutate(state);
-    this.save(state);
+    this.writeState(state);
     return result;
   }
+}
+
+// ═══ managementBreakdown ═══
+
+export type WorkBlock = {
+  id: string;
+  goalId: string;
+  name: string;
+  purpose: string;
+  progressGauge: string;
+  status: "pending" | "in_progress" | "completed" | "blocked";
+  blockedReason?: string;
+  nextConfirm?: string;
+  revision: number;
+  isStale: boolean;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type WorkBlockRole = {
+  id: string;
+  workBlockId: string;
+  roleListingId: string;
+  roleTitle: string;
+  status: "assigned" | "authorized" | "executing";
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type WorkBlockTaskCandidate = {
+  id: string;
+  workBlockId: string;
+  roleId?: string;
+  title: string;
+  targetDeliverable: string;
+  status: "candidate" | "dispatched" | "running" | "completed";
+  completionPct: number;
+  blockedReason?: string;
+  nextConfirm?: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export function createWorkBlocks(
+  state: AicsMainFlowState,
+  goalId: string,
+  blocks: Array<{
+    name: string;
+    purpose: string;
+    progressGauge: string;
+    roles?: Array<{ roleListingId: string; roleTitle: string }>;
+    tasks?: Array<{ title: string; targetDeliverable: string }>;
+  }>,
+  now = Date.now(),
+): WorkBlock[] {
+  const goal = state.goals.find((g) => g.id === goalId);
+  if (!goal) throw new Error(`Goal not found: ${goalId}`);
+  if (goal.status !== "confirmed")
+    throw new Error("只有已确认的 CompanyGoal 才能生成公司管理拆解。");
+
+  // 旧拆解标记 stale
+  for (const wb of state.workBlocks ?? []) {
+    if (wb.goalId === goalId) wb.isStale = true;
+  }
+  const revision = (state.workBlocks?.filter((w) => w.goalId === goalId).length ?? 0) + 1;
+
+  const results: WorkBlock[] = [];
+  state.workBlocks = state.workBlocks ?? [];
+  state.workBlockRoles = state.workBlockRoles ?? [];
+  state.workBlockTaskCandidates = state.workBlockTaskCandidates ?? [];
+
+  for (const b of blocks) {
+    const wb: WorkBlock = {
+      id: makeId("wb"),
+      goalId,
+      name: b.name,
+      purpose: b.purpose,
+      progressGauge: b.progressGauge,
+      status: "pending",
+      revision,
+      isStale: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    state.workBlocks.push(wb);
+
+    for (const r of b.roles ?? []) {
+      state.workBlockRoles!.push({
+        id: makeId("wbr"),
+        workBlockId: wb.id,
+        roleListingId: r.roleListingId,
+        roleTitle: r.roleTitle,
+        status: "assigned",
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    for (const t of b.tasks ?? []) {
+      state.workBlockTaskCandidates!.push({
+        id: makeId("wbtc"),
+        workBlockId: wb.id,
+        title: t.title,
+        targetDeliverable: t.targetDeliverable,
+        status: "candidate",
+        completionPct: 0,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    results.push(wb);
+  }
+  state.updatedAt = now;
+  return results;
+}
+
+export function listWorkBlocks(
+  state: AicsMainFlowState,
+  goalId: string,
+): Array<WorkBlock & { roles: WorkBlockRole[]; tasks: WorkBlockTaskCandidate[] }> {
+  return (state.workBlocks ?? [])
+    .filter((w) => w.goalId === goalId)
+    .map((w) => ({
+      ...w,
+      status: w.status as WorkBlock["status"],
+      roles: (state.workBlockRoles ?? []).filter((r) => r.workBlockId === w.id) as WorkBlockRole[],
+      tasks: (state.workBlockTaskCandidates ?? []).filter(
+        (t) => t.workBlockId === w.id,
+      ) as WorkBlockTaskCandidate[],
+    })) as Array<WorkBlock & { roles: WorkBlockRole[]; tasks: WorkBlockTaskCandidate[] }>;
+}
+
+export function dispatchTaskCandidate(
+  state: AicsMainFlowState,
+  taskCandidateId: string,
+  now = Date.now(),
+): WorkBlockTaskCandidate {
+  const task = (state.workBlockTaskCandidates ?? []).find((t) => t.id === taskCandidateId);
+  if (!task) throw new Error(`Task candidate not found: ${taskCandidateId}`);
+  task.status = "dispatched" as WorkBlockTaskCandidate["status"];
+  task.updatedAt = now;
+  state.updatedAt = now;
+  return task as WorkBlockTaskCandidate;
 }

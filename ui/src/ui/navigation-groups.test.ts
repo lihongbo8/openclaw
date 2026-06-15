@@ -14,13 +14,18 @@ describe("TAB_GROUPS", () => {
         label: "main",
         tabs: [
           "chat",
-          "aics",
+          "businessOverview",
+          "observation",
+          "attribution",
+          "goals",
+          "company",
           "workboard",
-          "usage",
+          "aics",
           "skills",
+          "apiManagement",
+          "usage",
           "sessions",
           "dreams",
-          "marketplace",
           "config",
         ],
       },
@@ -29,45 +34,8 @@ describe("TAB_GROUPS", () => {
   });
 
   it("moves legacy technical routes into settings groups", () => {
-    expect(SETTINGS_NAV_GROUPS).toEqual([
-      { label: "基础设置", tabs: ["config", "channels", "communications", "appearance"] },
-      {
-        label: "开发者工具",
-        tabs: [
-          "automation",
-          "mcp",
-          "infrastructure",
-          "aiAgents",
-          "agents",
-          "skillWorkshop",
-          "nodes",
-          "cron",
-        ],
-      },
-      {
-        label: "高级诊断",
-        tabs: ["overview", "activity", "instances", "debug", "logs"],
-      },
-    ]);
-    expect(SETTINGS_TABS).toEqual([
-      "config",
-      "channels",
-      "communications",
-      "appearance",
-      "automation",
-      "mcp",
-      "infrastructure",
-      "aiAgents",
-      "agents",
-      "skillWorkshop",
-      "nodes",
-      "cron",
-      "overview",
-      "activity",
-      "instances",
-      "debug",
-      "logs",
-    ]);
+    expect(SETTINGS_NAV_GROUPS).toEqual([{ label: "Settings", tabs: ["appearance"] }]);
+    expect(SETTINGS_TABS).toEqual(["appearance"]);
   });
 
   it("routes every published settings slice", () => {

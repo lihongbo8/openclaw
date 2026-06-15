@@ -18,6 +18,12 @@ import {
 
 type RequestFn = (method: string, params?: unknown) => Promise<unknown>;
 
+const DEFAULT_SESSION_DEFAULTS = {
+  modelProvider: "openai",
+  model: "gpt-5.5",
+  contextTokens: null,
+};
+
 function createDeferred<T>() {
   let resolve: ((value: T) => void) | undefined;
   let reject: ((reason?: unknown) => void) | undefined;
@@ -445,6 +451,103 @@ describe("deleteSessionsAndRefresh", () => {
 
     expect(deleted).toStrictEqual([]);
     expect(request).not.toHaveBeenCalled();
+  });
+
+  it("hides the current main session instead of deleting it", async () => {
+    const request = vi.fn(async () => undefined);
+    const state = createState(request, {
+      sessionKey: "agent:main:main",
+      agentsList: { defaultId: "main", mainKey: "agent:main:main" },
+      sessionsResult: {
+        ts: 1,
+        path: "(multiple)",
+        count: 2,
+        defaults: DEFAULT_SESSION_DEFAULTS,
+        sessions: [
+          { key: "agent:main:main", kind: "direct", updatedAt: 2 },
+          { key: "key-a", kind: "direct", updatedAt: 1 },
+        ],
+      },
+    });
+    (state as SessionsState & { sessionsSelectedKeys: Set<string> }).sessionsSelectedKeys = new Set(
+      ["agent:main:main"],
+    );
+
+    const deleted = await deleteSessionsAndRefresh(state, ["agent:main:main"]);
+
+    expect(deleted).toStrictEqual([]);
+    expect(request).not.toHaveBeenCalled();
+    expect(state.sessionsResult?.sessions.map((row) => row.key)).toEqual(["key-a"]);
+    expect(
+      (state as SessionsState & { sessionsSelectedKeys: Set<string> }).sessionsSelectedKeys,
+    ).toEqual(new Set());
+    expect(state.sessionsError).toContain("已从最近列表隐藏");
+    expect(state.sessionsError).toContain("没有删除");
+  });
+
+  it("does not hide protected sessions when a mixed delete is cancelled", async () => {
+    const request = vi.fn(async () => undefined);
+    const state = createState(request, {
+      sessionKey: "agent:main:main",
+      agentsList: { defaultId: "main", mainKey: "agent:main:main" },
+      sessionsResult: {
+        ts: 1,
+        path: "(multiple)",
+        count: 2,
+        defaults: DEFAULT_SESSION_DEFAULTS,
+        sessions: [
+          { key: "agent:main:main", kind: "direct", updatedAt: 2 },
+          { key: "key-a", kind: "direct", updatedAt: 1 },
+        ],
+      },
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    const deleted = await deleteSessionsAndRefresh(state, ["agent:main:main", "key-a"]);
+
+    expect(deleted).toStrictEqual([]);
+    expect(request).not.toHaveBeenCalled();
+    expect(state.sessionsResult?.sessions.map((row) => row.key)).toEqual([
+      "agent:main:main",
+      "key-a",
+    ]);
+  });
+
+  it("hides protected sessions and deletes ordinary sessions after confirmation", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "sessions.delete") {
+        return { ok: true };
+      }
+      if (method === "sessions.list") {
+        return undefined;
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+    const state = createState(request, {
+      sessionKey: "agent:main:main",
+      agentsList: { defaultId: "main", mainKey: "agent:main:main" },
+      sessionsResult: {
+        ts: 1,
+        path: "(multiple)",
+        count: 2,
+        defaults: DEFAULT_SESSION_DEFAULTS,
+        sessions: [
+          { key: "agent:main:main", kind: "direct", updatedAt: 2 },
+          { key: "key-a", kind: "direct", updatedAt: 1 },
+        ],
+      },
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const deleted = await deleteSessionsAndRefresh(state, ["agent:main:main", "key-a"]);
+
+    expect(deleted).toEqual(["key-a"]);
+    expect(request).toHaveBeenNthCalledWith(1, "sessions.delete", {
+      key: "key-a",
+      deleteTranscript: true,
+    });
+    expect(state.sessionsResult?.sessions.map((row) => row.key)).toEqual(["key-a"]);
+    expect(state.sessionsError).toContain("已从最近列表隐藏");
   });
 
   it("returns partial results when some deletes fail", async () => {

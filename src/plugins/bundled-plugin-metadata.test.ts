@@ -32,6 +32,7 @@ const BUNDLED_PLUGIN_METADATA_TEST_TIMEOUT_MS = 300_000;
 const EXPECTED_BUNDLED_STARTUP_PLUGIN_IDS = [
   "acpx",
   "active-memory",
+  "aics",
   "bonjour",
   "browser",
   "canvas",
@@ -56,6 +57,7 @@ const EXPECTED_BUNDLED_STARTUP_PLUGIN_IDS = [
 ] as const;
 const EXPECTED_EMPTY_CONFIG_GATEWAY_STARTUP_PLUGIN_IDS = [
   "acpx",
+  "aics",
   "browser",
   "canvas",
   "device-pair",
@@ -63,6 +65,7 @@ const EXPECTED_EMPTY_CONFIG_GATEWAY_STARTUP_PLUGIN_IDS = [
   "memory-core",
   "phone-control",
   "talk-voice",
+  "workboard",
 ] as const;
 
 installGeneratedPluginTempRootCleanup();

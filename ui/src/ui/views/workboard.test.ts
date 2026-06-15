@@ -59,6 +59,99 @@ describe("renderWorkboard", () => {
     expect(container.querySelector(".workboard-card__priority")?.textContent).toContain("high");
   });
 
+  it("renders and filters cards by business project context", () => {
+    const host = {};
+    const state = getWorkboardState(host);
+    state.loaded = true;
+    state.businessProjectFilterId = "project-channel-growth";
+    state.cards = [
+      {
+        id: "card-1",
+        title: "整理渠道增长计划",
+        status: "todo",
+        priority: "normal",
+        labels: ["routing"],
+        position: 1000,
+        createdAt: 1,
+        updatedAt: 1,
+        metadata: {
+          businessFlow: {
+            cadenceId: "quarter",
+            projectId: "project-channel-growth",
+            goalIds: ["goal-annual-revenue", "goal-quarter-growth"],
+            departmentId: "dept-project",
+            source: "planning",
+            capabilityRefs: ["tool:web.fetch@1.0", "mcp:remote.toolhub.registry"],
+          },
+        },
+      },
+      {
+        id: "card-2",
+        title: "准备新品上市材料",
+        status: "todo",
+        priority: "normal",
+        labels: [],
+        position: 2000,
+        createdAt: 1,
+        updatedAt: 1,
+        metadata: {
+          businessFlow: {
+            cadenceId: "quarter",
+            projectId: "project-product-launch",
+            goalIds: ["goal-quarter-growth"],
+            departmentId: "dept-growth",
+            source: "planning",
+          },
+        },
+      },
+    ];
+    const container = document.createElement("div");
+
+    render(
+      renderWorkboard({
+        host,
+        client: null,
+        connected: true,
+        pluginEnabled: true,
+        agentsList: null,
+        sessions: [],
+        onOpenSession: () => undefined,
+      }),
+      container,
+    );
+
+    expect(container.textContent).toContain("当前项目：渠道增长项目");
+    expect(container.textContent).toContain("整理渠道增长计划");
+    expect(container.textContent).toContain("渠道增长项目");
+    expect(container.textContent).toContain("项目部");
+    expect(container.textContent).toContain("能力 2");
+    expect(container.textContent).not.toContain("准备新品上市材料");
+
+    container
+      .querySelector<HTMLElement>(".workboard-card")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    render(
+      renderWorkboard({
+        host,
+        client: null,
+        connected: true,
+        pluginEnabled: true,
+        agentsList: null,
+        sessions: [],
+        onOpenSession: () => undefined,
+      }),
+      container,
+    );
+
+    expect(container.querySelector(".workboard-detail")?.textContent).toContain("业务来源");
+    expect(container.querySelector(".workboard-detail")?.textContent).toContain(
+      "承接目标：年度收入与现金流目标 / 季度增长战役",
+    );
+    expect(container.querySelector(".workboard-detail")?.textContent).toContain(
+      "能力需求：tool:web.fetch@1.0 / mcp:remote.toolhub.registry",
+    );
+  });
+
   it("does not render Invalid Date for Date-invalid card timestamps", () => {
     const host = {};
     const state = getWorkboardState(host);

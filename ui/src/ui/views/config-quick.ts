@@ -6,22 +6,10 @@
  */
 
 import { html, nothing, type TemplateResult } from "lit";
-import { t } from "../../i18n/index.ts";
 import { icons } from "../icons.ts";
 import type { BorderRadiusStop, TextScaleStop } from "../storage.ts";
-import { normalizeOptionalString } from "../string-coerce.ts";
 import type { ThemeTransitionContext } from "../theme-transition.ts";
 import type { ThemeMode, ThemeName } from "../theme.ts";
-import {
-  normalizeLocalUserIdentity,
-  resolveLocalUserAvatarText,
-  resolveLocalUserAvatarUrl,
-} from "../user-identity.ts";
-import {
-  assistantAvatarFallbackUrl,
-  resolveChatAvatarRenderUrl,
-  resolveAssistantTextAvatar,
-} from "./agents-utils.ts";
 import {
   CONFIG_PRESETS,
   detectActivePreset,
@@ -104,9 +92,6 @@ export type QuickSettingsProps = {
   onSaveConfig?: () => void;
   onApplyConfig?: () => void;
 
-  // Navigation
-  onAdvancedSettings?: () => void;
-
   // Connection
   connected: boolean;
   gatewayUrl: string;
@@ -149,176 +134,6 @@ const TEXT_SCALE_OPTIONS: Array<{ value: TextScaleStop; label: string }> = [
   { value: 125, label: "XL" },
   { value: 140, label: "XXL" },
 ];
-
-const THINKING_LEVELS = ["off", "low", "medium", "high"];
-const TOOL_PROFILES = ["minimal", "coding", "messaging", "full"];
-const LOCAL_USER_LABEL = "You";
-// Keep raw uploads comfortably below the 2 MB persisted data URL limit after
-// base64 expansion and a small MIME/header prefix are added.
-const MAX_LOCAL_USER_AVATAR_FILE_BYTES = 1_500_000;
-const MAX_ASSISTANT_AVATAR_UPLOAD_BYTES = MAX_LOCAL_USER_AVATAR_FILE_BYTES;
-
-function renderDefaultUserAvatar() {
-  return html`
-    <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
-      <circle cx="12" cy="8" r="4" />
-      <path d="M20 21a8 8 0 1 0-16 0" />
-    </svg>
-  `;
-}
-
-function renderLocalUserAvatarPreview(avatar: string | null | undefined) {
-  const identity = normalizeLocalUserIdentity({ name: null, avatar });
-  const avatarUrl = resolveLocalUserAvatarUrl(identity);
-  const avatarText = resolveLocalUserAvatarText(identity);
-  if (avatarUrl) {
-    return html`<img class="qs-user-avatar" src=${avatarUrl} alt=${LOCAL_USER_LABEL} />`;
-  }
-  if (avatarText) {
-    return html`<div class="qs-user-avatar qs-user-avatar--text" aria-label=${LOCAL_USER_LABEL}>
-      ${avatarText}
-    </div>`;
-  }
-  return html`
-    <div class="qs-user-avatar qs-user-avatar--default" aria-label=${LOCAL_USER_LABEL}>
-      ${renderDefaultUserAvatar()}
-    </div>
-  `;
-}
-
-function resolveAssistantPreviewAvatarUrl(props: QuickSettingsProps): string | null {
-  const override = normalizeOptionalString(props.assistantAvatarOverride);
-  if (override) {
-    return resolveChatAvatarRenderUrl(override, {
-      identity: {
-        avatar: override,
-        avatarUrl: override,
-      },
-    });
-  }
-  if (props.assistantAvatarStatus === "none" && props.assistantAvatarReason === "missing") {
-    return null;
-  }
-  return resolveChatAvatarRenderUrl(props.assistantAvatarUrl, {
-    identity: {
-      avatar: props.assistantAvatar ?? undefined,
-      avatarUrl: props.assistantAvatarUrl ?? undefined,
-    },
-  });
-}
-
-function formatAssistantAvatarSource(value: string | null | undefined): string | null {
-  const source = normalizeOptionalString(value);
-  if (!source) {
-    return null;
-  }
-  if (/^data:image\//i.test(source)) {
-    const header = source.slice(0, source.indexOf(",") > 0 ? source.indexOf(",") : 32);
-    return `${header},...`;
-  }
-  return source.length > 72 ? `${source.slice(0, 34)}...${source.slice(-24)}` : source;
-}
-
-function formatAssistantAvatarIssue(
-  status: QuickSettingsProps["assistantAvatarStatus"],
-  reason: string | null | undefined,
-  _rendered: boolean,
-  hasOverride = false,
-): string | null {
-  if (hasOverride) {
-    return null;
-  }
-  if (status === "remote") {
-    return "Remote URLs are blocked by Control UI image policy";
-  }
-  if (reason === "missing") {
-    return "File not found";
-  }
-  if (reason === "unsupported_extension") {
-    return "Unsupported image type";
-  }
-  if (reason === "outside_workspace") {
-    return "不在当前项目内";
-  }
-  if (reason === "too_large") {
-    return "Image is too large";
-  }
-  return reason ? "Cannot render avatar" : null;
-}
-
-function renderAssistantAvatarPreview(props: QuickSettingsProps) {
-  const assistantName = normalizeOptionalString(props.assistantName) ?? "Assistant";
-  const assistantAvatarOverride = normalizeOptionalString(props.assistantAvatarOverride);
-  const assistantAvatarUrl = resolveAssistantPreviewAvatarUrl(props);
-  if (assistantAvatarUrl) {
-    return html`<img class="qs-assistant-avatar" src=${assistantAvatarUrl} alt=${assistantName} />`;
-  }
-  const assistantAvatarText = resolveAssistantTextAvatar(
-    assistantAvatarOverride ?? props.assistantAvatar,
-  );
-  if (assistantAvatarText) {
-    return html`<div
-      class="qs-assistant-avatar qs-assistant-avatar--text"
-      aria-label=${assistantName}
-    >
-      ${assistantAvatarText}
-    </div>`;
-  }
-  return html`
-    <img
-      class="qs-assistant-avatar qs-assistant-avatar--fallback"
-      src=${assistantAvatarFallbackUrl(props.basePath ?? "")}
-      alt=${assistantName}
-    />
-  `;
-}
-
-function handleLocalUserAvatarFileSelect(e: Event, props: QuickSettingsProps) {
-  const input = e.target as HTMLInputElement;
-  const file = input.files?.[0];
-  const onUserAvatarChange = props.onUserAvatarChange;
-  if (!file || !onUserAvatarChange) {
-    input.value = "";
-    return;
-  }
-  if (!file.type.startsWith("image/")) {
-    input.value = "";
-    return;
-  }
-  if (file.size > MAX_LOCAL_USER_AVATAR_FILE_BYTES) {
-    input.value = "";
-    return;
-  }
-  const reader = new FileReader();
-  reader.addEventListener("load", () => {
-    onUserAvatarChange(typeof reader.result === "string" ? reader.result : null);
-  });
-  reader.readAsDataURL(file);
-  input.value = "";
-}
-
-function handleAssistantAvatarFileSelect(e: Event, props: QuickSettingsProps) {
-  const input = e.target as HTMLInputElement;
-  const file = input.files?.[0];
-  const onAssistantAvatarOverrideChange = props.onAssistantAvatarOverrideChange;
-  if (!file || !onAssistantAvatarOverrideChange) {
-    input.value = "";
-    return;
-  }
-  if (file.size > MAX_ASSISTANT_AVATAR_UPLOAD_BYTES) {
-    input.value = "";
-    return;
-  }
-  const reader = new FileReader();
-  reader.addEventListener("load", () => {
-    const result = typeof reader.result === "string" ? reader.result : "";
-    if (result) {
-      void onAssistantAvatarOverrideChange(result);
-    }
-  });
-  reader.readAsDataURL(file);
-  input.value = "";
-}
 
 type ProfileSettings = {
   bootstrapMaxChars: number;
@@ -402,189 +217,6 @@ function renderCardHeader(icon: TemplateResult, title: string, action?: Template
         <h3 class="qs-card__title">${title}</h3>
       </div>
       ${action ? action : nothing}
-    </div>
-  `;
-}
-
-function renderModelCard(props: QuickSettingsProps) {
-  return html`
-    <div class="qs-card qs-card--model">
-      ${renderCardHeader(icons.brain, "Model & Thinking")}
-      <div class="qs-card__body">
-        <div class="qs-row">
-          <span class="qs-row__label">Model</span>
-          <button class="qs-row__value qs-row__value--action" @click=${props.onModelChange}>
-            <code>${props.currentModel || "default"}</code>
-            <span class="qs-row__chevron">${icons.chevronRight}</span>
-          </button>
-        </div>
-        <div class="qs-row">
-          <span class="qs-row__label">Thinking</span>
-          <div class="qs-segmented">
-            ${THINKING_LEVELS.map(
-              (level) => html`
-                <button
-                  class="qs-segmented__btn ${level === props.thinkingLevel
-                    ? "qs-segmented__btn--active"
-                    : ""}"
-                  @click=${() => props.onThinkingChange?.(level)}
-                >
-                  ${level.charAt(0).toUpperCase() + level.slice(1)}
-                </button>
-              `,
-            )}
-          </div>
-        </div>
-        <div class="qs-row">
-          <span class="qs-row__label">Fast mode</span>
-          <label class="qs-toggle">
-            <input type="checkbox" .checked=${props.fastMode} @change=${props.onFastModeToggle} />
-            <span class="qs-toggle__track"></span>
-            <span class="qs-toggle__hint muted"
-              >${props.fastMode ? "On — cheaper, less capable" : "Off"}</span
-            >
-          </label>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function renderChannelsCard(props: QuickSettingsProps) {
-  const connectedCount = props.channels.filter((c) => c.connected).length;
-  const badge =
-    connectedCount > 0
-      ? html`<span class="qs-badge qs-badge--ok">${connectedCount} connected</span>`
-      : undefined;
-
-  return html`
-    <div class="qs-card qs-card--channels">
-      ${renderCardHeader(icons.send, "Channels", badge)}
-      <div class="qs-card__body">
-        ${props.channels.length === 0
-          ? html`<div class="qs-empty muted">No channels configured</div>`
-          : props.channels.map(
-              (ch) => html`
-                <div class="qs-row">
-                  <span class="qs-row__label">
-                    <span class="qs-status-dot ${ch.connected ? "qs-status-dot--ok" : ""}"></span>
-                    ${ch.label}
-                  </span>
-                  <span class="qs-row__value">
-                    ${ch.connected
-                      ? html`<span class="muted">${ch.detail ?? "Connected"}</span>`
-                      : html`<button
-                          class="qs-link-btn"
-                          @click=${() => props.onChannelConfigure?.(ch.id)}
-                        >
-                          Connect →
-                        </button>`}
-                  </span>
-                </div>
-              `,
-            )}
-      </div>
-    </div>
-  `;
-}
-
-function renderAutomationsCard(props: QuickSettingsProps) {
-  const { cronJobCount, skillCount, mcpServerCount } = props.automation;
-
-  return html`
-    <div class="qs-card qs-card--automations">
-      ${renderCardHeader(icons.zap, "Automations")}
-      <div class="qs-card__body">
-        <div class="qs-row">
-          <span class="qs-row__label">
-            ${cronJobCount} scheduled task${cronJobCount !== 1 ? "s" : ""}
-          </span>
-          <button class="qs-link-btn" @click=${props.onManageCron}>Manage →</button>
-        </div>
-        <div class="qs-row">
-          <span class="qs-row__label">
-            ${skillCount} skill${skillCount !== 1 ? "s" : ""} installed
-          </span>
-          <button class="qs-link-btn" @click=${props.onBrowseSkills}>Browse →</button>
-        </div>
-        <div class="qs-row">
-          <span class="qs-row__label">
-            ${mcpServerCount} MCP server${mcpServerCount !== 1 ? "s" : ""}
-          </span>
-          <button class="qs-link-btn" @click=${props.onConfigureMcp}>Configure →</button>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function renderSecurityCard(props: QuickSettingsProps) {
-  const { gatewayAuth, execPolicy, deviceAuth, browserEnabled, toolProfile } = props.security;
-  const normalizedToolProfile = toolProfile.trim() || "full";
-  const toolProfiles = TOOL_PROFILES.includes(normalizedToolProfile)
-    ? TOOL_PROFILES
-    : [...TOOL_PROFILES, normalizedToolProfile];
-
-  return html`
-    <div class="qs-card qs-card--security">
-      ${renderCardHeader(
-        icons.eye,
-        "Security",
-        html`<button class="qs-link-btn" @click=${props.onSecurityConfigure}>Configure →</button>`,
-      )}
-      <div class="qs-card__body">
-        <div class="qs-row">
-          <span class="qs-row__label">Gateway auth</span>
-          <span class="qs-row__value">
-            <span class="qs-badge ${gatewayAuth !== "none" ? "qs-badge--ok" : "qs-badge--warn"}"
-              >${gatewayAuth}</span
-            >
-          </span>
-        </div>
-        <div class="qs-row">
-          <span class="qs-row__label">Exec policy</span>
-          <span class="qs-row__value"><span class="qs-badge">${execPolicy}</span></span>
-        </div>
-        <div class="qs-row">
-          <span class="qs-row__label">${t("quickSettings.security.browserEnabled")}</span>
-          <label class="qs-toggle">
-            <input
-              type="checkbox"
-              .checked=${browserEnabled}
-              @change=${(event: Event) =>
-                props.onBrowserEnabledToggle?.((event.currentTarget as HTMLInputElement).checked)}
-            />
-            <span class="qs-toggle__track"></span>
-            <span class="qs-toggle__hint muted">${browserEnabled ? "Enabled" : "Disabled"}</span>
-          </label>
-        </div>
-        <div class="qs-row qs-row--tool-profile">
-          <span class="qs-row__label">${t("quickSettings.security.toolProfile")}</span>
-          <div class="qs-segmented">
-            ${toolProfiles.map(
-              (profile) => html`
-                <button
-                  class="qs-segmented__btn qs-segmented__btn--compact ${profile ===
-                  normalizedToolProfile
-                    ? "qs-segmented__btn--active"
-                    : ""}"
-                  @click=${() => props.onToolProfileChange?.(profile)}
-                >
-                  ${profile}
-                </button>
-              `,
-            )}
-          </div>
-        </div>
-        <div class="qs-row">
-          <span class="qs-row__label">Device auth</span>
-          <span class="qs-row__value">
-            <span class="qs-badge ${deviceAuth ? "qs-badge--ok" : "qs-badge--warn"}"
-              >${deviceAuth ? "Enabled" : "Disabled"}</span
-            >
-          </span>
-        </div>
-      </div>
     </div>
   `;
 }
@@ -693,163 +325,6 @@ function renderAppearanceCard(props: QuickSettingsProps) {
   `;
 }
 
-function renderPersonalCard(props: QuickSettingsProps) {
-  const identity = normalizeLocalUserIdentity({
-    name: null,
-    avatar: props.userAvatar ?? null,
-  });
-  const avatarText = resolveLocalUserAvatarText(identity) ?? "";
-  const assistantName = normalizeOptionalString(props.assistantName) ?? "Assistant";
-  const assistantAvatarUrl = resolveAssistantPreviewAvatarUrl(props);
-  const assistantAvatarRendered = Boolean(
-    assistantAvatarUrl ||
-    resolveAssistantTextAvatar(props.assistantAvatarOverride ?? props.assistantAvatar),
-  );
-  const assistantAvatarOverride = normalizeOptionalString(props.assistantAvatarOverride);
-  const assistantAvatarSource = formatAssistantAvatarSource(
-    assistantAvatarOverride ?? props.assistantAvatarSource,
-  );
-  const assistantAvatarIssue = formatAssistantAvatarIssue(
-    props.assistantAvatarStatus ?? null,
-    props.assistantAvatarReason,
-    assistantAvatarRendered,
-    Boolean(assistantAvatarOverride),
-  );
-  const assistantAvatarSourceLabel = assistantAvatarOverride ? "UI override" : "IDENTITY.md";
-  const canOverrideAssistantAvatar = Boolean(props.onAssistantAvatarOverrideChange);
-  const assistantAvatarSubtitle = assistantAvatarOverride
-    ? "Override from settings"
-    : assistantAvatarIssue
-      ? "Fallback avatar"
-      : assistantAvatarRendered
-        ? "From IDENTITY.md"
-        : "Fallback logo";
-  return html`
-    <div class="qs-card qs-card--personal">
-      ${renderCardHeader(icons.image, "Personal")}
-      <div class="qs-card__body">
-        <div class="qs-identity-grid">
-          <section class="qs-identity-card" aria-label="Your local chat identity">
-            ${renderLocalUserAvatarPreview(props.userAvatar)}
-            <div class="qs-identity-card__copy">
-              <div class="qs-identity-card__eyebrow">User</div>
-              <div class="qs-identity-card__title">${LOCAL_USER_LABEL}</div>
-              <div class="qs-identity-card__sub">Avatar is browser-local</div>
-              <div class="qs-identity-card__repair">
-                <label class="qs-field">
-                  <span class="qs-row__label">Avatar text / emoji</span>
-                  <input
-                    class="qs-field__input"
-                    type="text"
-                    maxlength="16"
-                    .value=${avatarText}
-                    placeholder="JD or 🦞"
-                    @input=${(e: Event) => {
-                      const value = (e.target as HTMLInputElement).value;
-                      props.onUserAvatarChange?.(value.trim() ? value : null);
-                    }}
-                  />
-                </label>
-                <div class="qs-identity-card__actions">
-                  <label class="btn btn--sm">
-                    Choose image
-                    <input
-                      type="file"
-                      accept="image/*"
-                      hidden
-                      @change=${(e: Event) => handleLocalUserAvatarFileSelect(e, props)}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    class="btn btn--sm btn--ghost"
-                    ?disabled=${!identity.avatar}
-                    @click=${() => {
-                      props.onUserAvatarChange?.(null);
-                    }}
-                  >
-                    Clear avatar
-                  </button>
-                </div>
-                <div class="muted">Stored in this browser only.</div>
-              </div>
-            </div>
-          </section>
-          <section
-            class="qs-identity-card qs-identity-card--assistant"
-            aria-label="Assistant identity"
-          >
-            ${renderAssistantAvatarPreview(props)}
-            <div class="qs-identity-card__copy">
-              <div class="qs-identity-card__eyebrow">Assistant</div>
-              <div class="qs-identity-card__title">${assistantName}</div>
-              <div class="qs-identity-card__sub">${assistantAvatarSubtitle}</div>
-              ${assistantAvatarSource
-                ? html`
-                    <div
-                      class="qs-identity-card__source"
-                      title=${props.assistantAvatarSource ?? ""}
-                    >
-                      <span>${assistantAvatarSourceLabel}</span>
-                      <code>${assistantAvatarSource}</code>
-                    </div>
-                  `
-                : nothing}
-              ${assistantAvatarIssue
-                ? html`<div class="qs-identity-card__issue">${assistantAvatarIssue}</div>`
-                : nothing}
-              ${canOverrideAssistantAvatar
-                ? html`
-                    <div class="qs-identity-card__repair">
-                      <div class="qs-identity-card__actions">
-                        <label class="btn btn--sm">
-                          ${props.assistantAvatarUploadBusy
-                            ? "Saving..."
-                            : assistantAvatarOverride
-                              ? "Replace image"
-                              : "Choose image"}
-                          <input
-                            type="file"
-                            accept="image/*"
-                            hidden
-                            ?disabled=${props.assistantAvatarUploadBusy === true}
-                            @change=${(e: Event) => handleAssistantAvatarFileSelect(e, props)}
-                          />
-                        </label>
-                        ${assistantAvatarOverride
-                          ? html`
-                              <button
-                                type="button"
-                                class="btn btn--sm btn--ghost"
-                                ?disabled=${props.assistantAvatarUploadBusy === true}
-                                @click=${() => {
-                                  void props.onAssistantAvatarClearOverride?.();
-                                }}
-                              >
-                                Clear override
-                              </button>
-                            `
-                          : nothing}
-                      </div>
-                      <div class="muted">
-                        Stores a Control UI override. Clear it to return to IDENTITY.md.
-                      </div>
-                    </div>
-                  `
-                : nothing}
-              ${props.assistantAvatarUploadError
-                ? html`<div class="qs-identity-card__error">
-                    ${props.assistantAvatarUploadError}
-                  </div>`
-                : nothing}
-            </div>
-          </section>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
 function renderPresetsCard(props: QuickSettingsProps) {
   const draftConfig = props.configObject ?? props.savedConfigObject ?? {};
   const savedConfig = props.savedConfigObject ?? {};
@@ -906,7 +381,7 @@ function renderPresetsCard(props: QuickSettingsProps) {
             </div>
           </div>
         `;
-  const panelTitle = selectedPreset?.label ?? "Custom Configuration";
+  const panelTitle = selectedPreset?.label ?? "Custom Profile";
   const panelDescription =
     selectedPreset?.detail ?? "This config does not currently match one of the built-in profiles.";
   const panelImpact =
@@ -929,9 +404,10 @@ function renderPresetsCard(props: QuickSettingsProps) {
       )}
       <div class="qs-card__body qs-profiles">
         <div class="qs-profiles__copy">
-          <div class="qs-profiles__eyebrow">启动上下文</div>
+          <div class="qs-profiles__eyebrow">Bootstrap Context</div>
           <p class="qs-profiles__intro">
-            选择每次运行注入多少本机上下文。这些方案不会改变模型、工具、频道或主题。
+            Choose how much local context each run receives. Profiles do not change models, tools,
+            channels, or themes.
           </p>
           ${stateBanner}
           <div class="qs-presets-grid">
@@ -987,7 +463,7 @@ function renderPresetsCard(props: QuickSettingsProps) {
           <div class="qs-profile-panel__eyebrow">
             ${selectedPreset ? "Selected Profile" : "Current Values"}
           </div>
-          <h4 class="qs-profile-panel__title">${panelTitle}</h4>
+          <div class="qs-profile-panel__title">${panelTitle}</div>
           <p class="qs-profile-panel__copy">${panelDescription}</p>
           <div class="qs-profile-panel__impact">${panelImpact}</div>
 
@@ -1058,14 +534,36 @@ function renderPresetsCard(props: QuickSettingsProps) {
   `;
 }
 
-function renderConnectionFooter(props: QuickSettingsProps) {
+function renderGatewayCard(props: QuickSettingsProps) {
   return html`
-    <div class="qs-footer">
-      <div class="qs-footer__row">
-        <span class="qs-status-dot ${props.connected ? "qs-status-dot--ok" : ""}"></span>
-        <span class="muted">${props.connected ? "Connected" : "Offline"}</span>
-        ${props.assistantName ? html`<span class="muted">· ${props.assistantName}</span>` : nothing}
-        ${props.version ? html`<span class="muted">· v${props.version}</span>` : nothing}
+    <div class="qs-card qs-card--gateway">
+      ${renderCardHeader(
+        icons.radio,
+        "Gateway",
+        html`<span class="qs-badge ${props.connected ? "qs-badge--ok" : "qs-badge--warn"}">
+          ${props.connected ? "Connected" : "Offline"}
+        </span>`,
+      )}
+      <div class="qs-card__body">
+        <div class="qs-row">
+          <span class="qs-row__label">Gateway URL</span>
+          <span class="qs-row__value"><code>${props.gatewayUrl || "-"}</code></span>
+        </div>
+        <div class="qs-row">
+          <span class="qs-row__label">Status</span>
+          <span class="qs-row__value">
+            <span class="qs-status-dot ${props.connected ? "qs-status-dot--ok" : ""}"></span>
+            ${props.connected ? "Connected" : "Offline"}
+          </span>
+        </div>
+        <div class="qs-row">
+          <span class="qs-row__label">Version</span>
+          <span class="qs-row__value">${props.version || "-"}</span>
+        </div>
+        <div class="qs-row">
+          <span class="qs-row__label">Assistant</span>
+          <span class="qs-row__value">${props.assistantName || "-"}</span>
+        </div>
       </div>
     </div>
   `;
@@ -1077,22 +575,12 @@ export function renderQuickSettings(props: QuickSettingsProps) {
   return html`
     <div class="qs-container">
       <div class="qs-header">
-        <h2 class="qs-header__title">${icons.settings} Quick Settings</h2>
-        <button class="btn btn--sm" @click=${props.onAdvancedSettings}>
-          Advanced ${icons.chevronRight}
-        </button>
+        <h2 class="qs-header__title">${icons.settings} Settings</h2>
       </div>
 
       <div class="qs-grid">
-        ${renderModelCard(props)} ${renderChannelsCard(props)} ${renderSecurityCard(props)}
-        ${renderPersonalCard(props)}
-        <div class="qs-side-stack">
-          ${renderAppearanceCard(props)} ${renderAutomationsCard(props)}
-        </div>
-        ${renderPresetsCard(props)}
+        ${renderPresetsCard(props)} ${renderAppearanceCard(props)} ${renderGatewayCard(props)}
       </div>
-
-      ${renderConnectionFooter(props)}
     </div>
   `;
 }

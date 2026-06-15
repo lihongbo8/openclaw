@@ -3,6 +3,125 @@
   "entries": [
     {
       "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/aics-conversation-mode.ts",
+      "text": "可上传开发者中心"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/aics-conversation-mode.ts",
+      "text": "安全检查"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/aics-conversation-mode.ts",
+      "text": "岗位规格已整理"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/aics-conversation-mode.ts",
+      "text": "授权就绪"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/aics-conversation-mode.ts",
+      "text": "收集业务逻辑"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/aics-conversation-mode.ts",
+      "text": "整理岗位资料"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/aics-conversation-mode.ts",
+      "text": "等待业务确认"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/aics-conversation-mode.ts",
+      "text": "等待业务逻辑"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/aics-conversation-mode.ts",
+      "text": "等待审核"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/aics-conversation-mode.ts",
+      "text": "追问业务事实"
+    },
+    {
+      "count": 1,
+      "kind": "html-attribute",
+      "name": "aria-label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "任务状态"
+    },
+    {
+      "count": 1,
+      "kind": "html-attribute",
+      "name": "aria-label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "最近任务"
+    },
+    {
+      "count": 1,
+      "kind": "html-attribute",
+      "name": "aria-label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "岗位任务"
+    },
+    {
+      "count": 1,
+      "kind": "html-attribute",
+      "name": "aria-label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "岗位任务看板"
+    },
+    {
+      "count": 1,
+      "kind": "html-attribute",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "从主对话准备岗位任务。"
+    },
+    {
+      "count": 1,
+      "kind": "html-attribute",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "同步云端授权。"
+    },
+    {
+      "count": 1,
+      "kind": "html-attribute",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "查看对话和执行记录。"
+    },
+    {
+      "count": 1,
       "kind": "html-text",
       "name": "text",
       "path": "ui/src/ui/app-render.ts",
@@ -13,7 +132,91 @@
       "kind": "html-text",
       "name": "text",
       "path": "ui/src/ui/app-render.ts",
-      "text": "OpenClaw"
+      "text": "主系统"
+    },
+    {
+      "count": 1,
+      "kind": "html-text",
+      "name": "text",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "今日预计 ¥0.00"
+    },
+    {
+      "count": 1,
+      "kind": "html-text",
+      "name": "text",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "任务中心，集中查看岗位队列、执行状态、确认点与授权同步。"
+    },
+    {
+      "count": 1,
+      "kind": "html-text",
+      "name": "text",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "任务状态"
+    },
+    {
+      "count": 1,
+      "kind": "html-text",
+      "name": "text",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "任务队列"
+    },
+    {
+      "count": 1,
+      "kind": "html-text",
+      "name": "text",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "最近任务"
+    },
+    {
+      "count": 1,
+      "kind": "html-text",
+      "name": "text",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "岗位任务"
+    },
+    {
+      "count": 1,
+      "kind": "html-text",
+      "name": "text",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "执行中"
+    },
+    {
+      "count": 1,
+      "kind": "html-text",
+      "name": "text",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "授权状态"
+    },
+    {
+      "count": 1,
+      "kind": "html-text",
+      "name": "text",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "暂无任务记录"
+    },
+    {
+      "count": 1,
+      "kind": "html-text",
+      "name": "text",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "费用预估"
+    },
+    {
+      "count": 1,
+      "kind": "html-text",
+      "name": "text",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "迭界AI"
+    },
+    {
+      "count": 1,
+      "kind": "html-text",
+      "name": "text",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "需确认"
     },
     {
       "count": 1,
@@ -60,6 +263,1077 @@
     {
       "count": 1,
       "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "业务对话"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "任务记录"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "优化候选"
+    },
+    {
+      "count": 2,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "公司责任"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "关联记录"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "可执行"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "可更新"
+    },
+    {
+      "count": 2,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "同步"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "同步岗位"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "周期目标"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "品类包"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "安全计费"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "安装品类包"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "对话用量"
+    },
+    {
+      "count": 2,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "岗位任务"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "岗位列表"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "岗位能力需求"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "已失败"
+    },
+    {
+      "count": 2,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "已安装"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "已授权"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "已授权岗位"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "已确认记忆"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "当前项目"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "待人工确认"
+    },
+    {
+      "count": 3,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "待确认"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "待配置"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "我的岗位"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "打开云端"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "承接目标"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "承接项目"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "授权岗位"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "授权费"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "排队中"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "本地通用能力"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "核心部门"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "目标来源"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "目标管理"
+    },
+    {
+      "count": 2,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "看任务"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "看公司"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "看承接"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "经营周期"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "经营层"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "经营项目"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "记忆候选"
+    },
+    {
+      "count": 2,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "设置"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "责任部门"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "账号体系"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "运行中"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "远程接入"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "项目主题"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "项目承接"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "API / 远程能力"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "主系统和岗位执行产生的用量。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "云端 read-model 标记为 callable 的岗位。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "任务中心总结入库"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "任务关联记录"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "使用同一迭界AI账号访问本地端、使用者中心、开发者中心和岗位商城。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "公司管理"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "切换要查看和配置的品类包。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "只展示安全摘要。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "可进入任务中心的岗位数量"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "同步云端已授权岗位。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "同步已授权岗位。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "同步授权"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "品类包选择"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "回到主对话讨论目标。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "回到经营目标。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "存在新版本的岗位。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "安全计费摘要"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "对话用量"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "岗位任务看板中与该项目关联的记录。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "岗位优化候选"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "岗位商城"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "岗位执行承接"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "岗位授权状态"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "岗位授权费用。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "岗位能力优化候选。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "岗位能力需求"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "工具调用记录"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "已失败"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "已安装并同步到本机的岗位授权。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "已确认记忆"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "已经同步到本机的岗位数量。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "已经确认并可召回的记忆。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "已购买或已授权的岗位。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "平台应收"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "开发者应收"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "当前周期内要追踪的目标。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "当前品类包内部的 catalogRef / capabilityRef，不携带实现或密钥。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "当前正在查看责任链路的项目。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "当前规划的经营项目主题。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "当前账号已安装并同步到本机的岗位授权。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "当前选择的经营节奏。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "当前项目承接的经营目标。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "当前项目的主责部门。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "待人工确认高风险记忆"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "待确认"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "我的岗位"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "打开云端岗位商城，使用同一迭界AI账号继续浏览或授权岗位。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "打开岗位商城"
+    },
+    {
+      "count": 2,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "打开设置。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "承接当前目标的项目数量。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "授权费"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "排队中"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "接入配置"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "本地已安装且可用的通用 tool / skill，不代表全量岗位能力都在本地。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "本地知识存储安全投影"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "本地端按云端 categoryPackRef 选择品类包，再展开包内 Skill 和工具要求。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "本地通用能力"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "本机可用的岗位列表。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "来自岗位任务看板的关联记录。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "查看任务状态。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "查看任务状态看板。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "查看公司部门和目标责任。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "查看可用岗位。"
+    },
+    {
+      "count": 2,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "查看岗位任务状态看板。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "查看承接该目标的项目。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "查看经营目标。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "查看该部门承接的项目。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "查看该项目的公司责任关系。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "查看该项目的目标承接和风险状态。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "查看部门和人员责任。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "查看部门责任。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "查看项目如何承接目标。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "正在执行任务"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "由项目部统筹承接的公司项目主题。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "目标管理"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "等待任务中心评估的记忆候选。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "等待分配或等待资源"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "经营数据、问题判断或规划上的确认点。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "经营数据摘要"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "缺 API key、OAuth、MCP 授权或平台不支持的能力。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "能力路由中心"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "自动归档低风险记忆"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "记忆与进化"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "记忆候选"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "负责年度、季度、月度经营判断。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "责任链路"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "费用与授权"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "运行中"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "通过 API、MCP 或 provider 按需调用的岗位能力。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "重新同步云端岗位 read-model。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "问题判断"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "需要你确认后继续"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "需要复核或重试"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "项目、市场销售、产品设计、交付运营、人事财务。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "项目承接看板"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "项目范围、风险或资源上的确认点。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "项目部承接看板"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "项目里程碑"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "项目风险与确认"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "风险门控"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/app-render.ts",
+      "text": "高风险记忆需要人工确认。"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
       "name": "description",
       "path": "ui/src/ui/app-settings.ts",
       "text": "This connection does not have the operator.read scope. Some features may be unavailable."
@@ -84,6 +1358,377 @@
       "name": "title",
       "path": "ui/src/ui/app-settings.ts",
       "text": "Skills with missing dependencies"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "周经营例会"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "季度关键战役"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "年度经营目标"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "月度经营计划"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "上架前资料不完整"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "交付任务拆分和责任人排期"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "交付周期观察"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "交付流程规划"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "交付清单和验收标准"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "交付范围变化"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "产品卖点匹配度"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "产品卖点和目标客户确认"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "人员负荷和风险清单"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "人员负荷观察"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "内容素材和上架清单完成"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "卖点和客户痛点不匹配"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "复盘模板"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "季度增长战役"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "客户范围和验收标准确认"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "客户验收口径变化"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "年度收入与现金流目标"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "成交复盘和复购机会整理"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "收入与现金流事实"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "新品上市规划"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "新品反馈观察"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "月度交付质量"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "月度复盘摘要"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "本周经营推进"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "本周阻塞观察"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "渠道增长规划"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "渠道目标和客户画像确认"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "渠道线索质量不稳定"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "渠道质量波动"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "渠道转化观察"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "线索池建立和首轮跟进"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "经营例会规划"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "经营周报结构"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "经营数据来源不稳定"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "资源优先级冲突"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "重点客户交付规划"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "重点客户留存信号"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "需求确认模板"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "首轮客户反馈和优化复盘"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "验收口径不一致"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "title",
+      "path": "ui/src/ui/business-flow-store.ts",
+      "text": "验收复盘和复购机会记录"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/capability-routing-store.ts",
+      "text": "存在不可用能力"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/capability-routing-store.ts",
+      "text": "安装或启用本地知识/记忆插件"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/capability-routing-store.ts",
+      "text": "待配置能力"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/capability-routing-store.ts",
+      "text": "等待授权"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/capability-routing-store.ts",
+      "text": "能力就绪"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/capability-routing-store.ts",
+      "text": "能力被阻断"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/capability-routing-store.ts",
+      "text": "配置真实 provider/API"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/capability-routing-store.ts",
+      "text": "需要人工确认"
     },
     {
       "count": 1,
@@ -412,7 +2057,7 @@
       "kind": "html-text",
       "name": "text",
       "path": "ui/src/ui/components/dashboard-header.ts",
-      "text": "OpenClaw"
+      "text": "迭界AI"
     },
     {
       "count": 1,
@@ -447,28 +2092,28 @@
       "kind": "object-property",
       "name": "label",
       "path": "ui/src/ui/navigation.ts",
-      "text": "agent"
+      "text": "main"
     },
     {
       "count": 1,
       "kind": "object-property",
       "name": "label",
       "path": "ui/src/ui/navigation.ts",
-      "text": "chat"
+      "text": "基础设置"
     },
     {
       "count": 1,
       "kind": "object-property",
       "name": "label",
       "path": "ui/src/ui/navigation.ts",
-      "text": "control"
+      "text": "开发者工具"
     },
     {
       "count": 1,
       "kind": "object-property",
       "name": "label",
       "path": "ui/src/ui/navigation.ts",
-      "text": "settings"
+      "text": "高级诊断"
     },
     {
       "count": 1,
@@ -1248,6 +2893,90 @@
       "text": "write"
     },
     {
+      "count": 2,
+      "kind": "html-attribute",
+      "name": "aria-label",
+      "path": "ui/src/ui/views/aics.ts",
+      "text": "任务中心"
+    },
+    {
+      "count": 1,
+      "kind": "html-attribute",
+      "name": "aria-label",
+      "path": "ui/src/ui/views/aics.ts",
+      "text": "任务状态"
+    },
+    {
+      "count": 1,
+      "kind": "html-attribute",
+      "name": "aria-label",
+      "path": "ui/src/ui/views/aics.ts",
+      "text": "同步授权"
+    },
+    {
+      "count": 1,
+      "kind": "html-attribute",
+      "name": "aria-label",
+      "path": "ui/src/ui/views/aics.ts",
+      "text": "打开云端岗位商城"
+    },
+    {
+      "count": 1,
+      "kind": "html-attribute",
+      "name": "title",
+      "path": "ui/src/ui/views/aics.ts",
+      "text": "使用岗位"
+    },
+    {
+      "count": 1,
+      "kind": "html-attribute",
+      "name": "title",
+      "path": "ui/src/ui/views/aics.ts",
+      "text": "同步授权"
+    },
+    {
+      "count": 1,
+      "kind": "html-attribute",
+      "name": "title",
+      "path": "ui/src/ui/views/aics.ts",
+      "text": "打开云端岗位商城"
+    },
+    {
+      "count": 1,
+      "kind": "html-text",
+      "name": "text",
+      "path": "ui/src/ui/views/aics.ts",
+      "text": "任务状态"
+    },
+    {
+      "count": 1,
+      "kind": "html-text",
+      "name": "text",
+      "path": "ui/src/ui/views/aics.ts",
+      "text": "使用"
+    },
+    {
+      "count": 1,
+      "kind": "html-text",
+      "name": "text",
+      "path": "ui/src/ui/views/aics.ts",
+      "text": "打开云端岗位商城"
+    },
+    {
+      "count": 1,
+      "kind": "html-text",
+      "name": "text",
+      "path": "ui/src/ui/views/aics.ts",
+      "text": "暂无已授权岗位。"
+    },
+    {
+      "count": 2,
+      "kind": "html-text",
+      "name": "text",
+      "path": "ui/src/ui/views/aics.ts",
+      "text": "迭界AI"
+    },
+    {
       "count": 1,
       "kind": "html-text",
       "name": "text",
@@ -1490,13 +3219,6 @@
       "kind": "html-attribute",
       "name": "aria-label",
       "path": "ui/src/ui/views/chat.ts",
-      "text": "Refresh files"
-    },
-    {
-      "count": 1,
-      "kind": "html-attribute",
-      "name": "aria-label",
-      "path": "ui/src/ui/views/chat.ts",
       "text": "Remove attachment"
     },
     {
@@ -1532,7 +3254,7 @@
       "kind": "html-attribute",
       "name": "aria-label",
       "path": "ui/src/ui/views/chat.ts",
-      "text": "Workspace files"
+      "text": "任务状态"
     },
     {
       "count": 1,
@@ -1554,13 +3276,6 @@
       "name": "title",
       "path": "ui/src/ui/views/chat.ts",
       "text": "Dismiss error"
-    },
-    {
-      "count": 1,
-      "kind": "html-attribute",
-      "name": "title",
-      "path": "ui/src/ui/views/chat.ts",
-      "text": "Refresh files"
     },
     {
       "count": 1,
@@ -1619,13 +3334,6 @@
       "text": "Exact VAD"
     },
     {
-      "count": 1,
-      "kind": "html-text",
-      "name": "text",
-      "path": "ui/src/ui/views/chat.ts",
-      "text": "Files"
-    },
-    {
       "count": 2,
       "kind": "html-text",
       "name": "text",
@@ -1651,20 +3359,6 @@
       "kind": "html-text",
       "name": "text",
       "path": "ui/src/ui/views/chat.ts",
-      "text": "Loading files..."
-    },
-    {
-      "count": 1,
-      "kind": "html-text",
-      "name": "text",
-      "path": "ui/src/ui/views/chat.ts",
-      "text": "Missing"
-    },
-    {
-      "count": 1,
-      "kind": "html-text",
-      "name": "text",
-      "path": "ui/src/ui/views/chat.ts",
       "text": "Model"
     },
     {
@@ -1680,13 +3374,6 @@
       "name": "text",
       "path": "ui/src/ui/views/chat.ts",
       "text": "No matching messages"
-    },
-    {
-      "count": 1,
-      "kind": "html-text",
-      "name": "text",
-      "path": "ui/src/ui/views/chat.ts",
-      "text": "No workspace files"
     },
     {
       "count": 1,
@@ -1728,7 +3415,7 @@
       "kind": "html-text",
       "name": "text",
       "path": "ui/src/ui/views/chat.ts",
-      "text": "Workspace"
+      "text": "任务状态"
     },
     {
       "count": 1,
@@ -1792,13 +3479,6 @@
       "name": "label",
       "path": "ui/src/ui/views/chat.ts",
       "text": "Echo"
-    },
-    {
-      "count": 1,
-      "kind": "object-property",
-      "name": "label",
-      "path": "ui/src/ui/views/chat.ts",
-      "text": "Gateway relay"
     },
     {
       "count": 1,
@@ -1921,10 +3601,94 @@
     },
     {
       "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/views/chat.ts",
+      "text": "使用者模式"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/views/chat.ts",
+      "text": "开发者模式"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/views/chat.ts",
+      "text": "本机中继"
+    },
+    {
+      "count": 1,
       "kind": "html-text",
       "name": "text",
       "path": "ui/src/ui/views/command-palette.ts",
       "text": "esc"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/views/command-palette.ts",
+      "text": "主对话"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/views/command-palette.ts",
+      "text": "对话记录"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/views/command-palette.ts",
+      "text": "岗位任务"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/views/command-palette.ts",
+      "text": "岗位商城"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/views/command-palette.ts",
+      "text": "工具与 Skill"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/views/command-palette.ts",
+      "text": "我的岗位"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/views/command-palette.ts",
+      "text": "记忆与进化"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/views/command-palette.ts",
+      "text": "设置"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "label",
+      "path": "ui/src/ui/views/command-palette.ts",
+      "text": "费用与授权"
     },
     {
       "count": 1,
@@ -2575,13 +4339,6 @@
       "kind": "html-text",
       "name": "text",
       "path": "ui/src/ui/views/config-quick.ts",
-      "text": "Bootstrap Context"
-    },
-    {
-      "count": 1,
-      "kind": "html-text",
-      "name": "text",
-      "path": "ui/src/ui/views/config-quick.ts",
       "text": "Browse →"
     },
     {
@@ -2590,13 +4347,6 @@
       "name": "text",
       "path": "ui/src/ui/views/config-quick.ts",
       "text": "Choose a built-in profile to replace the current custom values."
-    },
-    {
-      "count": 1,
-      "kind": "html-text",
-      "name": "text",
-      "path": "ui/src/ui/views/config-quick.ts",
-      "text": "Choose how much workspace context OpenClaw injects into each run. These profiles do not change your model, tools, channels, or theme."
     },
     {
       "count": 1,
@@ -2800,6 +4550,20 @@
       "name": "text",
       "path": "ui/src/ui/views/config-quick.ts",
       "text": "User"
+    },
+    {
+      "count": 1,
+      "kind": "html-text",
+      "name": "text",
+      "path": "ui/src/ui/views/config-quick.ts",
+      "text": "启动上下文"
+    },
+    {
+      "count": 1,
+      "kind": "html-text",
+      "name": "text",
+      "path": "ui/src/ui/views/config-quick.ts",
+      "text": "选择每次运行注入多少本机上下文。这些方案不会改变模型、工具、频道或主题。"
     },
     {
       "count": 1,
@@ -3989,7 +5753,7 @@
       "kind": "html-text",
       "name": "text",
       "path": "ui/src/ui/views/login-gate.ts",
-      "text": "OpenClaw"
+      "text": "迭界AI"
     },
     {
       "count": 1,
@@ -4039,6 +5803,13 @@
       "name": "text",
       "path": "ui/src/ui/views/logs.ts",
       "text": "No log entries."
+    },
+    {
+      "count": 1,
+      "kind": "html-text",
+      "name": "text",
+      "path": "ui/src/ui/views/main-system-shell.ts",
+      "text": "同步中"
     },
     {
       "count": 1,
@@ -4658,6 +6429,20 @@
     },
     {
       "count": 1,
+      "kind": "html-attribute",
+      "name": "title",
+      "path": "ui/src/ui/views/sessions.ts",
+      "text": "主/当前会话受保护，不能强制删除"
+    },
+    {
+      "count": 1,
+      "kind": "html-attribute",
+      "name": "title",
+      "path": "ui/src/ui/views/sessions.ts",
+      "text": "删除对话记录"
+    },
+    {
+      "count": 1,
       "kind": "html-text",
       "name": "text",
       "path": "ui/src/ui/views/sessions.ts",
@@ -5215,6 +7000,20 @@
       "name": "aria-label",
       "path": "ui/src/ui/views/usage-render-overview.ts",
       "text": "Remove session filter"
+    },
+    {
+      "count": 1,
+      "kind": "html-attribute",
+      "name": "title",
+      "path": "ui/src/ui/views/workboard.ts",
+      "text": "清除当前项目过滤"
+    },
+    {
+      "count": 1,
+      "kind": "html-text",
+      "name": "text",
+      "path": "ui/src/ui/views/workboard.ts",
+      "text": "业务来源"
     },
     {
       "count": 1,

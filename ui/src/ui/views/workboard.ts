@@ -1,6 +1,12 @@
 import { html, nothing } from "lit";
 import { t } from "../../i18n/index.ts";
 import {
+  BUSINESS_PROJECTS,
+  businessFlowTaskSourceLabel,
+  resolveBusinessFlowTaskRef,
+  type BusinessFlowTaskRef,
+} from "../business-flow-store.ts";
+import {
   addWorkboardCardComment,
   archiveWorkboardCard,
   deleteWorkboardCard,
@@ -11,9 +17,11 @@ import {
   loadWorkboard,
   moveWorkboardCard,
   saveWorkboardCardDraft,
+  setWorkboardBusinessProjectFilter,
   startWorkboardCard,
   stopWorkboardCard,
   syncWorkboardLifecycle,
+  workboardCardMatchesBusinessProject,
   WORKBOARD_PRIORITIES,
   type WorkboardExecutionEngine,
   type WorkboardExecutionMode,
@@ -315,6 +323,7 @@ function resetDraft(state: WorkboardUiState) {
   state.draftAgentId = "";
   state.draftSessionKey = "";
   state.draftTemplateId = "";
+  state.draftBusinessFlow = null;
   state.draftCommentBody = "";
 }
 
@@ -334,6 +343,7 @@ function openEditModal(state: WorkboardUiState, card: WorkboardCard) {
   state.draftAgentId = card.agentId ?? "";
   state.draftSessionKey = card.sessionKey ?? "";
   state.draftTemplateId = card.metadata?.templateId ?? "";
+  state.draftBusinessFlow = card.metadata?.businessFlow ?? null;
   state.draftCommentBody = "";
 }
 
@@ -431,6 +441,7 @@ function renderCardModal(props: WorkboardProps) {
               </div>
             `
           : nothing}
+        ${renderBusinessFlowCallout(state.draftBusinessFlow)}
         <div class="workboard-draft__main">
           <label class="workboard-field">
             <span>${t("workboard.fieldTitle")}</span>
@@ -820,6 +831,63 @@ function renderDetailList(
   `;
 }
 
+function businessFlowSummaryLabels(card: WorkboardCard): string[] {
+  const businessFlow = resolveBusinessFlowTaskRef(card.metadata?.businessFlow);
+  if (!businessFlow) {
+    return [];
+  }
+  return [
+    businessFlow.project?.name,
+    businessFlow.cadence?.shortLabel,
+    businessFlow.department?.name,
+    businessFlow.ref.capabilityRefs?.length ? `能力 ${businessFlow.ref.capabilityRefs.length}` : "",
+  ].flatMap((label) => (label ? [label] : []));
+}
+
+function renderBusinessFlowCallout(ref: BusinessFlowTaskRef | null | undefined) {
+  const businessFlow = resolveBusinessFlowTaskRef(ref);
+  if (!businessFlow) {
+    return nothing;
+  }
+  return html`
+    <div class="callout">
+      <strong>业务来源</strong>
+      ${[
+        businessFlow.cadence?.label,
+        businessFlow.project?.name,
+        businessFlow.department?.name,
+        businessFlow.goals.length
+          ? `目标：${businessFlow.goals.map((goal) => goal.title).join(" / ")}`
+          : "",
+        businessFlow.ref.capabilityRefs?.length
+          ? `能力：${businessFlow.ref.capabilityRefs.length} 项`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" · ")}
+    </div>
+  `;
+}
+
+function renderBusinessFlowDetail(card: WorkboardCard) {
+  const businessFlow = resolveBusinessFlowTaskRef(card.metadata?.businessFlow);
+  if (!businessFlow) {
+    return nothing;
+  }
+  return renderDetailList("业务来源", [
+    businessFlow.cadence ? `经营周期：${businessFlow.cadence.label}` : "",
+    businessFlow.project ? `项目：${businessFlow.project.name}` : "",
+    businessFlow.department ? `责任部门：${businessFlow.department.name}` : "",
+    businessFlow.goals.length
+      ? `承接目标：${businessFlow.goals.map((goal) => goal.title).join(" / ")}`
+      : "",
+    businessFlow.ref.capabilityRefs?.length
+      ? `能力需求：${businessFlow.ref.capabilityRefs.join(" / ")}`
+      : "",
+    `来源：${businessFlowTaskSourceLabel(businessFlow.ref.source)}`,
+  ]);
+}
+
 function renderCardDetailsPanel(props: WorkboardProps) {
   const state = getWorkboardState(props.host);
   const card = state.detailCardId
@@ -902,6 +970,7 @@ function renderCardDetailsPanel(props: WorkboardProps) {
             `
           : nothing}
         ${renderDetailList(t("workboard.fieldLabels"), card.labels)}
+        ${renderBusinessFlowDetail(card)}
         ${renderDetailList(
           t("workboard.badgeAttempts", { count: String(attempts.length) }),
           attempts.map((entry) =>
@@ -1089,6 +1158,7 @@ function renderCard(props: WorkboardProps, card: WorkboardCard) {
   const linkedSessionKey = card.sessionKey ?? card.execution?.sessionKey;
   const writable = canMutate(props);
   const showStartControls = writable && cardCanStart(state, props.sessions, card);
+  const businessLabels = businessFlowSummaryLabels(card);
   return html`
     <article
       class="workboard-card priority-${card.priority} ${busy
@@ -1138,6 +1208,11 @@ function renderCard(props: WorkboardProps, card: WorkboardCard) {
       ${card.labels.length
         ? html`<div class="workboard-labels">
             ${card.labels.map((label) => html`<span>${label}</span>`)}
+          </div>`
+        : nothing}
+      ${businessLabels.length
+        ? html`<div class="workboard-labels">
+            ${businessLabels.map((label) => html`<span>${label}</span>`)}
           </div>`
         : nothing}
       ${renderCompactBadges(card, task)}
@@ -1329,8 +1404,13 @@ export function renderWorkboard(props: WorkboardProps) {
     `;
   }
 
+  const businessProjectFilterLabel = state.businessProjectFilterId
+    ? (BUSINESS_PROJECTS.find((project) => project.id === state.businessProjectFilterId)?.name ??
+      state.businessProjectFilterId)
+    : "";
   const filtered = state.cards
     .filter((card) => !card.metadata?.archivedAt)
+    .filter((card) => workboardCardMatchesBusinessProject(card, state.businessProjectFilterId))
     .filter((card) => matchesFilter(card, { query: state.query, priority: state.priorityFilter }));
   const writable = canMutate(props);
   const byStatus = new Map<WorkboardStatus, WorkboardCard[]>();
@@ -1369,6 +1449,23 @@ export function renderWorkboard(props: WorkboardProps) {
               (priority) => html`<option value=${priority}>${priority}</option>`,
             )}
           </select>
+          ${businessProjectFilterLabel
+            ? html`
+                <button
+                  class="btn btn--xs"
+                  type="button"
+                  title="清除当前项目过滤"
+                  @click=${() =>
+                    setWorkboardBusinessProjectFilter({
+                      host: props.host,
+                      projectId: null,
+                      requestUpdate: props.onRequestUpdate,
+                    })}
+                >
+                  当前项目：${businessProjectFilterLabel} ${icons.x}
+                </button>
+              `
+            : nothing}
         </div>
         <div class="workboard-toolbar__actions">
           <button

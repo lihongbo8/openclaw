@@ -103,8 +103,8 @@ describe("chat header controls (browser)", () => {
     );
     expect(link.classList.contains("nav-item--active")).toBe(true);
     expect(link.getAttribute("href")).toBe("/config");
-    expect(link.getAttribute("title")).toBe("设置");
-    expect(link.textContent?.trim()).toBe("设置");
+    expect(link.getAttribute("title")).toBe("Settings");
+    expect(link.textContent?.trim()).toBe("Settings");
   });
 
   it("renders explicit hover tooltip metadata for the top-right action buttons", async () => {

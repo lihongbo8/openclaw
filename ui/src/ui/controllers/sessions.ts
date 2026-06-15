@@ -10,6 +10,7 @@ import {
   isSubagentSessionKey,
   normalizeAgentId,
   parseAgentSessionKey,
+  resolveUiConfiguredMainKey,
   resolveUiDefaultAgentId,
   resolveUiGlobalAliasAgentId,
   resolveUiSelectedGlobalAgentId,
@@ -518,6 +519,67 @@ function historyRowIsStaleForActiveSession(
 function isPersistedChatHistorySessionRow(row: GatewaySessionRow): boolean {
   const sessionId = typeof row.sessionId === "string" ? row.sessionId.trim() : "";
   return Boolean(sessionId || typeof row.updatedAt === "number");
+}
+
+function isProtectedSessionDeleteTarget(state: SessionsState, key: string): boolean {
+  const trimmed = key.trim();
+  if (!trimmed) {
+    return false;
+  }
+  if (state.sessionKey && areUiSessionKeysEquivalent(trimmed, state.sessionKey)) {
+    return true;
+  }
+  const configuredMainKey = resolveUiConfiguredMainKey(state);
+  if (areUiSessionKeysEquivalent(trimmed, configuredMainKey)) {
+    return true;
+  }
+  const parsed = parseAgentSessionKey(trimmed);
+  if (!parsed) {
+    return false;
+  }
+  const defaultAgentId = resolveUiDefaultAgentId(state);
+  return (
+    parsed.agentId === defaultAgentId &&
+    (parsed.rest === "main" ||
+      parsed.rest === configuredMainKey ||
+      `agent:${parsed.agentId}:${parsed.rest}` === configuredMainKey)
+  );
+}
+
+function deselectHiddenSessionKeys(state: SessionsState, keys: Set<string>) {
+  const carrier = state as SessionsState & { sessionsSelectedKeys?: Set<string> };
+  if (!carrier.sessionsSelectedKeys?.size) {
+    return;
+  }
+  const next = new Set(carrier.sessionsSelectedKeys);
+  for (const key of keys) {
+    next.delete(key);
+  }
+  carrier.sessionsSelectedKeys = next;
+}
+
+function hideProtectedSessionsFromRecentList(state: SessionsState, keys: string[]): number {
+  if (!state.sessionsResult || keys.length === 0) {
+    return 0;
+  }
+  const keySet = new Set(keys);
+  const before = state.sessionsResult.sessions.length;
+  const sessions = state.sessionsResult.sessions.filter((row) => !keySet.has(row.key));
+  const hiddenCount = before - sessions.length;
+  if (hiddenCount === 0) {
+    return 0;
+  }
+  state.sessionsResult = {
+    ...state.sessionsResult,
+    count: Math.max(0, state.sessionsResult.count - hiddenCount),
+    sessions,
+  };
+  for (const key of keySet) {
+    invalidateCheckpointCacheForKey(state, key);
+    invalidateCachedChatAgentSessionRow(state, key);
+  }
+  deselectHiddenSessionKeys(state, keySet);
+  return hiddenCount;
 }
 
 function sessionRowMatchesChatHistoryRow(
@@ -1270,16 +1332,31 @@ export async function deleteSessionsAndRefresh(
   if (state.sessionsLoading) {
     return [];
   }
+  const uniqueKeys = [...new Set(keys.map((key) => key.trim()).filter(Boolean))];
+  const protectedKeys = uniqueKeys.filter((key) => isProtectedSessionDeleteTarget(state, key));
+  const deletableKeys = uniqueKeys.filter((key) => !protectedKeys.includes(key));
+  if (deletableKeys.length === 0) {
+    hideProtectedSessionsFromRecentList(state, protectedKeys);
+    state.sessionsError = "主会话或当前会话受保护，已从最近列表隐藏；原始对话数据没有删除。";
+    return [];
+  }
   const confirmed = window.confirm(
-    `删除 ${keys.length} 条对话记录？\n\n对话条目和对应记录都会归档删除。`,
+    `删除 ${deletableKeys.length} 条对话记录？\n\n对话条目和对应记录都会归档删除。${
+      protectedKeys.length > 0
+        ? `\n\n另外 ${protectedKeys.length} 条主/当前会话只会从最近列表隐藏，不会删除数据。`
+        : ""
+    }`,
   );
   if (!confirmed) {
     return [];
   }
+  if (protectedKeys.length > 0) {
+    hideProtectedSessionsFromRecentList(state, protectedKeys);
+  }
   const deleted: string[] = [];
   const deleteErrors: string[] = [];
   const refreshedDuringDelete = await withSessionsLoading(state, async () => {
-    for (const key of keys) {
+    for (const key of deletableKeys) {
       try {
         await client.request("sessions.delete", {
           key,
@@ -1301,6 +1378,8 @@ export async function deleteSessionsAndRefresh(
   }
   if (deleteErrors.length > 0) {
     state.sessionsError = deleteErrors.join("; ");
+  } else if (protectedKeys.length > 0) {
+    state.sessionsError = "主会话或当前会话受保护，已从最近列表隐藏；原始对话数据没有删除。";
   }
   return deleted;
 }

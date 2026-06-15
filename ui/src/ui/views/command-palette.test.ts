@@ -133,15 +133,19 @@ describe("command palette", () => {
     await i18n.setLocale("zh-CN");
 
     const configItem = getPaletteItems().find((item) => item.id === "nav-config");
-    const marketplaceItem = getFilteredPaletteItems("岗位商城").find(
-      (item) => item.id === "nav-marketplace",
+    const apiManagementItem = getFilteredPaletteItems("API 管理").find(
+      (item) => item.id === "nav-api-management",
     );
-    const toolsItem = getFilteredPaletteItems("已安装工具").find(
+    const toolsItem = getFilteredPaletteItems("工具与 Skill").find(
       (item) => item.id === "nav-skills",
     );
+    const adminConsoleItem = getFilteredPaletteItems("管理后台").find(
+      (item) => item.id === "nav-admin-console",
+    );
     const debugItem = getFilteredPaletteItems("切换调试").find((item) => item.id === "skill-debug");
-    expect(configItem?.label).toBe("设置");
-    expect(marketplaceItem?.action).toBe("nav:marketplace");
+    expect(configItem?.label).toBe("Settings");
+    expect(apiManagementItem?.action).toBe("nav:apiManagement");
+    expect(adminConsoleItem).toBeUndefined();
     expect(toolsItem?.action).toBe("nav:skills");
     expect(debugItem?.id).toBe("skill-debug");
   });

@@ -10,10 +10,12 @@ import {
   getWorkboardState,
   loadWorkboard,
   moveWorkboardCard,
+  openBusinessFlowWorkboardDraft,
   saveWorkboardCardDraft,
   startWorkboardCard,
   stopWorkboardCard,
   syncWorkboardLifecycle,
+  workboardCardMatchesBusinessProject,
   type WorkboardCard,
   type WorkboardTaskSummary,
 } from "./workboard.ts";
@@ -278,6 +280,54 @@ describe("workboard controller", () => {
     );
     expect(state.cards[0]?.metadata?.templateId).toBe("bugfix");
     expect(state.draftTemplateId).toBe("");
+  });
+
+  it("creates planning-linked cards from a business-flow draft", async () => {
+    const host = {};
+    const businessFlow: NonNullable<WorkboardCard["metadata"]>["businessFlow"] = {
+      cadenceId: "quarter",
+      projectId: "project-channel-growth",
+      goalIds: ["goal-annual-revenue", "goal-quarter-growth"],
+      departmentId: "dept-project",
+      source: "planning",
+      capabilityRefs: ["tool:web.fetch@1.0", "provider:openai.text.reasoning"],
+    };
+    openBusinessFlowWorkboardDraft({
+      host,
+      draft: {
+        title: "渠道增长项目 · 任务关联记录",
+        notes: "经营周期：季度关键战役\n所属项目：渠道增长项目",
+        labels: ["渠道增长项目", "项目部"],
+        businessFlow,
+      },
+    });
+    const state = getWorkboardState(host);
+    const created = {
+      ...sampleCard,
+      id: "card-2",
+      title: "渠道增长项目 · 任务关联记录",
+      metadata: { businessFlow },
+    } satisfies WorkboardCard;
+    const client = createClient({ "workboard.cards.create": { card: created } });
+
+    await createWorkboardCard({ host, client: client as never });
+
+    expect(client.request).toHaveBeenCalledWith(
+      "workboard.cards.create",
+      expect.objectContaining({
+        title: "渠道增长项目 · 任务关联记录",
+        metadata: { businessFlow },
+      }),
+    );
+    expect(state.cards[0]?.metadata?.businessFlow).toEqual(businessFlow);
+    expect(state.businessProjectFilterId).toBe("project-channel-growth");
+    expect(state.draftBusinessFlow).toBeNull();
+    expect(workboardCardMatchesBusinessProject(state.cards[0], "project-channel-growth")).toBe(
+      true,
+    );
+    expect(workboardCardMatchesBusinessProject(state.cards[0], "project-product-launch")).toBe(
+      false,
+    );
   });
 
   it("updates cards from draft state when editing", async () => {
@@ -635,6 +685,56 @@ describe("workboard controller", () => {
       }),
     );
     expect(client.request.mock.calls[3]?.[1]).toHaveProperty("patch.execution", null);
+  });
+
+  it("includes business context when starting a planning-linked card", async () => {
+    const businessCard = {
+      ...sampleCard,
+      metadata: {
+        businessFlow: {
+          cadenceId: "quarter",
+          projectId: "project-channel-growth",
+          goalIds: ["goal-annual-revenue", "goal-quarter-growth"],
+          departmentId: "dept-project",
+          source: "planning",
+          capabilityRefs: ["tool:web.fetch@1.0", "provider:openai.text.reasoning"],
+        },
+      },
+    } satisfies WorkboardCard;
+    const running = {
+      ...businessCard,
+      status: "running",
+      sessionKey: sampleTaskSessionKey,
+      runId: "run-1",
+      taskId: "task-1",
+    } satisfies WorkboardCard;
+    const client = createClient({
+      agent: { sessionKey: sampleTaskSessionKey, runId: "run-1" },
+      "tasks.list": { tasks: [sampleTask] },
+      "workboard.cards.update": { card: running },
+    });
+
+    await startWorkboardCard({
+      host: {},
+      client: client as never,
+      card: businessCard,
+    });
+
+    expect(client.request).toHaveBeenNthCalledWith(
+      2,
+      "agent",
+      expect.objectContaining({
+        message: expect.stringContaining("Business context:"),
+      }),
+    );
+    const message =
+      (client.request.mock.calls[1]?.[1] as { message?: string } | undefined)?.message ?? "";
+    expect(message).toContain("Project: 渠道增长项目");
+    expect(message).toContain("Responsible department: 项目部");
+    expect(message).toContain("Linked goals: 年度收入与现金流目标, 季度增长战役");
+    expect(message).toContain(
+      "Required capability refs: tool:web.fetch@1.0, provider:openai.text.reasoning",
+    );
   });
 
   it("starts reassigned cards with the current task session key", async () => {

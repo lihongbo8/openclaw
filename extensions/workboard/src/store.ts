@@ -26,6 +26,7 @@ import {
   WORKBOARD_PROOF_STATUSES,
   WORKBOARD_STATUSES,
   WORKBOARD_TEMPLATE_IDS,
+  type WorkboardBusinessFlowRef,
   type WorkboardCard,
   type WorkboardArtifact,
   type WorkboardAttachment,
@@ -1200,6 +1201,68 @@ function normalizeProofInput(input: WorkboardProofInput, now: number): Workboard
   };
 }
 
+function normalizeBusinessFlowCadenceId(
+  value: unknown,
+): WorkboardBusinessFlowRef["cadenceId"] | undefined {
+  if (value === "year" || value === "quarter" || value === "month" || value === "week") {
+    return value;
+  }
+  return undefined;
+}
+
+function normalizeBusinessFlowSource(value: unknown): WorkboardBusinessFlowRef["source"] {
+  if (value === "dispatch" || value === "manual") {
+    return value;
+  }
+  return "planning";
+}
+
+function normalizeBusinessFlowMetadata(value: unknown): WorkboardBusinessFlowRef | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const cadenceId = normalizeBusinessFlowCadenceId(record.cadenceId);
+  const projectId = normalizeBoundedString(record.projectId, undefined, 160, "business project id");
+  const departmentId = normalizeBoundedString(
+    record.departmentId,
+    undefined,
+    160,
+    "business department id",
+  );
+  if (!cadenceId || !projectId || !departmentId) {
+    return undefined;
+  }
+  const goalIds = Array.isArray(record.goalIds)
+    ? record.goalIds
+        .flatMap((entry) =>
+          typeof entry === "string"
+            ? [normalizeBoundedString(entry, undefined, 160, "business goal id")]
+            : [],
+        )
+        .filter((entry): entry is string => Boolean(entry))
+        .slice(0, 8)
+    : [];
+  const capabilityRefs = Array.isArray(record.capabilityRefs)
+    ? record.capabilityRefs
+        .flatMap((entry) =>
+          typeof entry === "string"
+            ? [normalizeBoundedString(entry, undefined, 180, "business capability ref")]
+            : [],
+        )
+        .filter((entry): entry is string => Boolean(entry))
+        .slice(0, 16)
+    : [];
+  return {
+    cadenceId,
+    projectId,
+    goalIds: [...new Set(goalIds)],
+    departmentId,
+    source: normalizeBusinessFlowSource(record.source),
+    ...(capabilityRefs.length ? { capabilityRefs: [...new Set(capabilityRefs)] } : {}),
+  };
+}
+
 function normalizeMetadata(
   value: unknown,
   fallback: WorkboardMetadata = {},
@@ -1296,6 +1359,9 @@ function normalizeMetadata(
           .filter((notification): notification is WorkboardNotification => notification !== null)
           .slice(-MAX_CARD_NOTIFICATIONS)
       : fallback.notifications,
+    businessFlow: Object.hasOwn(record, "businessFlow")
+      ? normalizeBusinessFlowMetadata(record.businessFlow)
+      : fallback.businessFlow,
     templateId: normalizeTemplateId(record.templateId) ?? fallback.templateId,
     archivedAt: hasArchivedAt
       ? normalizeTimestamp(record.archivedAt, 0) || undefined
@@ -1417,6 +1483,7 @@ function removeUndefinedMetadataFields(metadata: WorkboardMetadata): WorkboardMe
     "diagnostics",
     "notifications",
     "templateId",
+    "businessFlow",
     "archivedAt",
     "stale",
     "failureCount",

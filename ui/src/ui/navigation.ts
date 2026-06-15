@@ -4,10 +4,11 @@ import { normalizeLowercaseStringOrEmpty } from "./string-coerce.ts";
 
 export type Tab =
   | "aics"
-  | "marketplace"
+  | "apiManagement"
   | "agents"
   | "activity"
   | "overview"
+  | "businessOverview"
   | "workboard"
   | "channels"
   | "instances"
@@ -27,75 +28,58 @@ export type Tab =
   | "aiAgents"
   | "debug"
   | "logs"
-  | "dreams";
+  | "dreams"
+  | "goals"
+  | "company"
+  | "projects"
+  | "observation"
+  | "attribution";
 
 const PRIMARY_NAV_TABS = [
   "chat",
-  "aics",
+  "businessOverview",
+  "observation",
+  "attribution",
+  "goals",
+  "company",
   "workboard",
-  "usage",
+  "aics",
   "skills",
+  "apiManagement",
+  "usage",
   "sessions",
   "dreams",
-  "marketplace",
   "config",
 ] as const satisfies readonly Tab[];
 
-const SETTINGS_GENERAL_TABS = [
-  "config",
-  "channels",
-  "communications",
-  "appearance",
-] as const satisfies readonly Tab[];
-
-const SETTINGS_DEVELOPER_TABS = [
-  "automation",
-  "mcp",
-  "infrastructure",
-  "aiAgents",
-  "agents",
-  "skillWorkshop",
-  "nodes",
-  "cron",
-] as const satisfies readonly Tab[];
-
-const SETTINGS_DIAGNOSTIC_TABS = [
-  "overview",
-  "activity",
-  "instances",
-  "debug",
-  "logs",
-] as const satisfies readonly Tab[];
+const SETTINGS_GENERAL_TABS = ["appearance"] as const satisfies readonly Tab[];
 
 export const TAB_GROUPS = [{ label: "main", tabs: PRIMARY_NAV_TABS }] as const;
 
-export const SETTINGS_NAV_GROUPS = [
-  { label: "基础设置", tabs: SETTINGS_GENERAL_TABS },
-  { label: "开发者工具", tabs: SETTINGS_DEVELOPER_TABS },
-  { label: "高级诊断", tabs: SETTINGS_DIAGNOSTIC_TABS },
-] as const;
+export const SETTINGS_NAV_GROUPS = [{ label: "Settings", tabs: SETTINGS_GENERAL_TABS }] as const;
 
-export const SETTINGS_TABS = [
-  ...SETTINGS_GENERAL_TABS,
-  ...SETTINGS_DEVELOPER_TABS,
-  ...SETTINGS_DIAGNOSTIC_TABS,
-] as const satisfies readonly Tab[];
+export const SETTINGS_TABS = [...SETTINGS_GENERAL_TABS] as const satisfies readonly Tab[];
 
 export const BUYER_STOREFRONT_URL = "http://127.0.0.1:3026/us";
 
 const DISPLAY_TAB_TITLES: Partial<Record<Tab, string>> = {
-  chat: "主对话",
-  aics: "我的岗位",
-  workboard: "岗位任务",
+  chat: "迭界AI",
+  businessOverview: "经营概览",
+  observation: "数据分析",
+  attribution: "归因分析",
+  goals: "公司目标",
+  company: "规划方案",
+  aics: "岗位执行",
+  workboard: "任务调度",
+  apiManagement: "API 管理",
   dreams: "记忆与进化",
   usage: "费用与授权",
-  marketplace: "岗位商城",
-  skills: "已安装工具",
+  skills: "工具与 Skill",
   sessions: "对话记录",
-  config: "设置",
+  config: "Settings",
   channels: "渠道",
   communications: "通信",
-  appearance: "外观",
+  appearance: "Appearance",
   automation: "自动化",
   mcp: "MCP",
   infrastructure: "基础设施",
@@ -108,15 +92,16 @@ const DISPLAY_TAB_TITLES: Partial<Record<Tab, string>> = {
   activity: "活动",
   instances: "实例",
   debug: "调试",
-  logs: "日志",
+  logs: "Logs",
 };
 
 const TAB_PATHS: Record<Tab, string> = {
   aics: "/aics",
-  marketplace: "/marketplace",
+  apiManagement: "/api-management",
   agents: "/agents",
   activity: "/activity",
   overview: "/overview",
+  businessOverview: "/business-overview",
   workboard: "/workboard",
   channels: "/channels",
   instances: "/instances",
@@ -127,6 +112,11 @@ const TAB_PATHS: Record<Tab, string> = {
   skillWorkshop: "/skills/workshop",
   nodes: "/nodes",
   chat: "/chat",
+  observation: "/observation",
+  attribution: "/attribution",
+  goals: "/goals",
+  company: "/company",
+  projects: "/projects",
   config: "/config",
   communications: "/communications",
   appearance: "/appearance",
@@ -261,13 +251,15 @@ export function iconForTab(tab: Tab): IconName {
   switch (tab) {
     case "aics":
       return "brain";
-    case "marketplace":
-      return "globe";
+    case "apiManagement":
+      return "link";
     case "agents":
       return "folder";
     case "chat":
       return "messageSquare";
     case "overview":
+      return "barChart";
+    case "businessOverview":
       return "barChart";
     case "activity":
       return "activity";
@@ -309,6 +301,14 @@ export function iconForTab(tab: Tab): IconName {
       return "scrollText";
     case "dreams":
       return "moon";
+    case "goals":
+      return "barChart";
+    case "company":
+      return "activity";
+    case "observation":
+      return "eye";
+    case "attribution":
+      return "search";
     default:
       return "folder";
   }
@@ -318,6 +318,12 @@ export function titleForTab(tab: Tab) {
   if (tab === "config") {
     return t("nav.settings");
   }
+  if (tab === "apiManagement") {
+    return "API Management";
+  }
+  if (tab === "businessOverview") {
+    return "经营概览";
+  }
   return t(`tabs.${tab}`);
 }
 
@@ -326,5 +332,11 @@ export function displayTitleForTab(tab: Tab) {
 }
 
 export function subtitleForTab(tab: Tab) {
+  if (tab === "apiManagement") {
+    return "API 供给、绑定配置路径、SecretRef 与风险监控。";
+  }
+  if (tab === "businessOverview") {
+    return "发起经营意图，查看主流程状态与经营观察入口。";
+  }
   return t(`subtitles.${tab}`);
 }

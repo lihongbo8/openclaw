@@ -65,6 +65,57 @@ function createSessionsResult(sessions: Array<Record<string, unknown>>) {
   };
 }
 
+function createToolSupplyReadModel(overrides: Record<string, unknown> = {}) {
+  return {
+    version: 1,
+    updatedAt: Date.now(),
+    authority: "openclaw_local",
+    metrics: {
+      total: 2,
+      localTools: 1,
+      pluginTools: 0,
+      skills: 1,
+      apiConnections: 0,
+      cloudCapabilities: 0,
+      available: 2,
+      blocked: 0,
+      disabled: 0,
+      pendingReview: 0,
+      risks: 0,
+    },
+    localTools: [
+      {
+        id: "core:read",
+        label: "read",
+        kind: "core_tool",
+        source: "openclaw",
+        status: "available",
+        risk: "low",
+        blockedReasons: [],
+      },
+    ],
+    skills: [
+      {
+        id: "skill:browser-automation",
+        label: "browser-automation",
+        kind: "skill",
+        source: "skill",
+        status: "available",
+        risk: "low",
+        blockedReasons: [],
+        skillKey: "browser-automation",
+        configBindings: ["skills.entries.browser-automation.apiKey"],
+      },
+    ],
+    apiBindings: [],
+    cloudCapabilities: [],
+    risks: [],
+    grants: [],
+    uniqueCapabilityRequests: [],
+    ...overrides,
+  };
+}
+
 async function confirmPendingGatewayChange(app: ReturnType<typeof mountApp>) {
   const confirmButton = expectButtonWithText(app, "Confirm");
   confirmButton.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
@@ -135,27 +186,281 @@ describe("control UI routing", () => {
     const app = mountApp("/aics");
     await app.updateComplete;
 
-    const aicsPage = expectElement(app, ".main-system-shell", HTMLElement);
-    expect(aicsPage.textContent).not.toContain("中文需求");
-    expect(aicsPage.textContent).not.toContain("RoleBuildBrief JSON");
+    const text = app.textContent ?? "";
+    expect(text).toContain("岗位执行");
+    expect(text).not.toContain("中文需求");
+    expect(text).not.toContain("RoleBuildBrief JSON");
     expect(
-      Array.from(aicsPage.querySelectorAll<HTMLButtonElement>("button")).some(
+      Array.from(app.querySelectorAll<HTMLButtonElement>("button")).some(
         (candidate) => candidate.textContent?.trim() === "启动生成",
       ),
     ).toBe(false);
+  });
+
+  it("auto-syncs the tool and skill control page when opened directly", async () => {
+    const app = mountApp("/skills");
+    const request = vi.fn(async (method: string) => {
+      if (method === "aics.toolSupply.readModel.get") {
+        return createToolSupplyReadModel();
+      }
+      return {};
+    });
+    app.client = { request, stop: vi.fn() } as never;
+    app.connected = true;
+    app.requestUpdate();
+    await app.updateComplete;
+    await nextFrame();
+
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith("aics.toolSupply.readModel.get", {}),
+    );
+    await app.updateComplete;
+
+    const text = app.textContent ?? "";
+    expect(text).toContain("工具供给与管控中心");
+    expect(text).toContain("能力接入操作台");
+    expect(text).toContain("read");
+    expect(text).toContain("browser-automation");
+    expect(text).toContain("添加工具");
+    expect(text).toContain("添加 Skill");
+    expect(text).not.toContain("尚未读取 OpenClaw 工具与 Skill");
+    const buttonLabels = Array.from(app.querySelectorAll<HTMLButtonElement>("button")).map(
+      (button) => button.textContent?.replace(/\s+/g, " ").trim(),
+    );
+    expect(buttonLabels).toEqual(
+      expect.arrayContaining([
+        "新增工具供给",
+        "添加工具 API",
+        "搜索 Skill",
+        "重新评估",
+        "处理阻塞",
+      ]),
+    );
+    expect(buttonLabels).not.toContain("同步 OpenClaw");
+    expect(buttonLabels).not.toContain("同步云端商城");
+    expect(buttonLabels).not.toContain("API 管理");
+  });
+
+  it("wires tool and skill control actions to real supply workflows", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "aics.toolSupply.readModel.get") {
+        return createToolSupplyReadModel();
+      }
+      if (method === "skills.search") {
+        return {
+          results: [
+            {
+              slug: "browser",
+              displayName: "Browser Skill",
+              summary: "Browser automation for OpenClaw",
+              version: "1.0.0",
+            },
+          ],
+        };
+      }
+      if (method === "agents.list") {
+        return { agents: [] };
+      }
+      return {};
+    });
+    const app = mountApp("/skills");
+    app.client = { request, stop: vi.fn() } as never;
+    app.connected = true;
+    app.requestUpdate();
+    await app.updateComplete;
+    await nextFrame();
+
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith("aics.toolSupply.readModel.get", {}),
+    );
+    await app.updateComplete;
+
+    expectButtonWithText(app, "新增工具供给").click();
+    await app.updateComplete;
+    expect(app.tab).toBe("apiManagement");
+    expect(app.apiConnections.form.kind).toBe("tool_skill");
+    expect(app.apiConnections.form.templateId).toBe("tool-skill-api");
+    expect(app.apiConnections.form.name).toBe("工具 / Skill API");
+
+    app.setTab("skills");
+    await app.updateComplete;
+    await vi.waitFor(() => expectButtonWithText(app, "重新评估"));
+    const readModelCallsBeforeEvaluate = request.mock.calls.filter(
+      ([method]) => method === "aics.toolSupply.readModel.get",
+    ).length;
+    expectButtonWithText(app, "重新评估").click();
+    await vi.waitFor(() =>
+      expect(
+        request.mock.calls.filter(([method]) => method === "aics.toolSupply.readModel.get").length,
+      ).toBeGreaterThan(readModelCallsBeforeEvaluate),
+    );
+
+    const input = expectElement(
+      app,
+      'input[placeholder="搜索 Skill，例如 search、browser、image"]',
+      HTMLInputElement,
+    );
+    input.value = "browser";
+    input.dispatchEvent(
+      new InputEvent("input", { bubbles: true, inputType: "insertText", data: "browser" }),
+    );
+    await app.updateComplete;
+    expectButtonWithText(app, "搜索 Skill").click();
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith("skills.search", { query: "browser", limit: 8 }),
+    );
+    await app.updateComplete;
+    expect(app.textContent ?? "").toContain("Browser Skill");
+    expectButtonWithText(app, "安装");
+  });
+
+  it("keeps tool and skill entry actions clickable before gateway data is connected", async () => {
+    const app = mountApp("/skills");
+    app.connected = true;
+    app.client = null;
+    await app.updateComplete;
+
+    const addSupply = expectButtonWithText(app, "新增工具供给");
+    const addToolApi = expectButtonWithText(app, "添加工具 API");
+    expect(addSupply.disabled).toBe(false);
+    expect(addToolApi.disabled).toBe(false);
+
+    addSupply.click();
+    await app.updateComplete;
+    expect(app.tab).toBe("apiManagement");
+    expect(app.apiConnections.form.templateId).toBe("tool-skill-api");
+
+    app.setTab("skills");
+    await app.updateComplete;
+    const input = expectElement(
+      app,
+      'input[placeholder="搜索 Skill，例如 search、browser、image"]',
+      HTMLInputElement,
+    );
+    input.value = "browser";
+    input.dispatchEvent(
+      new InputEvent("input", { bubbles: true, inputType: "insertText", data: "browser" }),
+    );
+    await app.updateComplete;
+    const searchButton = expectButtonWithText(app, "搜索 Skill");
+    expect(searchButton.disabled).toBe(false);
+    searchButton.click();
+    await app.updateComplete;
+    expect(app.textContent ?? "").toContain("Gateway 未连接，暂时不能搜索 Skill。");
+  });
+
+  it("creates and deletes a tool and skill API connection from the UI", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "aics.apiConnections.entry.delete") {
+        return { readModel: { entries: [] } };
+      }
+      return {};
+    });
+    const app = mountApp("/api-management");
+    app.client = { request, stop: vi.fn() } as never;
+    app.connected = true;
+    app.updateApiConnectionFormField("templateId", "tool-skill-api");
+    app.updateApiConnectionFormField("secretValue", "sk-test-tool-skill");
+    await app.updateComplete;
+
+    expect(app.apiConnections.form.kind).toBe("tool_skill");
+    expect(app.apiConnections.form.templateId).toBe("tool-skill-api");
+    const form = expectElement(app, "[data-api-connection-form]", HTMLElement);
+    const connectButton = Array.from(form.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent?.trim() === "连接",
+    );
+    expect(connectButton).toBeInstanceOf(HTMLButtonElement);
+    connectButton?.click();
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        "aics.apiConnections.entry.create",
+        expect.objectContaining({
+          name: "工具 / Skill API",
+          kind: "tool_skill",
+          provider: "tool-skill",
+          secret: "sk-test-tool-skill",
+          consumers: ["tool", "skill"],
+        }),
+      ),
+    );
+    await app.updateComplete;
+    expect(app.textContent ?? "").toContain("连接已保存");
+    expect(app.textContent ?? "").toContain("工具 / Skill API");
+
+    expectButtonWithText(app, "删除").click();
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith("aics.apiConnections.entry.delete", {
+        id: "tool_skill-tool-skill",
+      }),
+    );
+    await app.updateComplete;
+    expect(app.textContent ?? "").toContain("连接记录已删除");
+  });
+
+  it("treats API connection save during gateway restart as submitted", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "aics.apiConnections.entry.create") {
+        throw new Error("gateway closed (1012): service restart");
+      }
+      return {};
+    });
+    const app = mountApp("/api-management");
+    app.client = { request, stop: vi.fn() } as never;
+    app.connected = true;
+    app.updateApiConnectionFormField("templateId", "tool-skill-api");
+    app.updateApiConnectionFormField("secretValue", "sk-test-tool-skill");
+    await app.updateComplete;
+
+    const form = expectElement(app, "[data-api-connection-form]", HTMLElement);
+    const connectButton = Array.from(form.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent?.trim() === "连接",
+    );
+    expect(connectButton).toBeInstanceOf(HTMLButtonElement);
+    connectButton?.click();
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        "aics.apiConnections.entry.create",
+        expect.objectContaining({ provider: "tool-skill" }),
+      ),
+    );
+    await app.updateComplete;
+
+    expect(app.apiConnections.error).toBeNull();
+    expect(app.apiConnections.saving).toBe(false);
+    expect(app.textContent ?? "").toContain("连接已保存，Gateway 正在重启");
+    expect(app.textContent ?? "").not.toContain("gateway closed (1012)");
+    expect(app.textContent ?? "").toContain("工具 / Skill API");
+  });
+
+  it("shows a retry state when the direct tool and skill sync fails", async () => {
+    const app = mountApp("/skills");
+    const request = vi.fn(async (method: string) => {
+      if (method === "aics.toolSupply.readModel.get") {
+        throw new Error("tool supply offline");
+      }
+      return {};
+    });
+    app.client = { request, stop: vi.fn() } as never;
+    app.connected = true;
+    app.requestUpdate();
+    await app.updateComplete;
+    await nextFrame();
+
+    await vi.waitFor(() => expect(app.toolSupplyControl.error).toBe("tool supply offline"));
+    await app.updateComplete;
+
+    const text = app.textContent ?? "";
+    expect(text).toContain("tool supply offline");
+    expect(text).toContain("重试读取");
+    expect(text).toContain("尚未读取 OpenClaw 工具与 Skill");
   });
 
   it("keeps AICS customer-facing copy in Chinese without internal platform names", async () => {
     const app = mountApp("/aics");
     await app.updateComplete;
 
-    const aicsPage = expectElement(app, ".main-system-shell", HTMLElement);
-    const text = aicsPage.textContent ?? "";
-    expect(text).toContain("我的岗位");
-    expect(text).toContain("已安装");
-    expect(text).toContain("已授权");
-    expect(text).toContain("可更新");
-    expect(text).toContain("岗位列表");
+    const text = app.textContent ?? "";
+    expect(text).toContain("岗位执行");
     expect(text).not.toContain("主对话工作台");
     expect(text).not.toContain("主对话是第一入口");
     expect(text).not.toContain("调度层是中枢");
@@ -210,10 +515,8 @@ describe("control UI routing", () => {
     fillAicsRoleBuilderRequiredFields(app);
     await app.updateComplete;
 
-    expect(expectElement(app, ".main-system-shell", HTMLElement).textContent).toContain("暂无岗位");
-    expectButtonWithText(app, "同步").dispatchEvent(
-      new MouseEvent("click", { bubbles: true, cancelable: true }),
-    );
+    expect(app.aicsMarketplace.roles).toEqual([]);
+    await app.refreshAicsMarketplaceRoles();
     await app.updateComplete;
     await nextFrame();
     await app.updateComplete;
@@ -234,9 +537,6 @@ describe("control UI routing", () => {
         entitlementId: "ordgrp_001",
       },
     ]);
-    expect(expectElement(app, ".main-system-shell", HTMLElement).textContent).toContain(
-      "客服质检岗位",
-    );
     expect(JSON.stringify(app.aicsMarketplace.result)).not.toContain("cloud_customer_token");
   });
 
@@ -281,9 +581,7 @@ describe("control UI routing", () => {
         entitlementId: "djent_smart_lock",
       },
     ]);
-    expect(expectElement(app, ".main-system-shell", HTMLElement).textContent).toContain(
-      "智能门锁电商美工岗位",
-    );
+    expect(app.aicsMarketplace.roles[0]?.title).toBe("智能门锁电商美工岗位");
   });
 
   it("syncs installed marketplace roles from gateway read-model shaped responses", async () => {
@@ -296,7 +594,18 @@ describe("control UI routing", () => {
             roleListingId: "djrole_smart_lock",
             title: "智能门锁电商美工岗位",
             subtitle: "检查智能门锁电商主图和视觉卖点。",
+            callable: true,
             reviewSignal: { listingStatus: "published", reviewState: "approved" },
+            packageContext: {
+              requiredCapabilities: ["image.inspect"],
+              catalogBindings: [
+                {
+                  need: "image.generate",
+                  catalogRef: "api.opencloud.image_generation",
+                  kind: "api",
+                },
+              ],
+            },
             entitlement: {
               id: "djent_smart_lock",
               status: "authorized",
@@ -326,11 +635,29 @@ describe("control UI routing", () => {
         status: "published",
         roleListingId: "djrole_smart_lock",
         entitlementId: "djent_smart_lock",
+        catalogRefs: ["image.inspect", "api.opencloud.image_generation"],
+        callable: true,
+        requiredCapabilities: ["image.inspect"],
       },
     ]);
+    expect(app.aicsMarketplace.roles[0]?.title).toBe("智能门锁电商美工岗位");
+    expect(JSON.stringify(app.aicsMarketplace.result)).not.toContain("云端授权凭证");
+  });
+
+  it("keeps project boards from directly calling the role task gateway", async () => {
+    const app = mountApp("/projects");
+    app.connected = true;
+    const request = vi.fn(async () => ({ ok: true }));
+    app.client = { request, stop: vi.fn() } as never;
+    await app.updateComplete;
+
     const text = app.textContent ?? "";
-    expect(text).toContain("云端授权已同步");
-    expect(text).toMatch(/已授权岗位\s+1/u);
+    expect(text).toContain("项目看板");
+    expect(text).toContain("项目看板不能直接创建岗位任务");
+    expect(text).not.toContain("执行岗位");
+    expect(text).not.toContain("派任务");
+    expect(request).not.toHaveBeenCalledWith("dijie.roleTask.run", expect.anything());
+    expect(request).not.toHaveBeenCalledWith("workboard.cards.create", expect.anything());
   });
 
   it("does not show cloud authorization as synced before marketplace sync runs", async () => {
@@ -339,38 +666,86 @@ describe("control UI routing", () => {
     await app.updateComplete;
 
     const text = app.textContent ?? "";
-    expect(text).toContain("待同步");
-    expect(text).toMatch(/已授权岗位\s+0/u);
+    expect(text).toContain("任务调度");
+    expect(text).toContain("岗位任务包");
     expect(text).not.toContain("云端授权已同步");
   });
 
-  it("renders marketplace as a local role-category page", async () => {
-    const app = mountApp("/marketplace");
-    app.aicsMarketplace = {
-      roles: [
-        {
-          id: "role_quality_agent",
-          title: "客服质检岗位",
-          detail: "本地假商品不应渲染",
+  it("renders API management as a real OpenClaw management page", async () => {
+    const app = mountApp("/api-management");
+    app.apiConnections = {
+      ...app.apiConnections,
+      readModel: {
+        metrics: { configured: 1, available: 0, risky: 1, unbound: 0, blocked: 1 },
+        groups: {
+          model: [
+            {
+              id: "model-openai",
+              name: "OpenAI 模型 API",
+              provider: "openai",
+              baseUrl: "https://api.openai.test/v1",
+              status: "blocked",
+              riskStatus: "blocked",
+              secret: {
+                mode: "secret_ref",
+                source: "env",
+                provider: "default",
+                id: "OPENAI_API_KEY",
+                status: "unresolved",
+              },
+              consumers: ["model"],
+              configBindings: [{ path: "models.providers.openai.apiKey" }],
+            },
+          ],
+          tool_skill: [],
+          marketplace: [],
+          dialog: [],
         },
-      ],
-      loading: false,
-      error: null,
-      result: null,
+        riskReport: {
+          items: [
+            {
+              entryId: "model-openai",
+              code: "unresolved_secret_ref",
+              severity: "blocking",
+              message: "SecretRef 当前无法解析。",
+            },
+          ],
+        },
+      },
     };
+    app.connected = true;
     await app.updateComplete;
 
-    expect(app.tab).toBe("marketplace");
-    const page = expectElement(app, ".main-system-shell", HTMLElement);
-    expect(page.textContent).toContain("岗位商城");
-    expect(page.textContent).toContain("打开云端");
-    expect(page.textContent).toContain("同步授权");
-    expect(page.textContent).not.toContain("岗位分类");
-    expect(page.textContent).not.toContain("软件工程师");
-    expect(page.textContent).not.toContain("产品经理");
-    expect(page.textContent).not.toContain("云架构师");
-    expect(page.textContent).not.toContain("客服质检岗位");
-    expect(page.textContent).not.toContain("岗位工作台");
+    expect(app.tab).toBe("apiManagement");
+    const pageText = app.textContent ?? app.shadowRoot?.textContent ?? "";
+    expect(pageText).toContain("API 供给中心");
+    expect(pageText).toContain("统一供给 API");
+    expect(pageText).toContain("系统使用总览");
+    expect(pageText).toContain("推荐连接");
+    expect(pageText).toContain("连接服务");
+    expect(pageText).toContain("云端商城");
+    expect(pageText).toContain("本地服务");
+    expect(pageText).toContain("多模型适配");
+    expect(pageText).toContain("已连接服务");
+    expect(pageText).toContain("风险与阻塞");
+    expect(pageText).toContain("OPENAI_API_KEY");
+    expect(pageText).toContain("DeepSeek");
+    expect(pageText).toContain("阿里百炼 / 通义千问");
+    expect(pageText).toContain("直接输入 API Key");
+    expect(pageText).toContain("测试");
+    expect(pageText).toContain("编辑");
+    expect(pageText).toContain("删除");
+    expect(pageText).not.toContain("工具与 Skill 使用");
+    expect(pageText).not.toContain("岗位使用");
+    expect(pageText).not.toContain("工具 / Skill API");
+    expect(pageText).not.toContain("图片生成 Provider");
+    expect(pageText).not.toContain("视频生成 Provider");
+    expect(pageText).not.toContain("费用计算");
+    expect(pageText).not.toContain("Token 花费");
+    expect(pageText).not.toContain("账单");
+    expect(pageText).not.toContain("岗位价格");
+    expect(pageText).not.toContain("方法与 Scope");
+    expect(pageText).not.toContain("调用摘要");
   });
 
   it("uses a marketplace role by jumping into the existing main chat draft", async () => {
@@ -392,9 +767,7 @@ describe("control UI routing", () => {
     await app.refreshAicsMarketplaceRoles();
     await app.updateComplete;
 
-    expectButtonWithText(app, "使用").dispatchEvent(
-      new MouseEvent("click", { bubbles: true, cancelable: true }),
-    );
+    app.useAicsMarketplaceRole(app.aicsMarketplace.roles[0]);
     await app.updateComplete;
 
     expect(app.tab).toBe("chat");
@@ -506,7 +879,8 @@ describe("control UI routing", () => {
         },
       }),
     );
-    const sentPayload = request.mock.calls[0]?.[1] as
+    const requestCalls = request.mock.calls as unknown as Array<[string, unknown?]>;
+    const sentPayload = requestCalls[0]?.[1] as
       | { aicsContext?: { mode?: string; stage?: string }; message?: string; modelPrompt?: string }
       | undefined;
     expect(sentPayload?.modelPrompt).toBeUndefined();
@@ -534,7 +908,7 @@ describe("control UI routing", () => {
     });
     app.chatMessage = "使用我的质检岗位处理今天的记录。";
     await app.handleSendChat();
-    const chatSendCalls = request.mock.calls.filter(([method]) => method === "chat.send");
+    const chatSendCalls = requestCalls.filter(([method]) => method === "chat.send");
     const secondPayload = chatSendCalls[1]?.[1] as
       | { aicsContext?: unknown; message?: string; modelPrompt?: string }
       | undefined;
@@ -1224,37 +1598,48 @@ describe("control UI routing", () => {
     const nav = expectElement(app, ".sidebar-nav", HTMLElement);
     const links = Array.from(nav.querySelectorAll<HTMLAnchorElement>("a.nav-item"));
     expect(links.map((link) => link.textContent?.replace(/\s+/g, " ").trim())).toEqual([
-      "主对话",
-      "我的岗位",
-      "岗位任务",
+      "迭界AI",
+      "经营概览",
+      "数据分析",
+      "归因分析",
+      "公司目标",
+      "规划方案",
+      "任务调度",
+      "岗位执行",
+      "工具与 Skill",
+      "API 管理",
       "费用与授权",
-      "已安装工具",
       "对话记录",
       "记忆与进化",
-      "岗位商城",
-      "设置",
+      "Settings",
     ]);
     expect(links.map((link) => link.getAttribute("href"))).toEqual([
       "/chat",
-      "/aics",
+      "/business-overview",
+      "/observation",
+      "/attribution",
+      "/goals",
+      "/company",
       "/workboard",
-      "/usage",
+      "/aics",
       "/skills",
+      "/api-management",
+      "/usage",
       "/sessions",
       "/dreaming",
-      "/marketplace",
       "/config",
     ]);
-    const marketplaceLink = expectElement(
+    const apiManagementLink = expectElement(
       nav,
-      'a.nav-item[href="/marketplace"]',
+      'a.nav-item[href="/api-management"]',
       HTMLAnchorElement,
     );
-    expect(marketplaceLink.target).toBe("");
-    expect(marketplaceLink.rel).toBe("");
-    marketplaceLink.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(apiManagementLink.target).toBe("");
+    expect(apiManagementLink.rel).toBe("");
+    apiManagementLink.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     await app.updateComplete;
-    expect(app.tab).toBe("marketplace");
+    expect(app.tab).toBe("apiManagement");
+    expect(nav.querySelector('a.nav-item[href="/admin-console"]')).toBeNull();
 
     for (const legacyHref of [
       "/overview",
@@ -1273,19 +1658,17 @@ describe("control UI routing", () => {
     settingsLink.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     await app.updateComplete;
 
-    const settingsNav = expectElement(app, ".settings-section-nav", HTMLElement);
-    const settingsText = settingsNav.textContent ?? "";
-    expect(settingsText).toContain("开发者工具");
-    expect(settingsText).toContain("高级诊断");
-    for (const routedHref of ["/cron", "/agents", "/nodes", "/debug", "/logs"]) {
-      expect(settingsNav.querySelector(`a[href="${routedHref}"]`)).toBeInstanceOf(
-        HTMLAnchorElement,
-      );
-    }
+    const settingsText = app.textContent ?? "";
+    expect(settingsText).toContain("Context Profile");
+    expect(settingsText).toContain("Appearance");
+    expect(settingsText).toContain("Gateway");
+    expect(settingsText).not.toContain("Developer Tools");
+    expect(settingsText).not.toContain("Diagnostics");
+    expect(settingsText).not.toContain("Advanced");
   });
 
-  it("keeps legacy technical routes inside the settings section context", async () => {
-    const app = mountApp("/agents");
+  it("keeps the settings section nav scoped to visible settings modules", async () => {
+    const app = mountApp("/appearance");
     await app.updateComplete;
 
     const primaryLinks = Array.from(
@@ -1293,13 +1676,16 @@ describe("control UI routing", () => {
         "a.nav-item",
       ),
     );
-    expect(primaryLinks.some((link) => link.getAttribute("href") === "/agents")).toBe(false);
+    expect(primaryLinks.some((link) => link.getAttribute("href") === "/appearance")).toBe(false);
 
     const settingsNav = expectElement(app, ".settings-section-nav", HTMLElement);
-    const developerGroup = settingsNav.textContent ?? "";
-    expect(developerGroup).toContain("开发者工具");
-    expect(settingsNav.querySelector('a[href="/agents"]')).toBeInstanceOf(HTMLAnchorElement);
-    expect(settingsNav.querySelector('a[href="/agents"]')?.classList).toContain(
+    const settingsText = settingsNav.textContent ?? "";
+    expect(settingsText).toContain("Settings");
+    expect(settingsText).toContain("Appearance");
+    expect(settingsText).not.toContain("Developer Tools");
+    expect(settingsText).not.toContain("Diagnostics");
+    expect(settingsNav.querySelector('a[href="/appearance"]')).toBeInstanceOf(HTMLAnchorElement);
+    expect(settingsNav.querySelector('a[href="/appearance"]')?.classList).toContain(
       "settings-section-nav__item--active",
     );
   });

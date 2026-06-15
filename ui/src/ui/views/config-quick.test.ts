@@ -24,13 +24,6 @@ function expectRowByLabel(container: Element, text: string): HTMLElement {
   return row;
 }
 
-function expectFileInput(input: Element | null | undefined): HTMLInputElement {
-  if (!(input instanceof HTMLInputElement)) {
-    throw new Error("Expected file input");
-  }
-  return input;
-}
-
 function createProps(overrides: Partial<QuickSettingsProps> = {}): QuickSettingsProps {
   return {
     currentModel: "gpt-5.5",
@@ -74,7 +67,6 @@ function createProps(overrides: Partial<QuickSettingsProps> = {}): QuickSettings
     onUserAvatarChange: vi.fn(),
     configObject: {},
     onSelectPreset: vi.fn(),
-    onAdvancedSettings: vi.fn(),
     connected: true,
     gatewayUrl: "ws://localhost:18789",
     assistantName: "OpenClaw",
@@ -107,30 +99,34 @@ function collectQuickSettingsCardKinds(container: Element): string[] {
   return kinds;
 }
 
-function expectAssistantAvatarSource(container: Element): { label: string; source: string } {
-  const source = container.querySelector(".qs-identity-card--assistant .qs-identity-card__source");
-  return {
-    label: source?.querySelector("span")?.textContent?.trim() ?? "",
-    source: source?.querySelector("code")?.textContent?.trim() ?? "",
-  };
-}
-
 describe("renderQuickSettings", () => {
-  it("uses direct dashboard cards for the compact settings layout", () => {
+  it("shows only Context Profile, Appearance, and Gateway in Settings", () => {
     const container = document.createElement("div");
 
     render(renderQuickSettings(createProps()), container);
 
-    expect(collectQuickSettingsCardKinds(container)).toEqual([
-      "qs-card--model",
-      "qs-card--channels",
-      "qs-card--security",
-      "qs-card--personal",
-      "qs-card--appearance",
-      "qs-card--automations",
-    ]);
-    expect(container.querySelectorAll(".qs-side-stack .qs-card")).toHaveLength(2);
     expect(container.querySelectorAll(".qs-card--span-all")).toHaveLength(1);
+    expect(collectQuickSettingsCardKinds(container)).toEqual([
+      "qs-card--appearance",
+      "qs-card--gateway",
+    ]);
+    expect(container.textContent).toContain("Context Profile");
+    expect(container.textContent).toContain("Appearance");
+    expect(container.textContent).toContain("Gateway");
+    expect(container.textContent).toContain("Bootstrap Context");
+    expect(container.textContent).not.toContain("Custom Configuration");
+    expect(container.textContent).not.toContain("启动上下文");
+    expect(container.textContent).not.toContain("Advanced");
+    expect(container.textContent).not.toContain("Model & Thinking");
+    expect(container.textContent).not.toContain("Channels");
+    expect(container.textContent).not.toContain("Automations");
+    expect(container.textContent).not.toContain("Security");
+    expect(container.textContent).not.toContain("Personal");
+    expect(
+      Array.from(container.querySelectorAll(".qs-card__title")).map((node) =>
+        node.textContent?.trim(),
+      ),
+    ).toEqual(["Context Profile", "Appearance", "Gateway"]);
   });
 
   it("shows the current bootstrap default when config omits the explicit limit", () => {
@@ -148,48 +144,7 @@ describe("renderQuickSettings", () => {
     );
   });
 
-  it("lets operators change browser and tool profile from Security quick settings", () => {
-    const onBrowserEnabledToggle = vi.fn();
-    const onToolProfileChange = vi.fn();
-    const container = document.createElement("div");
-
-    render(
-      renderQuickSettings(
-        createProps({
-          security: {
-            gatewayAuth: "token",
-            execPolicy: "allowlist",
-            deviceAuth: true,
-            browserEnabled: false,
-            toolProfile: "messaging",
-          },
-          onBrowserEnabledToggle,
-          onToolProfileChange,
-        }),
-      ),
-      container,
-    );
-
-    const browserRow = expectRowByLabel(container, "Browser enabled");
-    expect(browserRow.querySelector(".qs-toggle__hint")?.textContent).toBe("Disabled");
-    const browserInput = browserRow.querySelector("input");
-    expect(browserInput).toBeInstanceOf(HTMLInputElement);
-    expect((browserInput as HTMLInputElement).checked).toBe(false);
-
-    (browserInput as HTMLInputElement).checked = true;
-    browserInput?.dispatchEvent(new Event("change"));
-    expect(onBrowserEnabledToggle).toHaveBeenCalledWith(true);
-
-    expectButtonByText(container, "full").click();
-    expect(onToolProfileChange).toHaveBeenCalledWith("full");
-    expect([...expectButtonByText(container, "messaging").classList]).toEqual([
-      "qs-segmented__btn",
-      "qs-segmented__btn--compact",
-      "qs-segmented__btn--active",
-    ]);
-  });
-
-  it("lets operators change text size from Appearance quick settings", () => {
+  it("lets operators change text size from Appearance settings", () => {
     const setTextScale = vi.fn();
     const container = document.createElement("div");
 
@@ -205,258 +160,7 @@ describe("renderQuickSettings", () => {
     expect(setTextScale).toHaveBeenCalledWith(140);
   });
 
-  it("keeps the local user name fixed and shows the assistant identity", () => {
-    const container = document.createElement("div");
-
-    render(
-      renderQuickSettings(
-        createProps({
-          assistantName: "Nova",
-          assistantAvatar: "assets/avatars/nova-portrait.png",
-          assistantAvatarUrl: "blob:nova",
-        }),
-      ),
-      container,
-    );
-
-    const titles = Array.from(container.querySelectorAll(".qs-identity-card__title")).map((node) =>
-      node.textContent?.trim(),
-    );
-    expect(titles).toEqual(["You", "Nova"]);
-    expect(container.querySelector('input[placeholder="You"]')).toBeNull();
-    expect(
-      Array.from(container.querySelectorAll(".qs-row__label")).some(
-        (node) => node.textContent?.trim() === "Name",
-      ),
-    ).toBe(false);
-    expect(container.querySelector(".qs-assistant-avatar")?.getAttribute("src")).toBe("blob:nova");
-  });
-
-  it("renders same-origin assistant avatar routes from IDENTITY.md", () => {
-    const container = document.createElement("div");
-
-    render(
-      renderQuickSettings(
-        createProps({
-          assistantName: "Nova",
-          assistantAvatar: "/avatar/main",
-          assistantAvatarUrl: "/avatar/main",
-          assistantAvatarSource: "assets/avatars/nova-portrait.png",
-          assistantAvatarStatus: "local",
-        }),
-      ),
-      container,
-    );
-
-    expect(container.querySelector(".qs-assistant-avatar")?.getAttribute("src")).toBe(
-      "/avatar/main",
-    );
-  });
-
-  it("shows the IDENTITY.md avatar source when the assistant falls back to the logo", () => {
-    const container = document.createElement("div");
-
-    render(
-      renderQuickSettings(
-        createProps({
-          assistantName: "Nova",
-          assistantAvatar: "/avatar/main",
-          assistantAvatarUrl: null,
-          assistantAvatarSource: "assets/avatars/nova-portrait.png",
-          assistantAvatarStatus: "none",
-          assistantAvatarReason: "missing",
-        }),
-      ),
-      container,
-    );
-
-    expect(container.querySelector(".qs-assistant-avatar")?.getAttribute("src")).toBe(
-      "/apple-touch-icon.png",
-    );
-    expect(expectAssistantAvatarSource(container)).toEqual({
-      label: "IDENTITY.md",
-      source: "assets/avatars/nova-portrait.png",
-    });
-    expect(container.querySelector(".qs-identity-card__issue")?.textContent?.trim()).toBe(
-      "File not found",
-    );
-    expect(
-      Array.from(container.querySelectorAll("label.btn")).some(
-        (label) => label.textContent?.trim() === "Choose image",
-      ),
-    ).toBe(true);
-  });
-
-  it("reads assistant image imports into an override", () => {
-    const onAssistantAvatarOverrideChange = vi.fn();
-    const readAsDataURL = vi.fn(function (this: FileReader) {
-      Object.defineProperty(this, "result", {
-        configurable: true,
-        value: "data:image/png;base64,YXZhdGFy",
-      });
-      this.dispatchEvent(new Event("load"));
-    });
-    class MockFileReader {
-      result: string | null = null;
-      listeners = new Map<string, Array<(event: Event) => void>>();
-      addEventListener(type: string, listener: (event: Event) => void) {
-        this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
-      }
-      dispatchEvent(event: Event) {
-        for (const listener of this.listeners.get(event.type) ?? []) {
-          listener(event);
-        }
-        return true;
-      }
-      readAsDataURL = readAsDataURL;
-    }
-    vi.stubGlobal("FileReader", MockFileReader);
-
-    try {
-      const container = document.createElement("div");
-      render(
-        renderQuickSettings(
-          createProps({
-            assistantAvatarSource: "assets/avatars/nova-portrait.png",
-            assistantAvatarStatus: "none",
-            assistantAvatarReason: "missing",
-            onAssistantAvatarOverrideChange,
-          }),
-        ),
-        container,
-      );
-
-      const inputs = Array.from(container.querySelectorAll('input[type="file"]'));
-      const input = inputs.find((node) =>
-        node.closest(".qs-identity-card--assistant"),
-      ) as HTMLInputElement | null;
-      expect(input?.type).toBe("file");
-      if (!input) {
-        throw new Error("expected assistant avatar file input");
-      }
-
-      Object.defineProperty(input, "files", {
-        configurable: true,
-        value: [new File(["avatar"], "avatar.png", { type: "image/png" })],
-      });
-      input.dispatchEvent(new Event("change"));
-
-      expect(readAsDataURL).toHaveBeenCalledTimes(1);
-      expect(onAssistantAvatarOverrideChange).toHaveBeenCalledWith(
-        "data:image/png;base64,YXZhdGFy",
-      );
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it("can clear an assistant avatar override back to IDENTITY.md", () => {
-    const onAssistantAvatarClearOverride = vi.fn();
-    const container = document.createElement("div");
-
-    render(
-      renderQuickSettings(
-        createProps({
-          assistantAvatar: "data:image/png;base64,b3ZlcnJpZGU=",
-          assistantAvatarUrl: "data:image/png;base64,b3ZlcnJpZGU=",
-          assistantAvatarSource: "data:image/png;base64,...",
-          assistantAvatarStatus: "data",
-          assistantAvatarOverride: "data:image/png;base64,b3ZlcnJpZGU=",
-          onAssistantAvatarClearOverride,
-        }),
-      ),
-      container,
-    );
-
-    expect(expectAssistantAvatarSource(container)).toEqual({
-      label: "UI override",
-      source: "data:image/png;base64,...",
-    });
-    expectButtonByText(container, "Clear override").dispatchEvent(new Event("click"));
-
-    expect(onAssistantAvatarClearOverride).toHaveBeenCalledTimes(1);
-  });
-
-  it("lets the browser-local assistant avatar override stale missing IDENTITY.md metadata", () => {
-    const dataUrl = "data:image/png;base64,bG9jYWwtYXNzaXN0YW50";
-    const container = document.createElement("div");
-
-    render(
-      renderQuickSettings(
-        createProps({
-          assistantName: "Nova",
-          assistantAvatar: "/avatar/main",
-          assistantAvatarUrl: null,
-          assistantAvatarSource: "avatars/missing.png",
-          assistantAvatarStatus: "none",
-          assistantAvatarReason: "missing",
-          assistantAvatarOverride: dataUrl,
-        }),
-      ),
-      container,
-    );
-
-    expect(container.querySelector(".qs-assistant-avatar")?.getAttribute("src")).toBe(dataUrl);
-    expect(expectAssistantAvatarSource(container)).toEqual({
-      label: "UI override",
-      source: "data:image/png;base64,...",
-    });
-    expect(container.querySelector(".qs-identity-card__issue")).toBeNull();
-    expect(
-      Array.from(container.querySelectorAll("label.btn")).some(
-        (label) => label.textContent?.trim() === "Replace image",
-      ),
-    ).toBe(true);
-    expect(
-      Array.from(container.querySelectorAll("button")).some(
-        (button) => button.textContent?.trim() === "Clear override",
-      ),
-    ).toBe(true);
-  });
-
-  it("rejects oversized avatar uploads before reading them", () => {
-    const onUserAvatarChange = vi.fn();
-    const fileReader = vi.fn();
-    vi.stubGlobal("FileReader", fileReader);
-
-    try {
-      const container = document.createElement("div");
-      render(renderQuickSettings(createProps({ onUserAvatarChange })), container);
-
-      const input = expectFileInput(
-        Array.from(container.querySelectorAll('input[type="file"]')).find(
-          (node) => !node.closest(".qs-identity-card--assistant"),
-        ),
-      );
-
-      const file = new File([new Uint8Array(1_500_001)], "avatar.png", { type: "image/png" });
-      Object.defineProperty(input, "files", {
-        configurable: true,
-        value: [file],
-      });
-
-      input.dispatchEvent(new Event("change"));
-
-      expect(fileReader).not.toHaveBeenCalled();
-      expect(onUserAvatarChange).not.toHaveBeenCalled();
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it("shows an import theme option in quick settings before a theme is imported", () => {
-    const container = document.createElement("div");
-
-    render(renderQuickSettings(createProps()), container);
-
-    expect(
-      Array.from(container.querySelectorAll("button")).some(
-        (button) => button.textContent?.trim() === "Import",
-      ),
-    ).toBe(true);
-  });
-
-  it("routes custom clicks into the tweakcn importer until a custom theme exists", () => {
+  it("routes custom theme clicks into the tweakcn importer until a custom theme exists", () => {
     const setTheme = vi.fn();
     const onOpenCustomThemeImport = vi.fn();
     const container = document.createElement("div");
@@ -478,28 +182,26 @@ describe("renderQuickSettings", () => {
     expect(setTheme).not.toHaveBeenCalled();
   });
 
-  it("applies the imported custom theme from quick settings once it exists", () => {
-    const setTheme = vi.fn();
-    const onOpenCustomThemeImport = vi.fn();
+  it("shows Gateway connection information without exposing gateway configuration", () => {
     const container = document.createElement("div");
 
     render(
       renderQuickSettings(
         createProps({
-          theme: "claw",
-          hasCustomTheme: true,
-          customThemeLabel: "Light Green",
-          setTheme,
-          onOpenCustomThemeImport,
+          connected: false,
+          gatewayUrl: "ws://localhost:1234",
+          assistantName: "Nova",
+          version: "2026.6.14",
         }),
       ),
       container,
     );
 
-    const customThemeButton = expectButtonByText(container, "Light Green");
-    customThemeButton.click();
-
-    expect(setTheme).toHaveBeenCalledWith("custom", { element: customThemeButton });
-    expect(onOpenCustomThemeImport).not.toHaveBeenCalled();
+    expect(expectRowByLabel(container, "Gateway URL").textContent).toContain("ws://localhost:1234");
+    expect(expectRowByLabel(container, "Status").textContent).toContain("Offline");
+    expect(expectRowByLabel(container, "Version").textContent).toContain("2026.6.14");
+    expect(expectRowByLabel(container, "Assistant").textContent).toContain("Nova");
+    expect(container.textContent).not.toContain("Gateway auth");
+    expect(container.textContent).not.toContain("Exec policy");
   });
 });

@@ -517,6 +517,18 @@ describe("Dijie execution preflight", () => {
     });
   });
 
+  it("exposes the formal Dijie authorization bridge in the plugin manifest", () => {
+    const manifest = JSON.parse(
+      readFileSync(new URL("./openclaw.plugin.json", import.meta.url), "utf8"),
+    );
+
+    expect(manifest.contracts.tools).toContain("dijie_role_authorization_create");
+    expect(manifest.contracts.gatewayMethods).toContain("dijie.roleAuthorization.create");
+    expect(manifest.configSchema.properties.cloudAuthorizationPath.default).toBe(
+      "/dijie/authorizations",
+    );
+  });
+
   it("registers the gateway preflight and role-builder run methods", async () => {
     const registerGatewayMethod = vi.fn();
     const registerTool = vi.fn();
@@ -552,10 +564,15 @@ describe("Dijie execution preflight", () => {
       expect.any(Function),
       { scope: "operator.read" },
     );
+    expect(registerGatewayMethod).toHaveBeenCalledWith(
+      "dijie.roleAuthorization.create",
+      expect.any(Function),
+      { scope: "operator.write" },
+    );
     expect(registerGatewayMethod).toHaveBeenCalledWith("dijie.roleTask.run", expect.any(Function), {
       scope: "operator.write",
     });
-    expect(registerTool).toHaveBeenCalledTimes(6);
+    expect(registerTool).toHaveBeenCalledTimes(7);
 
     const handler = registerGatewayMethod.mock.calls.find(
       (call) => call[0] === "dijie.roleBuilder.run",
@@ -723,12 +740,12 @@ describe("Dijie execution preflight", () => {
     )?.[1];
     const response = await handler({
       params: {
-        role_listing_id: "role_smart_lock_designer",
-        entitlement_id: "ent_smart_lock_designer",
-        role_title: "智能门锁电商美工岗位",
+        role_listing_id: "role_marketplace_designer",
+        entitlement_id: "ent_role_marketplace_designer",
+        role_title: "岗位商城电商美工岗位",
         required_capabilities: ["workspace.read", "image.generate", "document.write"],
         task_text:
-          "产品是「神岳中式智能门锁别墅实木双开滑盖密码指纹锁欧式拉手防盗大门锁」。准备 5 张主图方案，并输出中国风详情页结构与尺寸规范。",
+          "产品是「岗位商城首批电商美工岗位商品」。准备 5 张主图方案，并输出岗位商品详情页结构与尺寸规范。",
         confirm_execution: true,
         workspace_dir: workspaceDir,
       },
@@ -741,12 +758,12 @@ describe("Dijie execution preflight", () => {
       status: "completed",
       roleResult: {
         status: "completed",
-        output: expect.stringContaining("5 张主图方案"),
+        output: expect.stringContaining("5 张岗位商品主图方案"),
         changedFiles: [expect.stringContaining("design-brief.md")],
         artifacts: [
           expect.objectContaining({
             type: "role_task_design_brief",
-            title: "智能门锁电商美工设计方案文本",
+            title: "岗位商城电商美工展示优化方案文本",
           }),
         ],
       },
@@ -770,7 +787,7 @@ describe("Dijie execution preflight", () => {
     const workspaceDir = mkdtempSync(path.join(os.tmpdir(), "dijie-role-task-"));
     const { runtime, runEmbeddedAgent } = createFakeNativeRuntime({
       files: {},
-      outputText: "智能门锁商品主图检查完成：主体清晰，卖点可读，需要人工复核合规表述。",
+      outputText: "岗位商城商品主图检查完成：主体清晰，卖点可读，需要人工复核合规表述。",
     });
     const executionToken = createExecutionToken({
       executionId: "exec_image_review_1",
@@ -918,7 +935,7 @@ describe("Dijie execution preflight", () => {
     const response = await handler({
       params: {
         role_query: "商品图检查岗位",
-        task_text: "检查一张智能门锁商品主图的电商质量。",
+        task_text: "检查一张岗位商城商品主图的电商质量。",
         confirm_execution: true,
         workspace_dir: workspaceDir,
       },
@@ -1101,7 +1118,7 @@ describe("Dijie execution preflight", () => {
     const response = await handler({
       params: {
         role_query: "商品图检查岗位",
-        task_text: "检查一张智能门锁商品主图的电商质量。",
+        task_text: "检查一张岗位商城商品主图的电商质量。",
         confirm_execution: true,
         workspace_dir: workspaceDir,
         timeout_ms: 6000,
@@ -1242,7 +1259,7 @@ describe("Dijie execution preflight", () => {
     const response = await handler({
       params: {
         role_query: "商品图检查岗位",
-        task_text: "检查一张智能门锁商品主图的电商质量。",
+        task_text: "检查一张岗位商城商品主图的电商质量。",
         confirm_execution: true,
         workspace_dir: workspaceDir,
       },
@@ -1286,16 +1303,16 @@ describe("Dijie execution preflight", () => {
     const { runtime, runEmbeddedAgent } = createFakeNativeRuntime();
     const executionToken = createExecutionToken({
       executionId: "exec_design_artifact_1",
-      roleListingId: "role_smart_lock_designer",
-      entitlementId: "ent_smart_lock_designer",
+      roleListingId: "role_marketplace_designer",
+      entitlementId: "ent_role_marketplace_designer",
       deviceId: "device_main",
       workspaceRef: "workspace_main",
       localGatewayId: "gateway_main",
-      packageId: "pkg_smart_lock_designer",
+      packageId: "pkg_role_marketplace_designer",
       packageVersion: "0.1.0",
-      developerRef: "dev_smart_lock",
-      listingOwnerRef: "seller_smart_lock",
-      billingBeneficiaryRef: "dev_smart_lock",
+      developerRef: "dev_role_marketplace",
+      listingOwnerRef: "seller_role_marketplace",
+      billingBeneficiaryRef: "dev_role_marketplace",
       scopes: ["role.execute", "audit.write"],
     });
     const fetchMock = vi.fn(async (url: string) => {
@@ -1305,8 +1322,8 @@ describe("Dijie execution preflight", () => {
             ok: true,
             grant: {
               executionId: "exec_design_artifact_1",
-              roleListingId: "role_smart_lock_designer",
-              entitlementId: "ent_smart_lock_designer",
+              roleListingId: "role_marketplace_designer",
+              entitlementId: "ent_role_marketplace_designer",
               deviceId: "device_main",
               workspaceRef: "workspace_main",
               localGatewayId: "gateway_main",
@@ -1361,12 +1378,12 @@ describe("Dijie execution preflight", () => {
     )?.[1];
     const response = await handler({
       params: {
-        role_listing_id: "role_smart_lock_designer",
-        entitlement_id: "ent_smart_lock_designer",
-        role_title: "智能门锁电商美工岗位",
+        role_listing_id: "role_marketplace_designer",
+        entitlement_id: "ent_role_marketplace_designer",
+        role_title: "岗位商城电商美工岗位",
         required_capabilities: ["workspace.read", "image.generate", "document.write"],
         task_text:
-          "产品是「神岳中式智能门锁别墅实木双开滑盖密码指纹锁欧式拉手防盗大门锁」。准备 5 张主图方案，并输出中国风详情页结构与尺寸规范。",
+          "产品是「岗位商城首批电商美工岗位商品」。准备 5 张主图方案，并输出岗位商品详情页结构与尺寸规范。",
         confirm_execution: true,
         workspace_dir: workspaceDir,
       },
@@ -1432,7 +1449,7 @@ describe("Dijie execution preflight", () => {
     const response = await handler({
       params: {
         role_query: "商品图检查岗位",
-        task_text: "检查一张智能门锁商品主图的电商质量。",
+        task_text: "检查一张岗位商城商品主图的电商质量。",
         confirm_execution: true,
         workspace_dir: workspaceDir,
       },
@@ -1713,8 +1730,8 @@ describe("Dijie execution preflight", () => {
           ok: true,
           roles: [
             {
-              id: "djrole_smart_lock",
-              title: "智能门锁电商美工岗位",
+              id: "djrole_marketplace_visual",
+              title: "岗位商城电商美工岗位",
               note: "backend_cloud_customer_token must be redacted if echoed",
             },
           ],
@@ -1753,8 +1770,8 @@ describe("Dijie execution preflight", () => {
       source: "cloud",
       roles: [
         {
-          id: "djrole_smart_lock",
-          title: "智能门锁电商美工岗位",
+          id: "djrole_marketplace_visual",
+          title: "岗位商城电商美工岗位",
           note: "[redacted_cloud_access_token] must be redacted if echoed",
         },
       ],
@@ -1776,8 +1793,8 @@ describe("Dijie execution preflight", () => {
           ok: true,
           roles: [
             {
-              id: "djrole_smart_lock",
-              title: "智能门锁电商美工岗位",
+              id: "djrole_marketplace_visual",
+              title: "岗位商城电商美工岗位",
             },
           ],
         }),
@@ -1811,8 +1828,8 @@ describe("Dijie execution preflight", () => {
       ok: true,
       roles: [
         {
-          id: "djrole_smart_lock",
-          title: "智能门锁电商美工岗位",
+          id: "djrole_marketplace_visual",
+          title: "岗位商城电商美工岗位",
         },
       ],
     });
@@ -1835,8 +1852,8 @@ describe("Dijie execution preflight", () => {
           ok: true,
           roles: [
             {
-              id: "djrole_smart_lock",
-              title: "智能门锁电商美工岗位",
+              id: "djrole_marketplace_visual",
+              title: "岗位商城电商美工岗位",
               note: "env_cloud_customer_token must be redacted if echoed",
             },
           ],
@@ -1871,8 +1888,8 @@ describe("Dijie execution preflight", () => {
       source: "cloud",
       roles: [
         {
-          id: "djrole_smart_lock",
-          title: "智能门锁电商美工岗位",
+          id: "djrole_marketplace_visual",
+          title: "岗位商城电商美工岗位",
           note: "[redacted_cloud_access_token] must be redacted if echoed",
         },
       ],

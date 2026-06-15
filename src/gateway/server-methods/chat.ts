@@ -453,6 +453,46 @@ function resolveChatSendActiveScopeKey(params: {
   );
 }
 
+function shouldUseLightConversationMode(params: {
+  clientInfo?: { id?: string | null; mode?: string | null } | null;
+  message: string;
+  attachmentCount: number;
+  hasAicsContext: boolean;
+  hasModelPrompt: boolean;
+  hasSystemProvenance: boolean;
+  fastModeExplicit?: boolean;
+}): boolean {
+  if (process.env.OPENCLAW_WEBCHAT_LIGHT_CONVERSATION === "0") {
+    return false;
+  }
+  if (typeof params.fastModeExplicit === "boolean") {
+    return false;
+  }
+  if (
+    !params.clientInfo ||
+    (!isWebchatClient(params.clientInfo) && !isOperatorUiClient(params.clientInfo))
+  ) {
+    return false;
+  }
+  if (
+    params.attachmentCount > 0 ||
+    params.hasAicsContext ||
+    params.hasModelPrompt ||
+    params.hasSystemProvenance
+  ) {
+    return false;
+  }
+
+  const text = params.message.trim();
+  if (!text || text.startsWith("/") || text.length > 600) {
+    return false;
+  }
+
+  return !/(执行|运行|调用|修改|编辑|创建|删除|安装|提交|部署|测试|调试|代码|文件|仓库|数据库|端口|日志|终端|命令|工具|岗位包|审核|商城|工作区|\bgit\b|\bnpm\b|\bpnpm\b|\bbun\b|\bapi\b|\bmedusa\b|\bopenclaw\b|\bmymir\b)/iu.test(
+    text,
+  );
+}
+
 type ChatSendExplicitOrigin = {
   originatingChannel?: string;
   originatingTo?: string;
@@ -3122,6 +3162,17 @@ export const chatHandlers: GatewayRequestHandlers = {
       return;
     }
     const clientInfo = client?.connect?.client;
+    const lightConversationMode = shouldUseLightConversationMode({
+      clientInfo,
+      message: rawMessage,
+      attachmentCount: normalizedAttachments.length,
+      hasAicsContext: Boolean(aicsContext),
+      hasModelPrompt: Boolean(modelPromptMessage),
+      hasSystemProvenance: Boolean(systemProvenanceReceipt),
+      fastModeExplicit: p.fastMode,
+    });
+    const effectiveFastModeOverride = p.fastMode ?? (lightConversationMode ? true : undefined);
+    const bootstrapContextMode = lightConversationMode ? "lightweight" : undefined;
     const chatSendTraceAttributes = {
       runId: clientRunId,
       sessionKey,
@@ -3131,6 +3182,9 @@ export const chatHandlers: GatewayRequestHandlers = {
       hasAttachments: normalizedAttachments.length > 0,
       hasExplicitOrigin: explicitOriginResult.value !== undefined,
       hasConnectedClient: client?.connect !== undefined,
+      conversationMode: lightConversationMode ? "light_conversation" : "full_agent",
+      fastModeOverride: effectiveFastModeOverride ?? null,
+      bootstrapContextMode: bootstrapContextMode ?? "full",
     };
     const originatingRoute = resolveChatSendOriginatingRoute({
       client: clientInfo,
@@ -3606,7 +3660,8 @@ export const chatHandlers: GatewayRequestHandlers = {
               images: replyOptionImages,
               imageOrder: imageOrder.length > 0 ? imageOrder : undefined,
               thinkingLevelOverride: p.thinking,
-              fastModeOverride: p.fastMode,
+              fastModeOverride: effectiveFastModeOverride,
+              bootstrapContextMode,
               userTurnTranscriptRecorder: userTurnRecorder,
               onAgentRunStart: (runId) => {
                 agentRunStarted = true;

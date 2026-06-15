@@ -183,6 +183,62 @@ describe("workboard gateway methods", () => {
     });
   });
 
+  it("persists business-flow metadata supplied by approved planning", async () => {
+    type RegisteredMethod = {
+      handler: Parameters<OpenClawPluginApi["registerGatewayMethod"]>[1];
+      opts: Parameters<OpenClawPluginApi["registerGatewayMethod"]>[2];
+    };
+    const methods = new Map<string, RegisteredMethod>();
+    const api = {
+      runtime: {
+        state: {
+          openKeyedStore: vi.fn(() => createMemoryStore()),
+        },
+      },
+      registerGatewayMethod: vi.fn(
+        (method: string, handler: RegisteredMethod["handler"], opts: RegisteredMethod["opts"]) => {
+          methods.set(method, { handler, opts });
+        },
+      ),
+    } as unknown as OpenClawPluginApi;
+
+    registerWorkboardGatewayMethods({ api, store: new WorkboardStore(createMemoryStore()) });
+
+    const businessFlow = {
+      cadenceId: "quarter",
+      projectId: "project-channel-growth",
+      goalIds: ["goal-annual-revenue", "goal-quarter-growth"],
+      departmentId: "dept-project",
+      source: "planning",
+      capabilityRefs: ["tool:web.fetch@1.0", "mcp:remote.toolhub.registry"],
+    };
+    const createRespond = vi.fn();
+    await methods.get("workboard.cards.create")?.handler({
+      params: {
+        title: "Configure capability routing",
+        metadata: { businessFlow },
+      },
+      respond: createRespond,
+    } as never);
+
+    expect(createRespond.mock.calls[0]?.[0]).toBe(true);
+    expect(createRespond.mock.calls[0]?.[1]).toMatchObject({
+      card: {
+        metadata: { businessFlow },
+      },
+    });
+
+    const listRespond = vi.fn();
+    await methods.get("workboard.cards.list")?.handler({
+      params: {},
+      respond: listRespond,
+    } as never);
+
+    expect(listRespond.mock.calls[0]?.[1]).toMatchObject({
+      cards: [expect.objectContaining({ metadata: { businessFlow } })],
+    });
+  });
+
   it("validates labels from comma-separated gateway input", async () => {
     type RegisteredMethod = {
       handler: Parameters<OpenClawPluginApi["registerGatewayMethod"]>[1];

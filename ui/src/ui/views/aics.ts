@@ -35,6 +35,18 @@ export type AicsMarketplaceRole = {
   status?: string;
   roleListingId?: string;
   entitlementId?: string;
+  categoryRef?: string;
+  categoryName?: string;
+  categoryPackRef?: string;
+  skillPackRef?: string;
+  toolPackRef?: string;
+  catalogRefs?: string[];
+  callable?: boolean;
+  unavailableReasons?: string[];
+  blockedCatalogRefs?: string[];
+  requiredCapabilities?: string[];
+  inheritedCatalogRefs?: string[];
+  inheritedCapabilityRefs?: string[];
 };
 
 export type AicsMarketplaceState = {
@@ -108,24 +120,24 @@ function resolveSchedulerState(props: AicsDashboardProps) {
     runningRole: running ? "运行中" : "无",
     pending: blockingError ? "需处理" : "0",
     risk: props.roleBuilder.tokenRunning || props.roleBuilder.auditRunning ? "校验中" : "正常",
-    next: blockingError ? "检查连接" : props.marketplace.roles.length ? "可派单" : "同步岗位",
+    next: blockingError ? "检查连接" : props.marketplace.roles.length ? "可进入任务" : "同步岗位",
   };
 }
 
 function renderSchedulerPanel(props: AicsDashboardProps) {
   const state = resolveSchedulerState(props);
   const rows = [
-    ["当前任务", state.currentTask, "调度层当前处理的任务。", icons.activity],
-    ["队列", state.queue, "等待调度的任务数量。", icons.folder],
+    ["当前任务", state.currentTask, "任务中心当前处理的事项。", icons.activity],
+    ["队列", state.queue, "等待处理的任务数量。", icons.folder],
     ["运行岗位", state.runningRole, "正在执行的岗位。", icons.brain],
     ["待确认", state.pending, "等待人工确认或处理的事项。", icons.eye],
     ["风险门控", state.risk, "高风险动作审批状态。", icons.check],
-    ["下一步", state.next, "调度层建议的下一步。", icons.chevronRight],
+    ["下一步", state.next, "任务中心建议的下一步。", icons.chevronRight],
   ] as const;
   return html`
-    <aside class="aics-scheduler" aria-label="调度层状态">
+    <aside class="aics-scheduler" aria-label="任务状态">
       <div class="aics-scheduler__title">
-        <strong>调度层状态</strong>
+        <strong>任务状态</strong>
       </div>
       <div class="aics-scheduler__list">
         ${rows.map(
@@ -146,8 +158,8 @@ function renderRoleWorkbench(props: AicsDashboardProps) {
   const marketplace = props.marketplace;
   const hasRoles = marketplace.roles.length > 0;
   return html`
-    <section class="aics-workbench" aria-label="调度层">
-      <div class="aics-boundary-grid" aria-label="调度层">
+    <section class="aics-workbench" aria-label="任务中心">
+      <div class="aics-boundary-grid" aria-label="任务中心">
         <article class="aics-panel">
           <div class="aics-panel__icon" aria-hidden="true">${icons.brain}</div>
           <h2>${renderTitleWithHelp("已同步授权", "已经同步到本机的岗位授权。")}</h2>
@@ -169,7 +181,7 @@ function renderRoleWorkbench(props: AicsDashboardProps) {
 
         <article class="aics-panel">
           <div class="aics-panel__icon" aria-hidden="true">${icons.check}</div>
-          <h2>${renderTitleWithHelp("已授权岗位", "已经允许调度层使用的岗位。")}</h2>
+          <h2>${renderTitleWithHelp("已授权岗位", "已经允许任务中心使用的岗位。")}</h2>
           <strong class="aics-panel__metric">${marketplace.roles.length}</strong>
         </article>
 
@@ -181,7 +193,7 @@ function renderRoleWorkbench(props: AicsDashboardProps) {
 
         <article class="aics-panel">
           <div class="aics-panel__icon" aria-hidden="true">${icons.eye}</div>
-          <h2>${renderTitleWithHelp("等待确认", "调度层拦截后等待人工确认的事项。")}</h2>
+          <h2>${renderTitleWithHelp("等待确认", "系统拦截后等待人工确认的事项。")}</h2>
           <strong class="aics-panel__metric"
             >${marketplace.error || props.roleBuilder.error ? "1" : "0"}</strong
           >
@@ -189,7 +201,7 @@ function renderRoleWorkbench(props: AicsDashboardProps) {
 
         <article class="aics-context-panel aics-context-panel--wide">
           <div class="aics-context-panel__mark" aria-hidden="true">${icons.folder}</div>
-          <h2>${renderTitleWithHelp("可调度岗位", "来自本机已同步的岗位。")}</h2>
+          <h2>${renderTitleWithHelp("可用岗位", "来自本机已同步的岗位。")}</h2>
           ${marketplace.error
             ? html`<div class="aics-runner__error">${marketplace.error}</div>`
             : hasRoles
@@ -202,12 +214,12 @@ function renderRoleWorkbench(props: AicsDashboardProps) {
                           <button
                             class="aics-runner__secondary"
                             type="button"
-                            title="授权岗位"
-                            aria-label=${`授权岗位：${role.title}`}
+                            title="使用岗位"
+                            aria-label=${`使用岗位：${role.title}`}
                             @click=${() => props.onMarketplaceRoleUse(role)}
                           >
                             <span aria-hidden="true">${icons.messageSquare}</span>
-                            <span>授权</span>
+                            <span>使用</span>
                           </button>
                         </div>
                       `,
@@ -219,7 +231,7 @@ function renderRoleWorkbench(props: AicsDashboardProps) {
 
         <article class="aics-panel">
           <div class="aics-panel__icon" aria-hidden="true">${icons.fileText}</div>
-          <h2>${renderTitleWithHelp("反馈资料", "岗位执行返回后由调度层整理。")}</h2>
+          <h2>${renderTitleWithHelp("反馈资料", "岗位执行返回后由系统整理。")}</h2>
           <strong class="aics-panel__metric">${props.roleBuilder.result ? "1" : "0"}</strong>
         </article>
       </div>
@@ -270,7 +282,7 @@ export function renderAicsDashboard(props: AicsDashboardProps) {
         <div class="aics-hero__main">
           <div class="aics-kicker">迭界AI</div>
           <h1 id="aics-title">
-            ${renderTitleWithHelp("我的岗位", "调度层负责派单、确认和状态更新。")}
+            ${renderTitleWithHelp("我的岗位", "任务中心负责派单、确认和状态更新。")}
           </h1>
           <div class="aics-hero__meta">
             ${renderStatusPill(props.connected)}

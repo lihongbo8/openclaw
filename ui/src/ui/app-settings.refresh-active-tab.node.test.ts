@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   loadAgentIdentityMock: vi.fn(async () => {}),
   loadAgentSkillsMock: vi.fn(async () => {}),
   loadAgentsMock: vi.fn(async () => {}),
+  loadToolsCatalogMock: vi.fn(async () => {}),
   loadChannelsMock: vi.fn<(hostValue: unknown, _probe: boolean) => Promise<void>>(async () => {}),
   loadConfigMock: vi.fn(async () => {}),
   loadConfigSchemaMock: vi.fn(async () => {}),
@@ -90,6 +91,7 @@ vi.mock("./controllers/agent-skills.ts", () => ({
 }));
 vi.mock("./controllers/agents.ts", () => ({
   loadAgents: mocks.loadAgentsMock,
+  loadToolsCatalog: mocks.loadToolsCatalogMock,
 }));
 vi.mock("./controllers/channels.ts", () => ({
   loadChannels: mocks.loadChannelsMock,
@@ -233,6 +235,17 @@ describe("refreshActiveTab", () => {
     channels: [mocks.loadChannelsMock, false],
     tools: null,
   } as const;
+
+  it("refreshes skills and the local tool catalog for the Tool/Skill Store tab", async () => {
+    const host = createHost();
+    host.tab = "skills";
+
+    await refreshActiveTab(host as never);
+
+    expect(mocks.loadAgentsMock).toHaveBeenCalledWith(host);
+    expect(mocks.loadSkillsMock).toHaveBeenCalledWith(host);
+    expect(mocks.loadToolsCatalogMock).toHaveBeenCalledWith(host, "agent-b");
+  });
 
   it("syncs selected agent before refreshing the Dreams tab", async () => {
     const host = createHost();
