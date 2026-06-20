@@ -13,7 +13,7 @@ import {
 } from "./build-session.ts";
 
 describe("build session controller", () => {
-  it("refreshes sessions before creating and blocks when the developer already has three active roles", async () => {
+  it("refreshes sessions before creating and ignores completed sessions in the active role limit", async () => {
     const bs = createDefaultBuildSessionState();
     bs.requirements = "创建第四个岗位。";
     const request = vi.fn(async (method: string) => {
@@ -49,6 +49,49 @@ describe("build session controller", () => {
         ];
       }
       if (method === "aics.buildSession.create") {
+        return {
+          sessionId: "session-4",
+          state: "created",
+          createdAt: 4,
+          updatedAt: 4,
+          userRequirements: "创建第四个岗位。",
+          userConfirmations: [],
+          validationErrors: [],
+          availableTemplates: [],
+        };
+      }
+      throw new Error(`unexpected method ${method}`);
+    });
+    const state = { client: { request } } as unknown as AppViewState;
+
+    await createSession(state, bs);
+
+    expect(request).toHaveBeenCalledWith("aics.buildSession.list", {});
+    expect(request).toHaveBeenCalledWith("aics.buildSession.create", {
+      requirements: "创建第四个岗位。",
+    });
+    expect(bs.error).toBeNull();
+    expect(bs.sessionId).toBe("session-4");
+    expect(bs.step).toBe("briefing");
+    expect(bs.sessions).toHaveLength(3);
+  });
+
+  it("blocks creation when three developer role sessions are still active", async () => {
+    const bs = createDefaultBuildSessionState();
+    bs.requirements = "创建第四个岗位。";
+    const request = vi.fn(async (method: string) => {
+      if (method === "aics.buildSession.list") {
+        return ["created", "confirming", "validating"].map((state, index) => ({
+          sessionId: `session-${index + 1}`,
+          state,
+          createdAt: index + 1,
+          updatedAt: index + 1,
+          userRequirements: `岗位${index + 1}`,
+          userConfirmations: [],
+          validationErrors: [],
+        }));
+      }
+      if (method === "aics.buildSession.create") {
         throw new Error("create should not run after the refreshed limit check");
       }
       throw new Error(`unexpected method ${method}`);
@@ -63,7 +106,6 @@ describe("build session controller", () => {
       "开发者中心暂定最多开发 3 个岗位。请先取消或清理已有岗位后再创建新岗位。",
     );
     expect(bs.step).toBe("idle");
-    expect(bs.sessions).toHaveLength(3);
   });
 
   it("refreshes role development status after saving the role brief", async () => {

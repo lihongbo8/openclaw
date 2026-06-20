@@ -137,7 +137,7 @@ export type BuildSessionStep =
   | "failed"; // 失败
 
 function countsTowardDeveloperRoleLimit(session: BuildSessionRecord): boolean {
-  return session.state !== "failed" && session.state !== "cancelled";
+  return !["completed", "failed", "cancelled"].includes(session.state);
 }
 
 export function createDefaultBuildSessionState(): BuildSessionPageState {

@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { closePipelineDb } from "../../aics-main-flow/db.js";
+import { BuildSession } from "../../aics-main-flow/role-build-session.js";
 import { approveToolSkillReview } from "../../aics-main-flow/role-pre-listing-review.js";
 import {
   ToolRegistry,
@@ -190,6 +191,70 @@ describe("aics build session gateway", () => {
       });
 
       expect(replacement.sessionId).toBeTypeOf("string");
+    });
+  });
+
+  it("does not count completed build sessions as active developer sessions", async () => {
+    await withStateDirEnv("aics-build-session-completed-limit-", async ({ tempRoot }) => {
+      const created = await callGateway("aics.buildSession.create", {
+        requirements: "创建已完成岗位。",
+      });
+      const completedSessionId = String(created.sessionId);
+      await callGateway("aics.buildSession.startBriefing", { sessionId: completedSessionId });
+      await callGateway("aics.buildSession.submitBrief", {
+        sessionId: completedSessionId,
+        brief: {
+          roleTitle: "已完成岗位",
+          roleDescription: "用于验证完成会话不占用开发名额。",
+          targetUser: "岗位开发者",
+          targetCategory: "测试",
+          coreResponsibilities: ["完成验证"],
+          taskExamples: ["验证名额释放"],
+          dailySop: ["检查状态"],
+          weeklySop: ["复盘"],
+          monthlySop: ["归档"],
+          requiredCapabilities: ["document.write"],
+          inputTypes: ["需求"],
+          outputTypes: ["报告"],
+          forbiddenActions: ["不执行外部发布"],
+          qualityStandards: ["必须可审计"],
+        },
+      });
+      BuildSession.startGenerating(completedSessionId);
+      const packageDir = path.join(tempRoot, "completed-package");
+      mkdirSync(packageDir, { recursive: true });
+      writeFileSync(
+        path.join(packageDir, "manifest.json"),
+        JSON.stringify({
+          requiredCapabilities: ["document.write"],
+          workPatterns: ["generate"],
+          outputContracts: ["document"],
+          workflows: [{ id: "completed_limit_test" }],
+        }),
+        "utf8",
+      );
+      for (const fileName of ["listing.md", "README.md", "SOP.md", "validation.md"]) {
+        writeFileSync(path.join(packageDir, fileName), `# ${fileName}\n`, "utf8");
+      }
+      BuildSession.startValidating(completedSessionId, packageDir);
+      BuildSession.complete(completedSessionId);
+
+      const completed = await callGateway("aics.buildSession.load", {
+        sessionId: completedSessionId,
+      });
+      expect(completed.state).toBe("completed");
+
+      for (const label of ["活跃一", "活跃二", "活跃三"]) {
+        await callGateway("aics.buildSession.create", {
+          requirements: `创建${label}。`,
+        });
+      }
+
+      await expect(
+        callGateway("aics.buildSession.create", {
+          requirements: "创建第四个活跃岗位。",
+        }),
+      ).rejects.toThrow("开发者中心暂定最多开发 3 个岗位");
     });
   });
 

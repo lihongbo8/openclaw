@@ -135,7 +135,7 @@ function listSessionsFromDisk(): BuildSessionRecord[] {
 }
 
 function countsTowardDeveloperLimit(session: BuildSessionRecord): boolean {
-  return session.state !== "failed" && session.state !== "cancelled";
+  return !["completed", "failed", "cancelled"].includes(session.state);
 }
 
 export function countDeveloperBuildSessions(): number {
