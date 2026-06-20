@@ -159,6 +159,10 @@ function renderView(p: ReviewCenterProps): HTMLElement {
   return host;
 }
 
+function normalizedText(host: HTMLElement): string {
+  return (host.textContent ?? "").replace(/\s+/g, " ").trim();
+}
+
 function buttonByText(host: HTMLElement, text: string): HTMLButtonElement {
   const buttons = [...host.querySelectorAll("button")];
   const button = buttons.find((item) => item.textContent?.trim() === text);
@@ -328,15 +332,16 @@ describe("renderReviewCenter", () => {
 
     const host = renderView(p);
 
-    expect(host.textContent).toContain("能力包状态：待工具与 Skill 1 项");
-    expect(host.textContent).toContain("岗位说明：商城运营岗位。");
-    expect(host.textContent).toContain("岗位资料");
-    expect(host.textContent).toContain("SOP：读取商城经营数据，输出诊断。");
-    expect(host.textContent).toContain(
+    const text = normalizedText(host);
+    expect(text).toContain("能力包状态：待工具与 Skill 1 项");
+    expect(text).toContain("岗位说明：商城运营岗位。");
+    expect(text).toContain("岗位资料");
+    expect(text).toContain("SOP：读取商城经营数据，输出诊断。");
+    expect(text).toContain(
       "日/周/月：每天查看授权转化。 · 每周复盘品类能力缺口。 · 每月输出经营报告。",
     );
-    expect(host.textContent).toContain("具体开发、创建、安装和检查在「工具与 Skill」模块完成");
-    expect(host.textContent).not.toContain("待完成：tool.platform.marketplace_read_model");
+    expect(text).toContain("具体开发、创建、安装和检查在「工具与 Skill」模块完成");
+    expect(text).not.toContain("待完成：tool.platform.marketplace_read_model");
     expect(buttonByText(host, "通过").disabled).toBe(true);
     expect(buttonByText(host, "激活品类").disabled).toBe(false);
     expect(buttonByText(host, "激活品类").title).toBe(

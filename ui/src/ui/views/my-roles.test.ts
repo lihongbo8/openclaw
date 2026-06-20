@@ -13,6 +13,10 @@ function renderView(state: AppViewState, onNavigate = vi.fn()): HTMLElement {
   return host;
 }
 
+function normalizedText(host: HTMLElement): string {
+  return (host.textContent ?? "").replace(/\s+/g, " ").trim();
+}
+
 describe("renderMyRolesPage", () => {
   it("shows authorized synced roles when no execution task has been dispatched yet", () => {
     const myRoles = createDefaultMyRolesState();
@@ -43,9 +47,10 @@ describe("renderMyRolesPage", () => {
     const onNavigate = vi.fn();
     const host = renderView(state, onNavigate);
 
-    expect(host.textContent).toContain("已同步 1 个已授权岗位");
-    expect(host.textContent).toContain("商城运营诊断官 · 0 元");
-    expect(host.textContent).toContain("检查并派发");
+    const text = normalizedText(host);
+    expect(text).toContain("已同步 1 个已授权岗位");
+    expect(text).toContain("商城运营诊断官 · 0 元");
+    expect(text).toContain("检查并派发");
     const button = [...host.querySelectorAll("button")].find((candidate) =>
       candidate.textContent?.includes("去任务调度"),
     ) as HTMLButtonElement | undefined;
@@ -85,8 +90,9 @@ describe("renderMyRolesPage", () => {
     const onNavigate = vi.fn();
     const host = renderView(state, onNavigate);
 
-    expect(host.textContent).toContain("已同步 1 个已授权岗位");
-    expect(host.textContent).toContain("商城运营诊断官 · 0 元");
+    const text = normalizedText(host);
+    expect(text).toContain("已同步 1 个已授权岗位");
+    expect(text).toContain("商城运营诊断官 · 0 元");
     const button = [...host.querySelectorAll("button")].find((candidate) =>
       candidate.textContent?.includes("去任务调度"),
     ) as HTMLButtonElement | undefined;
@@ -983,22 +989,23 @@ describe("renderMyRolesPage", () => {
 
     const host = renderView(state);
 
-    expect(host.textContent).toContain("成果摘要");
-    expect(host.textContent).toContain("已完成商城运营诊断。");
-    expect(host.textContent).toContain("模型用量证据");
-    expect(host.textContent).toContain("deepseek / deepseek-v4-flash");
-    expect(host.textContent).toContain("Token：输入 120 / 输出 80 / 合计 200");
-    expect(host.textContent).toContain("费用证据：¥0.0300");
-    expect(host.textContent).toContain("账本记录");
-    expect(host.textContent).toContain("账本读回");
-    expect(host.textContent).toContain("状态：posted · 授权费用 ¥0.00");
-    expect(host.textContent).toContain("执行费用 ¥0.00");
-    expect(host.textContent).toContain("审计：审计记录 1");
-    expect(host.textContent).toContain("审计读回");
-    expect(host.textContent).toContain("审计已记录商城运营诊断结果。");
-    expect(host.textContent).toContain("执行摘要");
-    expect(host.textContent).toContain("执行结果引用");
-    expect(host.textContent).not.toContain("artifact:role-result:exec-1:summary");
+    const text = normalizedText(host);
+    expect(text).toContain("成果摘要");
+    expect(text).toContain("已完成商城运营诊断。");
+    expect(text).toContain("模型用量证据");
+    expect(text).toContain("deepseek / deepseek-v4-flash");
+    expect(text).toContain("Token：输入 120 / 输出 80 / 合计 200");
+    expect(text).toContain("费用证据：¥0.0300");
+    expect(text).toContain("账本记录");
+    expect(text).toContain("账本读回");
+    expect(text).toContain("状态：posted · 授权费用 ¥0.00");
+    expect(text).toContain("执行费用 ¥0.00");
+    expect(text).toContain("审计：审计记录 1");
+    expect(text).toContain("审计读回");
+    expect(text).toContain("审计已记录商城运营诊断结果。");
+    expect(text).toContain("执行摘要");
+    expect(text).toContain("执行结果引用");
+    expect(text).not.toContain("artifact:role-result:exec-1:summary");
   });
 
   it("shows external record artifacts in human language without raw execution refs", () => {
@@ -1172,20 +1179,21 @@ describe("renderMyRolesPage", () => {
     const host = renderView(state);
 
     expect(host.querySelector('img[src="data:image/png;base64,ZmFrZS1wbmc="]')).toBeTruthy();
-    expect(host.textContent).toContain("执行摘要");
-    expect(host.textContent).toContain("智能水杯详情页 · 电商美工 · 电商详情页");
-    expect(host.textContent).toContain("交付物：2 个");
-    expect(host.textContent).toContain("图片 hero.png");
-    expect(host.textContent).toContain("详情页 detail.html");
-    expect(host.textContent).toContain("执行摘要");
-    expect(host.textContent).toContain("打包文件 artifacts.zip");
-    expect(host.textContent).toContain("打开详情页");
-    expect(host.textContent).toContain("下载打包文件");
-    expect(host.textContent).not.toContain("/tmp/exec-1/hero.png");
-    expect(host.textContent).not.toContain("/tmp/exec-1/detail.html");
-    expect(host.textContent).not.toContain("execution-summary.json");
-    expect(host.textContent).not.toContain("/tmp/exec-1/execution-summary.json");
-    expect(host.textContent).not.toContain("/tmp/exec-1/artifacts.zip");
+    const text = normalizedText(host);
+    expect(text).toContain("执行摘要");
+    expect(text).toContain("智能水杯详情页 · 电商美工 · 电商详情页");
+    expect(text).toContain("交付物：2 个");
+    expect(text).toContain("图片 hero.png");
+    expect(text).toContain("详情页 detail.html");
+    expect(text).toContain("执行摘要");
+    expect(text).toContain("打包文件 artifacts.zip");
+    expect(text).toContain("打开详情页");
+    expect(text).toContain("下载打包文件");
+    expect(text).not.toContain("/tmp/exec-1/hero.png");
+    expect(text).not.toContain("/tmp/exec-1/detail.html");
+    expect(text).not.toContain("execution-summary.json");
+    expect(text).not.toContain("/tmp/exec-1/execution-summary.json");
+    expect(text).not.toContain("/tmp/exec-1/artifacts.zip");
   });
 
   it("keeps ordinary execution detail free of raw technical fields", () => {
@@ -1249,7 +1257,7 @@ describe("renderMyRolesPage", () => {
     } as unknown as AppViewState;
 
     const host = renderView(state);
-    const pageText = host.textContent ?? "";
+    const pageText = normalizedText(host);
 
     expect(pageText).toContain("执行结果：成功 / 已生成图片、详情页和打包文件。");
     expect(pageText).toContain("能力匹配：岗位能力已准备好。");
