@@ -1400,6 +1400,13 @@ export const aicsExecutionHandlers: GatewayRequestHandlers = {
         consumer: "role_execution",
         executionId,
         modelUsage: effectiveExecutionEvidence.modelUsage as Record<string, unknown> | undefined,
+        attribution: {
+          roleListingId,
+          entitlementId,
+          executionId,
+          ledgerRef,
+          auditRecordId,
+        },
       });
       respond(true, {
         ok: true,
@@ -1658,6 +1665,13 @@ export const aicsExecutionHandlers: GatewayRequestHandlers = {
           provider: modelRuntime.provider,
           model: modelRuntime.model,
           ...roleResult.modelUsage,
+        },
+        attribution: {
+          roleListingId: effectiveRoleListingId,
+          entitlementId: effectiveEntitlementId,
+          executionId: context.executionId,
+          ledgerRef,
+          auditRecordId: context.executionId,
         },
       });
 

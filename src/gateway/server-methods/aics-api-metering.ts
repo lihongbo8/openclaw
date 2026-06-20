@@ -26,6 +26,18 @@ type CloudLedgerSyncResult = {
   lastError?: string;
 };
 
+type RoleExecutionBillingAttribution = {
+  accountId?: string;
+  billingAccountId?: string;
+  roleListingId?: string;
+  entitlementId?: string;
+  executionId?: string;
+  packageId?: string;
+  developerRef?: string;
+  ledgerRef?: string;
+  auditRecordId?: string;
+};
+
 function readRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -152,6 +164,28 @@ function consumerLedgerSource(consumer: ApiConnectionConsumer): string {
   return "main_system_usage";
 }
 
+function receivablesForConsumer(params: { consumer: ApiConnectionConsumer; costCents: number }): {
+  platformReceivableCents: number;
+  developerReceivableCents: number;
+} {
+  if (params.consumer === "role_execution") {
+    return {
+      platformReceivableCents: 0,
+      developerReceivableCents: params.costCents,
+    };
+  }
+  return {
+    platformReceivableCents: params.costCents,
+    developerReceivableCents: 0,
+  };
+}
+
+function apiKeyRefForEntry(entry: ApiConnectionEntry | undefined): string | null {
+  const secret = entry?.secret;
+  if (!isSecretRef(secret)) return null;
+  return `${secret.source}:${secret.provider}:${secret.id}`;
+}
+
 function modelIdFromUsageOrEntry(
   modelUsage: Record<string, unknown>,
   entry: ApiConnectionEntry | undefined,
@@ -179,15 +213,23 @@ function buildCloudLedgerBody(params: {
   executionId: string;
   modelUsage: Record<string, unknown>;
   costCny: number;
+  attribution?: RoleExecutionBillingAttribution;
 }): Record<string, unknown> {
   const entry = params.config.apiConnections?.entries?.[params.entryId];
   const inputTokens = finiteNumber(params.modelUsage.inputTokens);
   const outputTokens = finiteNumber(params.modelUsage.outputTokens);
   const totalTokens = finiteNumber(params.modelUsage.totalTokens) || inputTokens + outputTokens;
   const costCents = Math.max(0, Math.round(params.costCny * 100));
+  const receivables = receivablesForConsumer({
+    consumer: params.consumer,
+    costCents,
+  });
+  const attribution = params.attribution ?? {};
+  const effectiveExecutionId = trimString(attribution.executionId) ?? params.executionId;
+  const apiKeyRef = apiKeyRefForEntry(entry);
   return {
-    accountId: "openclaw_local",
-    billingAccountId: "dijie_ai_local",
+    accountId: trimString(attribution.accountId) ?? "openclaw_local",
+    billingAccountId: trimString(attribution.billingAccountId) ?? "dijie_ai_local",
     source: consumerLedgerSource(params.consumer),
     usageKind: "model_tokens",
     surface: consumerSurface(params.consumer),
@@ -196,6 +238,20 @@ function buildCloudLedgerBody(params: {
       consumer: params.consumer,
       apiConnectionEntryId: params.entryId,
       usageRef: params.executionId,
+      executionId: effectiveExecutionId,
+      ...(apiKeyRef ? { apiKeyRef } : {}),
+      ...(trimString(attribution.roleListingId)
+        ? { roleListingId: trimString(attribution.roleListingId) }
+        : {}),
+      ...(trimString(attribution.entitlementId)
+        ? { entitlementId: trimString(attribution.entitlementId) }
+        : {}),
+      ...(trimString(attribution.ledgerRef)
+        ? { ledgerRef: trimString(attribution.ledgerRef) }
+        : {}),
+      ...(trimString(attribution.auditRecordId)
+        ? { auditRecordId: trimString(attribution.auditRecordId) }
+        : {}),
     },
     meters: [
       { name: "input_tokens", quantity: inputTokens, unit: "token" },
@@ -204,15 +260,19 @@ function buildCloudLedgerBody(params: {
     ],
     currency: "CNY",
     grossAmountCents: costCents,
-    platformReceivableCents: costCents,
-    developerReceivableCents: 0,
+    platformReceivableCents: receivables.platformReceivableCents,
+    developerReceivableCents: receivables.developerReceivableCents,
     modelProvider: trimString(params.modelUsage.provider) ?? entry?.provider ?? null,
     modelId: modelIdFromUsageOrEntry(params.modelUsage, entry),
     modelPricingKnown: costCents > 0,
     modelPricingSource: "api_management",
     providerCostCents: costCents,
     providerCostCurrency: "CNY",
-    executionId: params.executionId,
+    roleListingId: trimString(attribution.roleListingId) ?? null,
+    packageId: trimString(attribution.packageId) ?? null,
+    executionId: effectiveExecutionId,
+    entitlementId: trimString(attribution.entitlementId) ?? null,
+    developerRef: trimString(attribution.developerRef) ?? null,
     occurredAt: trimString(params.modelUsage.occurredAt) ?? new Date().toISOString(),
   };
 }
@@ -224,6 +284,7 @@ async function uploadModelUsageToDijieCloudLedger(params: {
   executionId: string;
   modelUsage: Record<string, unknown>;
   costCny: number;
+  attribution?: RoleExecutionBillingAttribution;
 }): Promise<CloudLedgerSyncResult> {
   const { cloudBaseUrl, cloudAccessToken, ledgerPath } = await resolveDijieCloudLedgerConfig(
     params.config,
@@ -355,6 +416,7 @@ export async function recordModelUsageToApiMetering(params: {
   consumer: ApiConnectionConsumer;
   executionId: string;
   modelUsage?: Record<string, unknown>;
+  attribution?: RoleExecutionBillingAttribution;
 }): Promise<{ entryId: string; costCny: number; cloudLedgerSync?: CloudLedgerSyncResult } | null> {
   const modelUsage = readRecord(params.modelUsage);
   const inputTokens = finiteNumber(modelUsage.inputTokens);
@@ -392,6 +454,7 @@ export async function recordModelUsageToApiMetering(params: {
     executionId: params.executionId,
     modelUsage,
     costCny: applied.costCny,
+    attribution: params.attribution,
   });
   await persistCloudLedgerSync({
     context: params.context,
