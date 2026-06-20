@@ -233,7 +233,7 @@ describeMarketplaceAuthorizationE2e("marketplace authorization control UI E2E", 
       expect(listingRequest.params).toEqual({ reviewId: "review-marketplace-ops" });
       await page.getByRole("heading", { name: "费用与授权" }).waitFor({ timeout: 10_000 });
       await page.getByText("商城运营诊断官").waitFor({ timeout: 10_000 });
-      await page.getByText(`${roleListingId} · 0 元`).waitFor({ timeout: 10_000 });
+      await page.getByText("授权价格：0 元").waitFor({ timeout: 10_000 });
 
       await page.getByRole("button", { name: "创建 0 元正式授权" }).last().click();
       const authRequest = await gateway.waitForRequest("dijie.roleAuthorization.create");
