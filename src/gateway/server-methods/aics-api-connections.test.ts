@@ -600,12 +600,27 @@ describe("aics api connections gateway consumers", () => {
       expect((init?.headers as Record<string, string>).authorization).toBe("Bearer bridge-token");
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       expect(body).toMatchObject({
+        accountId: "local-admin",
+        billingAccountId: "local-admin",
         source: "role_usage",
         usageKind: "model_tokens",
         surface: "openclaw_local",
         modelProvider: "deepseek",
         modelId: "deepseek-chat",
-        executionId: "role_execution:cloud-ledger-1",
+        roleListingId: "local_rolelisting_marketplace_ops",
+        packageId: "pkg-marketplace-ops-local",
+        executionId: "exec-marketplace-ops",
+        entitlementId: "local_entitlement_marketplace_ops",
+        developerRef: "local-developer",
+        subject: {
+          consumer: "role_execution",
+          usageRef: "role_execution:cloud-ledger-1",
+          executionId: "exec-marketplace-ops",
+          roleListingId: "local_rolelisting_marketplace_ops",
+          entitlementId: "local_entitlement_marketplace_ops",
+          ledgerRef: "ledger:role_execution:local_entitlement_marketplace_ops:exec-marketplace-ops",
+          auditRecordId: "local_audit_exec-marketplace-ops",
+        },
       });
       return new Response(
         JSON.stringify({
@@ -632,6 +647,17 @@ describe("aics api connections gateway consumers", () => {
       inputTokens: 1200,
       outputTokens: 300,
       totalTokens: 1500,
+      attribution: {
+        accountId: "local-admin",
+        billingAccountId: "local-admin",
+        roleListingId: "local_rolelisting_marketplace_ops",
+        entitlementId: "local_entitlement_marketplace_ops",
+        executionId: "exec-marketplace-ops",
+        packageId: "pkg-marketplace-ops-local",
+        developerRef: "local-developer",
+        ledgerRef: "ledger:role_execution:local_entitlement_marketplace_ops:exec-marketplace-ops",
+        auditRecordId: "local_audit_exec-marketplace-ops",
+      },
     });
 
     expect(usageResult.ok).toBe(true);

@@ -138,6 +138,32 @@ function modelUsageParam(params: Record<string, unknown>): Record<string, unknow
   };
 }
 
+function roleExecutionBillingAttributionParam(params: Record<string, unknown>) {
+  const nested =
+    params.attribution &&
+    typeof params.attribution === "object" &&
+    !Array.isArray(params.attribution)
+      ? (params.attribution as Record<string, unknown>)
+      : {};
+  const field = (key: string) => stringParam(nested, key) ?? stringParam(params, key);
+  const attribution: Record<string, string> = {};
+  for (const key of [
+    "accountId",
+    "billingAccountId",
+    "roleListingId",
+    "entitlementId",
+    "executionId",
+    "packageId",
+    "developerRef",
+    "ledgerRef",
+    "auditRecordId",
+  ]) {
+    const value = field(key);
+    if (value) attribution[key] = value;
+  }
+  return Object.keys(attribution).length ? attribution : undefined;
+}
+
 function validateModelUsageTokens(modelUsage: Record<string, unknown>): void {
   const inputTokens = finiteNumber(modelUsage.inputTokens);
   const outputTokens = finiteNumber(modelUsage.outputTokens);
@@ -1141,6 +1167,7 @@ export const aicsApiConnectionsHandlers: GatewayRequestHandlers = {
         consumer,
         executionId: usageRef,
         modelUsage,
+        attribution: roleExecutionBillingAttributionParam(params),
       });
       if (!apiMetering) {
         throw new Error("no enabled model API connection matches this consumer/provider");
