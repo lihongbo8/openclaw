@@ -1238,6 +1238,34 @@ describe("handleSendChat", () => {
     expect(host.chatMessage).toBe("");
   });
 
+  it("sends user AICS mode as OpenClaw main context for account-data chat", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "chat.send") {
+        return { runId: "run-aics-main", status: "started" };
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    });
+    const host = makeHost({
+      client: { request } as unknown as ChatHost["client"],
+      aicsConversationMode: "user",
+      aicsConversationStage: "ready",
+      chatMessage: "我现在系统哪里有问题，下一步做什么？",
+      sessionKey: "agent:main",
+    });
+
+    await handleSendChat(host);
+
+    const payload = findRequestPayload(
+      request as unknown as MockCallSource,
+      "chat.send",
+      "chat send payload",
+    );
+    expect(payload.aicsContext).toEqual({
+      mode: "openclaw_main",
+      stage: "ready",
+    });
+  });
+
   it("records visible send timing phases for a normal chat send", async () => {
     const request = vi.fn(async (method: string) => {
       if (method === "chat.send") {

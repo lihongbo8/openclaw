@@ -131,15 +131,21 @@ describe("generatePlanningPackage", () => {
     };
     const { planning, rolePlanItems } = generatePlanningPackage({ goal });
     expect(rolePlanItems.map((item) => item.title)).toEqual([
-      "岗位供给优化",
-      "岗位详情页转化优化",
-      "执行质量提升",
-      "授权费用治理",
+      "岗位供给与审核优化",
+      "岗位商品信息架构优化",
+      "能力路由与执行质量提升",
+      "API 与模型连接治理",
+      "授权闸门治理",
       "审核阻塞处理",
     ]);
     expect(rolePlanItems.every((item) => item.category === "岗位商城")).toBe(true);
-    expect(rolePlanItems.some((item) => item.roleCapabilityRef === "ecommerce-visual")).toBe(true);
-    expect(planning.rolePlanItems.length).toBe(5);
+    expect(rolePlanItems.some((item) => item.roleCapabilityRef === "marketplace-listing-ops")).toBe(
+      true,
+    );
+    expect(rolePlanItems.some((item) => item.roleCapabilityRef === "capability-routing")).toBe(
+      true,
+    );
+    expect(planning.rolePlanItems.length).toBe(6);
   });
 
   it("creates data baseline plan item when attribution has low confidence findings", () => {
@@ -176,6 +182,7 @@ describe("generateDispatchProposal", () => {
       title: "方案",
       summary: "",
       rolePlanItemIds: ["rpi1", "rpi2"],
+      revision: 1,
     };
     const items: RolePlanItem[] = [
       {
@@ -248,7 +255,7 @@ describe("materializeTaskPackage", () => {
     expect(result.taskText).toContain("LOW");
   });
 
-  it("binds the first ecommerce visual task to the platform marketplace role", () => {
+  it("binds the marketplace listing operations task to the platform marketplace role", () => {
     const dp: DispatchProposalReview = {
       id: "dp1",
       kind: "DispatchProposalReview",
@@ -270,15 +277,15 @@ describe("materializeTaskPackage", () => {
       updatedAt: now,
       auditRefs: [],
       planningPackageId: "pp1",
-      title: "岗位详情页转化优化",
+      title: "岗位商品信息架构优化",
       category: "岗位商城",
-      roleCapabilityRef: "ecommerce-visual",
-      taskIntent: "优化岗位商品展示",
-      expectedOutput: "展示优化方案",
+      roleCapabilityRef: "marketplace-listing-ops",
+      taskIntent: "优化岗位商品能力说明、授权说明和输出样例",
+      expectedOutput: "岗位商品信息架构方案",
       humanConfirmationRequired: true,
     };
     const result = materializeTaskPackage({ dispatchProposal: dp, rolePlanItem: rpi });
-    expect(result.request?.roleListingId).toBe("role_marketplace_ecommerce_visual");
+    expect(result.request?.roleListingId).toBe("role_marketplace_listing_operations");
     expect(result.taskText).toContain("费用与授权确认");
   });
 });

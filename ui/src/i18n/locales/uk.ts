@@ -193,8 +193,6 @@ export const uk: TranslationMap = {
     verbose: "Докладно",
     reasoning: "Міркування",
     actions: "Дії",
-    addToWorkboard: "Додати до Workboard",
-    openWorkboardCard: "Відкрити картку Workboard",
     noSessions: "Сеансів не знайдено.",
     noSessionsMatchFilters: "Немає сеансів, що відповідають вашим фільтрам.",
     showAll: "Показати все",

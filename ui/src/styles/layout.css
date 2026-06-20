@@ -1328,6 +1328,7 @@
   padding: 16px 20px 32px;
   display: block;
   min-height: 0;
+  min-width: 0;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -1356,7 +1357,8 @@
 .content--workboard {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding-bottom: 16px;
 }
 

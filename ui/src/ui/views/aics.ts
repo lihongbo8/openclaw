@@ -24,6 +24,7 @@ export type AicsRoleBuilderState = {
   running: boolean;
   tokenRunning: boolean;
   auditRunning: boolean;
+  capabilityAnalysis?: unknown;
   result: unknown;
   error: string | null;
 };
@@ -35,6 +36,10 @@ export type AicsMarketplaceRole = {
   status?: string;
   roleListingId?: string;
   entitlementId?: string;
+  entitlementStatus?: string;
+  authorizationFeeCents?: number;
+  priceLabel?: string;
+  source?: string;
   categoryRef?: string;
   categoryName?: string;
   categoryPackRef?: string;

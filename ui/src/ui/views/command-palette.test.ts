@@ -139,7 +139,7 @@ describe("command palette", () => {
     const toolsItem = getFilteredPaletteItems("工具与 Skill").find(
       (item) => item.id === "nav-skills",
     );
-    const adminConsoleItem = getFilteredPaletteItems("管理后台").find(
+    const adminConsoleItem = getFilteredPaletteItems("审核中心").find(
       (item) => item.id === "nav-admin-console",
     );
     const debugItem = getFilteredPaletteItems("切换调试").find((item) => item.id === "skill-debug");

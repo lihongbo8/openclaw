@@ -10,6 +10,7 @@
 //   workspace.*   — 工作区操作
 //   text.*        — 文案/翻译/总结
 //   data.*        — 数据分析/处理
+//   quality.*     — 产物质量检查
 //   human.*       — 人工确认
 //   audit.*       — 审计
 //
@@ -39,6 +40,7 @@ export type ToolCapabilityGroup =
   | "text.summarize"
   | "data.analyze"
   | "data.export"
+  | "quality.check"
   | "human.confirm"
   | "audit.log";
 
@@ -175,6 +177,25 @@ export type ToolExecutionResponse = {
 // ToolExecutionEngine
 // ======================================================================
 
+const riskOrder: ToolRiskLevel[] = ["low", "medium", "high", "critical"];
+
+function riskRank(riskLevel: ToolRiskLevel): number {
+  return riskOrder.indexOf(riskLevel);
+}
+
+function requiresConfirmationForAuto(tool: ToolRegistration): boolean {
+  return tool.requiresHumanConfirm || tool.riskLevel === "high" || tool.riskLevel === "critical";
+}
+
+function sortCandidateTools(a: ToolRegistration, b: ToolRegistration): number {
+  const confirmDelta =
+    Number(requiresConfirmationForAuto(a)) - Number(requiresConfirmationForAuto(b));
+  if (confirmDelta !== 0) return confirmDelta;
+  const riskDelta = riskRank(a.riskLevel) - riskRank(b.riskLevel);
+  if (riskDelta !== 0) return riskDelta;
+  return 0;
+}
+
 export async function executeToolCall(request: ToolCallRequest): Promise<ToolExecutionResponse> {
   // 1. 按 capability 查找候选工具
   let candidates = ToolRegistry.findByCapability(request.toolCapability);
@@ -186,9 +207,7 @@ export async function executeToolCall(request: ToolCallRequest): Promise<ToolExe
         request.candidateToolRefs!.includes(t.toolId) ||
         request.candidateToolRefs!.includes(t.name),
     );
-    if (preferred.length > 0) {
-      candidates = preferred;
-    }
+    candidates = preferred;
   }
 
   if (candidates.length === 0) {
@@ -208,7 +227,7 @@ export async function executeToolCall(request: ToolCallRequest): Promise<ToolExe
 
   // 3. 按风险政策过滤
   const allowedByRisk = candidates.filter((t) => {
-    if (request.humanConfirmPolicy === "never" && t.riskLevel === "critical") {
+    if (request.humanConfirmPolicy === "never" && requiresConfirmationForAuto(t)) {
       return false;
     }
     return true;
@@ -230,13 +249,13 @@ export async function executeToolCall(request: ToolCallRequest): Promise<ToolExe
     };
   }
 
-  // 4. 选择优先级最高的工具（按注册顺序，或用更复杂的策略）
-  const selected = allowedByRisk[0];
+  // 4. 选择优先级最高的工具：优先低风险且无需确认，风险相同时保留注册顺序。
+  const selected = [...allowedByRisk].sort(sortCandidateTools)[0];
 
   // 5. 检查是否需要人工确认
   const needHumanConfirm =
     request.humanConfirmPolicy === "required" ||
-    (selected.requiresHumanConfirm && request.humanConfirmPolicy !== "never");
+    (request.humanConfirmPolicy === "auto" && requiresConfirmationForAuto(selected));
 
   if (needHumanConfirm) {
     return {

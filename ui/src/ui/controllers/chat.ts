@@ -373,6 +373,8 @@ export type ChatState = {
   agentsList?: ChatAgentsListSnapshot | null;
   agentsSelectedId?: string | null;
   hello?: GatewayHelloOk | null;
+  aicsConversationMode?: "user" | "developer" | null;
+  aicsConversationStage?: string | null;
 };
 
 type ChatAgentsListSnapshot = Partial<Omit<AgentsListResult, "agents">> & {
@@ -817,7 +819,7 @@ export async function requestChatSend(
     message: string;
     modelPrompt?: string;
     aicsContext?: {
-      mode: "developer";
+      mode: "developer" | "openclaw_main";
       stage?: string;
     };
     attachments?: ChatAttachment[];
@@ -851,6 +853,24 @@ export async function requestChatSend(
     attachments: buildApiAttachments(params.attachments),
   });
   return normalizeChatSendAck(payload, params.runId);
+}
+
+function defaultAicsContextForChatState(
+  state: ChatState,
+): { mode: "developer" | "openclaw_main"; stage?: string } | undefined {
+  if (state.aicsConversationMode === "developer") {
+    return {
+      mode: "developer",
+      ...(state.aicsConversationStage ? { stage: state.aicsConversationStage } : {}),
+    };
+  }
+  if (state.aicsConversationMode === "user") {
+    return {
+      mode: "openclaw_main",
+      ...(state.aicsConversationStage ? { stage: state.aicsConversationStage } : {}),
+    };
+  }
+  return undefined;
 }
 
 type AssistantMessageNormalizationOptions = {
@@ -954,7 +974,12 @@ export async function sendChatMessage(
   state.chatStreamStartedAt = now;
 
   try {
-    const ack = await requestChatSend(state, { message: msg, attachments, runId });
+    const ack = await requestChatSend(state, {
+      message: msg,
+      attachments,
+      runId,
+      aicsContext: defaultAicsContextForChatState(state),
+    });
     if (ack.status === "ok") {
       state.chatRunId = null;
       state.chatStream = null;
@@ -1020,7 +1045,12 @@ async function sendChatMessageWithGeneratedRunId(
   setChatError(state, null);
   const runId = generateUUID();
   try {
-    const ack = await requestChatSend(state, { message: msg, attachments, runId });
+    const ack = await requestChatSend(state, {
+      message: msg,
+      attachments,
+      runId,
+      aicsContext: defaultAicsContextForChatState(state),
+    });
     return ack.runId;
   } catch (err) {
     setChatError(state, formatConnectError(err));

@@ -193,8 +193,6 @@ export const pl: TranslationMap = {
     verbose: "Szczegółowo",
     reasoning: "Rozumowanie",
     actions: "Działania",
-    addToWorkboard: "Dodaj do Workboard",
-    openWorkboardCard: "Otwórz kartę Workboard",
     noSessions: "Nie znaleziono sesji.",
     noSessionsMatchFilters: "Żadne sesje nie pasują do Twoich filtrów.",
     showAll: "Pokaż wszystkie",

@@ -6,7 +6,7 @@ import {
   type RoleArtifactRecord,
   type RoleExecutionStepRecord,
 } from "./role-instance-store.js";
-import { AicsMainFlowStore } from "./store.js";
+import { AicsMainFlowStore, runApprovedTask } from "./store.js";
 
 // ======================================================================
 // Dispatcher: 调度层服务
@@ -125,6 +125,53 @@ export async function dispatchAndExecute(
       logs,
     };
   }
+  if (!latestRequest) {
+    log("error", "dispatch_no_request", { dispatchRunId });
+    return {
+      ok: false,
+      dispatchRunId,
+      status: "blocked",
+      error: "没有可执行的 DispatchToRoleRequest。请先生成岗位执行队列项。",
+      reworkCount: 0,
+      logs,
+    };
+  }
+  const existingSucceededResult = readModel.objects.roleResults.find(
+    (item) =>
+      item.taskPackageId === latestTask.id &&
+      item.dispatchToRoleRequestId === latestRequest.id &&
+      item.outcome === "succeeded",
+  );
+  if (existingSucceededResult) {
+    const reason =
+      "该派发单已经执行完成并生成结果，不能重复运行。需要重新执行时请先由任务调度生成新的派发单。";
+    log("warn", "dispatch_duplicate_successful_execution", { dispatchRunId });
+    return {
+      ok: false,
+      dispatchRunId,
+      status: "blocked",
+      error: reason,
+      reworkCount: 0,
+      logs,
+    };
+  }
+  if (!readModel.executionPreflight.canRun) {
+    const reason = readModel.executionPreflight.blockedReasons
+      .map((item) => item.message)
+      .join("；");
+    log("warn", "dispatch_preflight_blocked", {
+      dispatchRunId,
+      blockedReasons: readModel.executionPreflight.blockedReasons.map((item) => item.code),
+    });
+    return {
+      ok: false,
+      dispatchRunId,
+      status: "blocked",
+      error: reason || "岗位执行前置检查未通过。",
+      reworkCount: 0,
+      logs,
+    };
+  }
 
   logs.push(`Dispatcher: 获取到 TaskPackage "${latestTask.title}" (id=${latestTask.id})`);
 
@@ -152,6 +199,23 @@ export async function dispatchAndExecute(
       const engine = createRoleExecutionEngine();
       const context = engine.prepare(latestTask, {
         modelRef: config.modelRef,
+        availableTools: latestRequest?.allowedTools ?? [],
+        allowedSkills: latestRequest?.allowedSkills ?? [],
+        preflightSnapshot: {
+          taskDispatched: true,
+          roleAuthorized: Boolean(latestRequest?.roleListingId && latestRequest?.entitlementId),
+          humanConfirmed: latestRequest?.confirmExecution === true,
+          costConfirmed: latestRequest?.costConfirmed === true,
+          toolSkillReady: latestRequest?.toolSkillReady !== false,
+          apiBindingReady: latestRequest?.apiBindingReady !== false,
+          ledgerRefPresent: Boolean(latestRequest?.ledgerRef),
+          allowedTools: latestRequest?.allowedTools ?? [],
+          allowedSkills: latestRequest?.allowedSkills ?? [],
+          taskPackageId: latestTask.id,
+          dispatchToRoleRequestId: latestRequest.id,
+          ...(latestRequest.roleListingId ? { roleListingId: latestRequest.roleListingId } : {}),
+          ...(latestRequest.entitlementId ? { entitlementId: latestRequest.entitlementId } : {}),
+        },
         workspaceRoot: config.workspaceRoot,
         timeoutMs: config.timeoutMs,
       });
@@ -171,61 +235,82 @@ export async function dispatchAndExecute(
       // 4. 执行
       const roleResult = await engine.execute(context, executor);
 
+      const stored = store.update((state) =>
+        runApprovedTask(state, {
+          taskPackageId: latestTask.id,
+          dispatchToRoleRequestId: latestRequest.id,
+          ...(latestRequest.ledgerRef ? { ledgerRef: latestRequest.ledgerRef } : {}),
+          result: {
+            id: context.executionId,
+            outcome: toMainFlowOutcome(roleResult.outcome),
+            summary: roleResult.summary.slice(0, 500),
+            artifactRefs: roleResult.artifactRefs,
+            executionEvidence: roleResult.executionEvidence,
+          },
+        }),
+      );
+      const storedRoleResult = stored.roleResult;
+      const effectiveRoleResult: RoleResult = storedRoleResult
+        ? {
+            ...roleResult,
+            outcome: storedRoleResult.outcome,
+            summary: storedRoleResult.summary,
+            artifactRefs: storedRoleResult.artifactRefs,
+            executionEvidence: storedRoleResult.executionEvidence ?? roleResult.executionEvidence,
+            blockedReason:
+              storedRoleResult.outcome === "blocked"
+                ? storedRoleResult.summary
+                : roleResult.blockedReason,
+          }
+        : roleResult;
+
       // 5. 更新运行记录
       RoleInstanceStore.recordRun({
         instanceId: runRecord.instanceId,
         taskPackageId: runRecord.taskPackageId,
         executionId: runRecord.executionId,
-        status: roleResult.outcome === "succeeded" ? "completed" : "failed",
-        summary: roleResult.summary.slice(0, 500),
-        artifactRefs: roleResult.artifactRefs,
-        error: roleResult.blockedReason,
-        startedAt: roleResult.startedAt,
-        completedAt: roleResult.completedAt,
-        durationMs: roleResult.durationMs,
+        status:
+          effectiveRoleResult.outcome === "succeeded"
+            ? "completed"
+            : effectiveRoleResult.outcome === "blocked"
+              ? "blocked"
+              : "failed",
+        summary: effectiveRoleResult.summary.slice(0, 500),
+        artifactRefs: effectiveRoleResult.artifactRefs,
+        error: effectiveRoleResult.blockedReason,
+        startedAt: effectiveRoleResult.startedAt,
+        completedAt: effectiveRoleResult.completedAt,
+        durationMs: effectiveRoleResult.durationMs,
       });
 
       // 6. 记录步骤和产物
       RoleInstanceStore.recordSteps(
         instance.instanceId,
         context.executionId,
-        toStepRecords(roleResult.steps),
+        toStepRecords(effectiveRoleResult.steps),
       );
       RoleInstanceStore.recordArtifacts({
         instanceId: instance.instanceId,
         executionId: context.executionId,
-        artifacts: toArtifactRecords(context.executionId, roleResult.artifactRefs),
-      });
-
-      // 7. 写回主流程
-      store.update((state) => {
-        state.roleResults.push({
-          id: randomUUID(),
-          kind: "RoleResult",
-          status: roleResult.outcome === "succeeded" ? "completed" : "failed",
-          createdAt: roleResult.startedAt,
-          updatedAt: roleResult.completedAt,
-          auditRefs: [],
-          taskPackageId: latestTask.id,
-          dispatchToRoleRequestId: latestRequest?.id ?? "",
-          outcome: toMainFlowOutcome(roleResult.outcome),
-          summary: roleResult.summary.slice(0, 500),
-          artifactRefs: roleResult.artifactRefs,
-        });
-        return state;
+        artifacts: toArtifactRecords(context.executionId, effectiveRoleResult.artifactRefs),
       });
 
       logs.push(
-        `Dispatcher: 执行${roleResult.outcome === "succeeded" ? "成功" : "失败"}，` +
-          `${roleResult.steps.length} 步，${roleResult.toolUsage.totalToolCalls} 次工具调用，` +
-          `${roleResult.durationMs}ms`,
+        `Dispatcher: 执行${effectiveRoleResult.outcome === "succeeded" ? "成功" : "失败"}，` +
+          `${effectiveRoleResult.steps.length} 步，${effectiveRoleResult.toolUsage.totalToolCalls} 次工具调用，` +
+          `${effectiveRoleResult.durationMs}ms`,
       );
 
       return {
-        ok: roleResult.outcome === "succeeded",
+        ok: effectiveRoleResult.outcome === "succeeded",
         dispatchRunId,
-        status: roleResult.outcome === "succeeded" ? "completed" : "failed",
-        roleResult,
+        status:
+          effectiveRoleResult.outcome === "succeeded"
+            ? "completed"
+            : effectiveRoleResult.outcome === "blocked"
+              ? "blocked"
+              : "failed",
+        roleResult: effectiveRoleResult,
         reworkCount,
         logs,
       };

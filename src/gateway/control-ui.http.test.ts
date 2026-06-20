@@ -114,6 +114,38 @@ describe("handleControlUiHttpRequest", () => {
     return { res, end, handled };
   }
 
+  async function runApiConnectionsReadModelRequest(params: {
+    rootPath: string;
+    basePath?: string;
+    auth?: ResolvedGatewayAuth;
+    headers?: IncomingMessage["headers"];
+    remoteAddress?: string;
+    trustedProxies?: string[];
+    config?: NonNullable<Parameters<typeof handleControlUiHttpRequest>[2]>["config"];
+  }) {
+    const { res, end } = makeMockHttpResponse();
+    const url = params.basePath
+      ? `${params.basePath}/aics/api-connections/read-model`
+      : "/aics/api-connections/read-model";
+    const handled = await handleControlUiHttpRequest(
+      {
+        url,
+        method: "GET",
+        headers: params.headers ?? {},
+        socket: { remoteAddress: params.remoteAddress ?? "127.0.0.1" },
+      } as IncomingMessage,
+      res,
+      {
+        ...(params.basePath ? { basePath: params.basePath } : {}),
+        ...(params.auth ? { auth: params.auth } : {}),
+        ...(params.trustedProxies ? { trustedProxies: params.trustedProxies } : {}),
+        root: { kind: "resolved", path: params.rootPath },
+        config: params.config,
+      },
+    );
+    return { res, end, handled };
+  }
+
   async function runAvatarRequest(params: {
     url: string;
     method: "GET" | "HEAD" | "POST";
@@ -924,6 +956,121 @@ describe("handleControlUiHttpRequest", () => {
         expect(parsed.assistantAvatar).toBe("/openclaw/avatar/main");
         expect(parsed.assistantAgentId).toBe("main");
         expect(Array.isArray(parsed.localMediaPreviewRoots)).toBe(true);
+      },
+    });
+  });
+
+  it("serves API management read-model JSON for persona billing readback", async () => {
+    await withControlUiRoot({
+      fn: async (tmp) => {
+        const { res, handled, end } = await runApiConnectionsReadModelRequest({
+          rootPath: tmp,
+          config: {
+            apiConnections: {
+              entries: {
+                "model-openai": {
+                  id: "model-openai",
+                  name: "OpenAI",
+                  kind: "model",
+                  provider: "openai",
+                  consumers: ["model", "role_execution"],
+                  enabled: true,
+                  metadata: {
+                    defaultModel: "gpt-5.5",
+                    pricing: {
+                      currency: "CNY",
+                      unit: "1M_tokens",
+                      inputCnyPerMillion: 8,
+                      outputCnyPerMillion: 32,
+                    },
+                    metering: {
+                      calls: 1,
+                      inputTokens: 1280,
+                      outputTokens: 620,
+                      totalTokens: 1900,
+                      costCny: 0.03008,
+                      byConsumer: {
+                        role_execution: {
+                          calls: 1,
+                          inputTokens: 1280,
+                          outputTokens: 620,
+                          totalTokens: 1900,
+                          costCny: 0.03008,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          } as NonNullable<Parameters<typeof handleControlUiHttpRequest>[2]>["config"],
+        });
+
+        expect(handled).toBe(true);
+        expect(res.statusCode).toBe(200);
+        const json = responseJson(end) as {
+          readModel?: { entries?: Array<Record<string, unknown>> };
+        };
+        expect(json.readModel?.entries?.[0]).toMatchObject({
+          id: "model-openai",
+          kind: "model",
+          provider: "openai",
+          metadata: {
+            defaultModel: "gpt-5.5",
+            pricing: {
+              inputCnyPerMillion: 8,
+              outputCnyPerMillion: 32,
+            },
+            metering: {
+              totalTokens: 1900,
+              costCny: 0.03008,
+              byConsumer: {
+                role_execution: {
+                  totalTokens: 1900,
+                  costCny: 0.03008,
+                },
+              },
+            },
+          },
+        });
+      },
+    });
+  });
+
+  it("serves API management read-model JSON under basePath", async () => {
+    await withControlUiRoot({
+      fn: async (tmp) => {
+        const { res, handled, end } = await runApiConnectionsReadModelRequest({
+          rootPath: tmp,
+          basePath: "/openclaw",
+          config: { apiConnections: { entries: {} } },
+        });
+
+        expect(handled).toBe(true);
+        expect(res.statusCode).toBe(200);
+        expect(responseJson(end)).toMatchObject({
+          readModel: {
+            entries: [],
+          },
+        });
+      },
+    });
+  });
+
+  it("rejects trusted-proxy API management read-model requests without operator.read scope", async () => {
+    await withControlUiRoot({
+      fn: async (tmp) => {
+        const { res, handled, end } = await runApiConnectionsReadModelRequest({
+          rootPath: tmp,
+          auth: createTrustedProxyAuth(),
+          trustedProxies: ["10.0.0.1"],
+          remoteAddress: "10.0.0.1",
+          headers: createTrustedProxyHeaders({
+            "x-openclaw-scopes": "operator.approvals",
+          }),
+        });
+
+        expectMissingOperatorReadResponse({ handled, res, end });
       },
     });
   });

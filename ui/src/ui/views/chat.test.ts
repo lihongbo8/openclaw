@@ -634,6 +634,74 @@ describe("chat goal status", () => {
   });
 });
 
+describe("chat account goal mode", () => {
+  it("renders account-level main-flow status and navigates to the next repair step", () => {
+    const onNavigate = vi.fn();
+    const container = renderChatView({
+      onNavigate,
+      accountGoalMode: {
+        accountLabel: "当前账号",
+        status: "blocked",
+        headline: "账号经营链路有卡点需要处理",
+        plainSummary: "主对话框已读取账号经营状态，可以解释卡点并生成候选。",
+        currentGoal: {
+          title: "Q3 销售额 300 万",
+          metric: "销售额",
+          target: "300 万",
+          owner: "商城运营负责人",
+          status: "active",
+        },
+        currentBlocker: {
+          title: "当前卡点",
+          reason: "DeepSeek Provider 还没有可用连接。",
+          actionLabel: "去 API 管理",
+          actionTab: "apiManagement",
+        },
+        nextStep: {
+          label: "去 API 管理",
+          tab: "apiManagement",
+          reason: "补齐模型 Provider 后才能继续真实分析。",
+        },
+        chatCapabilities: {
+          canReadAccountData: true,
+          canCreateCandidates: true,
+          cannotBypassMainFlow: true,
+          humanLabel: "主对话框可以读取账号经营数据，但不能绕过六层直接执行。",
+        },
+        stageCards: [
+          {
+            label: "数据分析",
+            statusLabel: "待推进",
+            nextAction: "发起经营意图",
+            routeTab: "businessOverview",
+          },
+          {
+            label: "任务调度",
+            statusLabel: "未就绪",
+            nextAction: "先完成规划",
+            routeTab: "workboard",
+          },
+        ],
+      },
+    });
+
+    const notice = container.querySelector(".agent-chat__account-goal");
+    expect(notice?.textContent?.replace(/\s+/g, " ").trim()).toContain("当前账号 · 经营目标模式");
+    expect(notice?.textContent).toContain("账号经营链路有卡点需要处理");
+    expect(notice?.textContent).toContain("当前目标：Q3 销售额 300 万");
+    expect(notice?.textContent).toContain("卡点：DeepSeek Provider 还没有可用连接。");
+    expect(notice?.textContent).toContain("数据分析：待推进");
+
+    const nextButton = Array.from(notice?.querySelectorAll("button") ?? []).find((button) =>
+      button.textContent?.includes("去 API 管理"),
+    );
+    expect(nextButton).toBeInstanceOf(HTMLButtonElement);
+    nextButton!.click();
+
+    expect(onNavigate).toHaveBeenCalledWith("apiManagement");
+  });
+});
+
 describe("chat composer workbench", () => {
   it("renders session controls without exposing workspace files", () => {
     const onRefresh = vi.fn();
@@ -2816,6 +2884,33 @@ describe("chat session controls", () => {
 
     const rerendered = getChatModelSelect(container);
     expect(getChatSelectValue(rerendered)).toBe("openai/gpt-5-mini");
+  });
+
+  it("lets a manually added API management model be selected from the main chat", async () => {
+    const catalog = createModelCatalog(...DEFAULT_CHAT_MODEL_CATALOG, {
+      id: "codex-bengalfox",
+      name: "codex-bengalfox",
+      provider: "openai",
+    });
+    const { state, request } = createChatHeaderState({ models: catalog });
+    const container = document.createElement("div");
+    render(renderChatSessionSelect(state), container);
+
+    const option = container.querySelector<HTMLButtonElement>(
+      '[data-chat-model-option="openai/codex-bengalfox"]',
+    );
+    expect(option).toBeInstanceOf(HTMLButtonElement);
+    expect(option?.textContent ?? "").toContain("codex-bengalfox");
+
+    clickChatModelOption(container, "openai/codex-bengalfox");
+    await flushTasks();
+    render(renderChatSessionSelect(state), container);
+
+    expect(request).toHaveBeenCalledWith("sessions.patch", {
+      key: "main",
+      model: "openai/codex-bengalfox",
+    });
+    expect(getChatSelectValue(getChatModelSelect(container))).toBe("openai/codex-bengalfox");
   });
 
   it("keeps the selected model visible after switching away and back to a session", async () => {

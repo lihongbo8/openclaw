@@ -639,9 +639,10 @@ export function collectCoreConfigAssignments(params: {
   config: OpenClawConfig;
   defaults: SecretDefaults | undefined;
   context: ResolverContext;
+  collectModelProviderSecrets?: boolean;
 }): void {
   const providers = params.config.models?.providers as Record<string, ProviderLike> | undefined;
-  if (providers) {
+  if (providers && params.collectModelProviderSecrets !== false) {
     collectModelProviderAssignments({
       providers,
       defaults: params.defaults,

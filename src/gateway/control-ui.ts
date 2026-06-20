@@ -8,6 +8,7 @@ import {
   resolveTimestampMsToIsoString,
 } from "@openclaw/normalization-core/number-coercion";
 import { resolveAgentAvatar, resolvePublicAgentAvatarSource } from "../agents/identity-avatar.js";
+import { createApiConnectionsReadModel } from "../api-connections/model.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { matchRootFileOpenFailure, openRootFileSync } from "../infra/boundary-file-read.js";
 import {
@@ -60,6 +61,7 @@ import { resolveSharedGatewaySessionGeneration } from "./server/ws-shared-genera
 
 const ROOT_PREFIX = "/";
 const CONTROL_UI_ASSISTANT_MEDIA_PREFIX = "/__openclaw__/assistant-media";
+const CONTROL_UI_AICS_API_CONNECTIONS_READ_MODEL_PATH = "/aics/api-connections/read-model";
 const CONTROL_UI_ASSISTANT_MEDIA_TICKET_SCOPE = "assistant-media";
 const CONTROL_UI_ASSISTANT_MEDIA_TICKET_TTL_MS = 5 * 60 * 1000;
 const CONTROL_UI_ASSETS_MISSING_MESSAGE =
@@ -969,6 +971,34 @@ export async function handleControlUiHttpRequest(
       allowExternalEmbedUrls: config?.gateway?.controlUi?.allowExternalEmbedUrls === true,
       chatMessageMaxWidth: config?.gateway?.controlUi?.chatMessageMaxWidth,
     } satisfies ControlUiBootstrapConfig);
+    return true;
+  }
+
+  const apiConnectionsReadModelPath = basePath
+    ? `${basePath}${CONTROL_UI_AICS_API_CONNECTIONS_READ_MODEL_PATH}`
+    : CONTROL_UI_AICS_API_CONNECTIONS_READ_MODEL_PATH;
+  if (pathname === apiConnectionsReadModelPath) {
+    if (
+      !(await authorizeControlUiReadRequest(req, res, {
+        auth: opts?.auth,
+        trustedProxies: opts?.trustedProxies,
+        allowRealIpFallback: opts?.allowRealIpFallback,
+        rateLimiter: opts?.rateLimiter,
+        requiredOperatorMethod: "aics.apiConnections.readModel.get",
+      }))
+    ) {
+      return true;
+    }
+    if (req.method === "HEAD") {
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache");
+      res.end();
+      return true;
+    }
+    sendJson(res, 200, {
+      readModel: createApiConnectionsReadModel(opts?.config ?? {}),
+    });
     return true;
   }
 

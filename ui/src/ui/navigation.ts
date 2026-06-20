@@ -16,6 +16,7 @@ export type Tab =
   | "usage"
   | "cron"
   | "skills"
+  | "reviewCenter"
   | "skillWorkshop"
   | "nodes"
   | "chat"
@@ -45,6 +46,7 @@ const PRIMARY_NAV_TABS = [
   "workboard",
   "aics",
   "skills",
+  "reviewCenter",
   "apiManagement",
   "usage",
   "sessions",
@@ -75,6 +77,7 @@ const DISPLAY_TAB_TITLES: Partial<Record<Tab, string>> = {
   dreams: "记忆与进化",
   usage: "费用与授权",
   skills: "工具与 Skill",
+  reviewCenter: "审核中心",
   sessions: "对话记录",
   config: "Settings",
   channels: "渠道",
@@ -95,6 +98,24 @@ const DISPLAY_TAB_TITLES: Partial<Record<Tab, string>> = {
   logs: "Logs",
 };
 
+const DISPLAY_TAB_SUBTITLES: Partial<Record<Tab, string>> = {
+  chat: "主对话框作为管理助手：解释状态、准备建议、导航确认点。",
+  businessOverview: "发起经营意图，查看主流程状态与经营观察入口。",
+  observation: "只处理观察数据、数据缺口、异常和初步可信度。",
+  attribution: "基于观察包分析完成判断、差距、原因、置信度和影响程度。",
+  goals: "管理公司目标、目标依据、确认材料和治理检查。",
+  company: "把已确认目标拆成规划方案与岗位工作项。",
+  workboard: "任务调度只做预检、能力匹配和派发，不直接执行岗位。",
+  aics: "岗位执行只运行已授权调度任务，并展示执行结果。",
+  apiManagement: "多个模型/API Key、供给对象与调用计量。",
+  reviewCenter: "本地上架前审核岗位包、能力绑定、跑通性、合格性和风险。",
+  skillWorkshop: "在提案成为上线技能之前，进行审查、优化并应用。",
+  usage: "查看岗位授权、执行费用和计量摘要。",
+  sessions: "查看对话记录、运行状态和会话级配置。",
+  dreams: "睡眠时进行记忆巩固。",
+  config: "Context Profile、Appearance、Gateway。",
+};
+
 const TAB_PATHS: Record<Tab, string> = {
   aics: "/aics",
   apiManagement: "/api-management",
@@ -109,6 +130,7 @@ const TAB_PATHS: Record<Tab, string> = {
   usage: "/usage",
   cron: "/cron",
   skills: "/skills",
+  reviewCenter: "/review-center",
   skillWorkshop: "/skills/workshop",
   nodes: "/nodes",
   chat: "/chat",
@@ -131,15 +153,14 @@ const TAB_PATHS: Record<Tab, string> = {
 
 const PATH_ALIASES: Record<string, Tab> = {
   "/dreams": "dreams",
+  "/skills/workshop": "skillWorkshop",
 };
 
 /**
  * Maps a tab to its parent tab when it should render as an indented sub-item
  * under the parent in the sidebar. Sub-items still get their own routes.
  */
-export const TAB_PARENTS: Partial<Record<Tab, Tab>> = {
-  skillWorkshop: "skills",
-};
+export const TAB_PARENTS: Partial<Record<Tab, Tab>> = {};
 
 export function isChildTab(tab: Tab): boolean {
   return Object.hasOwn(TAB_PARENTS, tab);
@@ -277,6 +298,8 @@ export function iconForTab(tab: Tab): IconName {
       return "loader";
     case "skills":
       return "zap";
+    case "reviewCenter":
+      return "check";
     case "skillWorkshop":
       return "wrench";
     case "nodes":
@@ -332,11 +355,9 @@ export function displayTitleForTab(tab: Tab) {
 }
 
 export function subtitleForTab(tab: Tab) {
-  if (tab === "apiManagement") {
-    return "API 供给、绑定配置路径、SecretRef 与风险监控。";
+  if (tab === "skills") {
+    return "";
   }
-  if (tab === "businessOverview") {
-    return "发起经营意图，查看主流程状态与经营观察入口。";
-  }
+  if (DISPLAY_TAB_SUBTITLES[tab]) return DISPLAY_TAB_SUBTITLES[tab] ?? "";
   return t(`subtitles.${tab}`);
 }

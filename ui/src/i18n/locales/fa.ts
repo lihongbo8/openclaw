@@ -193,8 +193,6 @@ export const fa: TranslationMap = {
     verbose: "پرگویی",
     reasoning: "استدلال",
     actions: "اقدامات",
-    addToWorkboard: "افزودن به Workboard",
-    openWorkboardCard: "باز کردن کارت Workboard",
     noSessions: "هیچ نشستی پیدا نشد.",
     noSessionsMatchFilters: "هیچ جلسه‌ای با فیلترهای شما مطابقت ندارد.",
     showAll: "نمایش همه",

@@ -113,6 +113,7 @@ import {
   materializeApiConnectionEntry,
   refreshApiConnectionsReadModel,
   resetApiConnectionForm,
+  syncApiConnectionCloudVariables,
   testApiConnectionEntry,
   updateApiConnectionFormField,
   type ApiConnectionConsumer,
@@ -121,6 +122,11 @@ import {
 import { loadAssistantIdentity as loadAssistantIdentityInternal } from "./controllers/assistant-identity.ts";
 import {
   createDefaultBuildSessionState,
+  refreshBindableCategoryReviews,
+  refreshRoleDevelopmentStatus,
+  reduceRoleDevelopmentScopeToBasic,
+  submitCategoryCapabilityRequest,
+  submitDeveloperRoleForListing,
   type BuildSessionPageState,
 } from "./controllers/build-session.ts";
 import type { DevicePairingList } from "./controllers/devices.ts";
@@ -140,24 +146,65 @@ import { createDefaultGoalsPageState, type GoalsPageState } from "./controllers/
 import {
   createDefaultMyRolesState,
   refreshMyRolesReadModel,
+  repairRoleInstanceStore,
   type MyRolesPageState,
 } from "./controllers/my-roles.ts";
+import {
+  approveCategoryCapabilityReview,
+  approveRoleReview,
+  approveToolSkillReview,
+  bindRoleReviewCategory,
+  createDefaultReviewCenterState,
+  refreshReviewCenter,
+  rejectCategoryCapabilityReview,
+  rejectRoleReview,
+  requestCategoryCapabilityChanges,
+  requestRoleReviewChanges,
+  runRoleReviewValidation,
+  runToolSkillReviewValidation,
+  selectCategoryCapabilityReview,
+  selectRoleReview,
+  setReviewCenterCategoryFilter,
+  setReviewCenterCategoryPage,
+  setReviewCenterCategoryPageSize,
+  setReviewCenterCategorySearch,
+  setReviewCenterCategorySort,
+  setReviewCenterRoleFilter,
+  setReviewCenterRolePage,
+  setReviewCenterRolePageSize,
+  setReviewCenterRoleSearch,
+  setReviewCenterRoleSort,
+  syncCategoryCapabilityReviewToCloud,
+  type CategoryCapabilityQueueSort,
+  type CategoryCapabilityQueueFilter,
+  type ReviewQueueFilter,
+  type ReviewQueueSort,
+  type ReviewCenterState,
+} from "./controllers/review-center.ts";
+import type { SkillWorkshopState } from "./controllers/skill-workshop.ts";
 import type {
   ClawHubSearchResult,
   ClawHubSkillSecurityVerdict,
   ClawHubSkillDetail,
   SkillMessage,
 } from "./controllers/skills.ts";
-import { installFromClawHub } from "./controllers/skills.ts";
+import { installFromClawHub, loadSkills } from "./controllers/skills.ts";
 import {
+  createDefaultSupportContactState,
+  refreshSupportContact,
+  type SupportContactState,
+} from "./controllers/support-contact.ts";
+import {
+  activateToolSupplyCategoryCapabilityPackage,
   createDefaultToolSupplyControlState,
-  prepareToolSupplyUniqueCapabilityRequest,
+  markToolSkillDevelopmentRuntimeReady,
+  planToolSkillDevelopmentSource,
   refreshToolSupplyControlReadModel,
-  setToolSupplyGrant,
-  setToolSupplyPluginEnabled,
-  setToolSupplySkillEnabled,
-  type ToolSupplyControlItem,
+  runToolSkillDevelopmentValidation,
+  selectToolSkillDevelopmentSource,
+  type ToolSupplyControlSystemDevelopmentTodo,
 } from "./controllers/tool-supply-control.ts";
+import { loadUsage } from "./controllers/usage.ts";
 import { importCustomThemeFromUrl } from "./custom-theme.ts";
 import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
@@ -234,6 +281,32 @@ const AICS_REQUIRED_ROLE_BUILDER_FIELDS: Array<[keyof AicsRoleBuilderForm, strin
   ["workspaceRef", "工作区编号不能为空。"],
   ["localGatewayId", "本地连接编号不能为空。"],
 ];
+
+function stringFromRecord(record: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function stringArrayFromRecord(record: Record<string, unknown>, keys: string[]): string[] {
+  for (const key of keys) {
+    const value = record[key];
+    if (Array.isArray(value)) {
+      return value.filter(
+        (item): item is string => typeof item === "string" && Boolean(item.trim()),
+      );
+    }
+    if (typeof value === "string" && value.trim()) {
+      return value
+        .split(/\r?\n|[,，、]/u)
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+  }
+  return [];
+}
 
 const DEFAULT_AICS_MARKETPLACE_STATE: AicsMarketplaceState = {
   roles: [],
@@ -317,6 +390,24 @@ function toAicsUserErrorMessage(value: unknown, fallback: string): string {
     return "迭界AI执行授权 token 获取失败，请先确认岗位授权、设备编号和工作区配置。";
   }
   return /[A-Za-z_]/.test(text) ? fallback : text;
+}
+
+function toAicsAuthorizationBlockedMessage(
+  result: Record<string, unknown>,
+  fallback: string,
+): string {
+  const reasons = Array.isArray(result.blockedReasons)
+    ? result.blockedReasons
+        .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+        .filter(Boolean)
+    : [];
+  const base = toAicsUserErrorMessage(result.error ?? result.summary, fallback);
+  const primary = reasons[0] || base;
+  const nextAction =
+    typeof result.nextAction === "string" && result.nextAction.trim()
+      ? result.nextAction.trim()
+      : "";
+  return nextAction ? `${primary} 下一步：${nextAction}` : primary;
 }
 
 function normalizeAicsCatalogRefValues(value: unknown): string[] {
@@ -557,6 +648,23 @@ function normalizeAicsMarketplaceRoles(value: unknown): AicsMarketplaceRole[] {
               ((record.entitlement as Record<string, unknown>).id as string).trim()
             ? ((record.entitlement as Record<string, unknown>).id as string).trim()
             : "";
+    const entitlementStatus =
+      typeof record.entitlementStatus === "string" && record.entitlementStatus.trim()
+        ? record.entitlementStatus.trim()
+        : entitlementId
+          ? "authorized"
+          : "";
+    const authorizationFeeCents =
+      typeof record.authorizationFeeCents === "number" &&
+      Number.isFinite(record.authorizationFeeCents)
+        ? record.authorizationFeeCents
+        : undefined;
+    const priceLabel =
+      typeof record.priceLabel === "string" && record.priceLabel.trim()
+        ? record.priceLabel.trim()
+        : undefined;
+    const source =
+      typeof record.source === "string" && record.source.trim() ? record.source.trim() : undefined;
     const detail =
       typeof roleRecord.description === "string" && roleRecord.description.trim()
         ? roleRecord.description.trim()
@@ -620,6 +728,10 @@ function normalizeAicsMarketplaceRoles(value: unknown): AicsMarketplaceRole[] {
         status,
         roleListingId: id,
         ...(entitlementId ? { entitlementId } : {}),
+        ...(entitlementStatus ? { entitlementStatus } : {}),
+        ...(authorizationFeeCents !== undefined ? { authorizationFeeCents } : {}),
+        ...(priceLabel ? { priceLabel } : {}),
+        ...(source ? { source } : {}),
         ...(categoryInfo.categoryRef ? { categoryRef: categoryInfo.categoryRef } : {}),
         ...(categoryInfo.categoryName ? { categoryName: categoryInfo.categoryName } : {}),
         ...(categoryInfo.categoryPackRef ? { categoryPackRef: categoryInfo.categoryPackRef } : {}),
@@ -709,6 +821,7 @@ export class OpenClawApp extends LitElement {
     running: false,
     tokenRunning: false,
     auditRunning: false,
+    capabilityAnalysis: null,
     result: null,
     error: null,
   };
@@ -716,6 +829,7 @@ export class OpenClawApp extends LitElement {
   @state() selectedCapabilityCategoryRef = "";
   @state() businessFlow: BusinessFlowState = loadBusinessFlowState();
   @state() businessIntentDraft = "";
+  @state() observationExternalUrlDraft = "";
   @state() aicsMainFlow: AppViewState["aicsMainFlow"] = {
     loading: false,
     error: null,
@@ -727,6 +841,8 @@ export class OpenClawApp extends LitElement {
   @state() goalsState: GoalsPageState = createDefaultGoalsPageState();
   @state() buildSession: BuildSessionPageState = createDefaultBuildSessionState();
   @state() myRoles: MyRolesPageState = createDefaultMyRolesState();
+  @state() reviewCenter: ReviewCenterState = createDefaultReviewCenterState();
+  @state() supportContact: SupportContactState = createDefaultSupportContactState();
   @state() aicsConversationMode: AicsConversationMode = "user";
   @state() aicsConversationStage: AicsConversationStage = "ready";
   @state() theme: ThemeName = this.settings.theme ?? "claw";
@@ -1129,6 +1245,10 @@ export class OpenClawApp extends LitElement {
   @state() skillsLoading = false;
   @state() skillsReport: SkillStatusReport | null = null;
   @state() skillsError: string | null = null;
+  @state() toolSupplyActiveSubpage: "skill" | "tool" | "category" = "skill";
+  @state() toolSupplySelectedCategoryId: string | null = null;
+  @state() toolSupplyCategoryDraftName = "";
+  @state() toolSupplySelectionDrafts: Record<string, string[]> = {};
   @state() skillsFilter = "";
   @state() skillsStatusFilter: "all" | "ready" | "needs-setup" | "disabled" = "all";
   @state() skillEdits: Record<string, string> = {};
@@ -1153,6 +1273,17 @@ export class OpenClawApp extends LitElement {
   @state() skillCardContentKeys: Record<string, string> = {};
   @state() skillCardLoadingKey: string | null = null;
   @state() skillCardErrors: Record<string, string> = {};
+  @state() skillWorkshopLoading: SkillWorkshopState["skillWorkshopLoading"] = false;
+  @state() skillWorkshopLoaded: SkillWorkshopState["skillWorkshopLoaded"] = false;
+  @state() skillWorkshopError: SkillWorkshopState["skillWorkshopError"] = null;
+  @state() skillWorkshopInspectingKey: SkillWorkshopState["skillWorkshopInspectingKey"] = null;
+  @state() skillWorkshopProposals: SkillWorkshopState["skillWorkshopProposals"] = [];
+  @state() skillWorkshopSelectedKey: SkillWorkshopState["skillWorkshopSelectedKey"] = null;
+  @state() skillWorkshopActionBusy: SkillWorkshopState["skillWorkshopActionBusy"] = null;
+  @state() skillWorkshopActionNotice: SkillWorkshopState["skillWorkshopActionNotice"] = null;
+  skillWorkshopActionNoticeTimer: SkillWorkshopState["skillWorkshopActionNoticeTimer"] = null;
+  @state() skillWorkshopRevisionKey: SkillWorkshopState["skillWorkshopRevisionKey"] = null;
+  @state() skillWorkshopRevisionDraft: SkillWorkshopState["skillWorkshopRevisionDraft"] = "";
 
   @state() healthLoading = false;
   @state() healthResult: HealthSummary | null = null;
@@ -1449,9 +1580,22 @@ export class OpenClawApp extends LitElement {
       void this.refreshApiConnectionsReadModel();
       void this.refreshToolSupplyControlReadModel();
       void this.refreshMyRolesReadModel();
+      void loadUsage(this as unknown as AppViewState);
+    }
+    if (next === "usage" && !this.apiConnections.loading) {
+      void this.refreshApiConnectionsReadModel();
+    }
+    if (next === "skills" && !this.skillsLoading) {
+      void loadSkills(this, { clearMessages: false });
     }
     if (next === "skills" && !this.toolSupplyControl.loading) {
       void this.refreshToolSupplyControlReadModel();
+    }
+    if ((next === "workboard" || next === "aics") && !this.toolSupplyControl.loading) {
+      void this.refreshToolSupplyControlReadModel();
+    }
+    if (next === "aics" && !this.myRoles.loading) {
+      void this.refreshMyRolesReadModel();
     }
     this.navDrawerOpen = false;
   }
@@ -1549,6 +1693,9 @@ export class OpenClawApp extends LitElement {
 
   async createApiConnectionEntry() {
     await createApiConnectionEntry(this as unknown as AppViewState);
+    await this.refreshAicsMarketplaceRoles();
+    await this.refreshMyRolesReadModel();
+    await this.refreshAicsMainFlowReadModel();
   }
 
   editApiConnectionEntry(id: string) {
@@ -1563,12 +1710,23 @@ export class OpenClawApp extends LitElement {
     resetApiConnectionForm(this as unknown as AppViewState);
   }
 
-  testApiConnectionEntry(id: string) {
-    testApiConnectionEntry(this as unknown as AppViewState, id);
+  async testApiConnectionEntry(id: string) {
+    await testApiConnectionEntry(this as unknown as AppViewState, id);
+    await this.refreshMyRolesReadModel();
+    await this.refreshAicsMainFlowReadModel();
   }
 
   async materializeApiConnectionEntry(id?: string) {
     await materializeApiConnectionEntry(this as unknown as AppViewState, id);
+    await this.refreshMyRolesReadModel();
+    await this.refreshAicsMainFlowReadModel();
+  }
+
+  async syncApiConnectionCloudVariables(id: string) {
+    await syncApiConnectionCloudVariables(this as unknown as AppViewState, id);
+    await this.refreshAicsMarketplaceRoles();
+    await this.refreshMyRolesReadModel();
+    await this.refreshAicsMainFlowReadModel();
   }
 
   async checkClosedLoopReadiness() {
@@ -1579,32 +1737,217 @@ export class OpenClawApp extends LitElement {
     await refreshToolSupplyControlReadModel(this as unknown as AppViewState);
   }
 
-  async setToolSupplyGrant(
-    item: ToolSupplyControlItem,
-    status: "approved" | "blocked" | "pending_review",
-  ) {
-    await setToolSupplyGrant(this as unknown as AppViewState, item, status);
-  }
-
-  async setToolSupplySkillEnabled(skillKey: string, enabled: boolean) {
-    await setToolSupplySkillEnabled(this as unknown as AppViewState, skillKey, enabled);
-  }
-
-  async setToolSupplyPluginEnabled(pluginId: string, enabled: boolean) {
-    await setToolSupplyPluginEnabled(this as unknown as AppViewState, pluginId, enabled);
-  }
-
-  async prepareToolSupplyUniqueCapabilityRequest(params: {
-    title: string;
-    capabilityRef: string;
-    category?: string;
-    reason?: string;
-  }) {
-    await prepareToolSupplyUniqueCapabilityRequest(this as unknown as AppViewState, params);
-  }
-
   async refreshMyRolesReadModel() {
     await refreshMyRolesReadModel(this as unknown as AppViewState, this.myRoles);
+  }
+
+  async repairRoleInstanceStore() {
+    await repairRoleInstanceStore(this as unknown as AppViewState, this.myRoles);
+  }
+
+  async submitDeveloperRoleForListing(reviewId: string) {
+    const result = await submitDeveloperRoleForListing(
+      this as unknown as AppViewState,
+      this.buildSession,
+      reviewId,
+    );
+    if (!result) return;
+    const cloud =
+      result.cloud && typeof result.cloud === "object" && !Array.isArray(result.cloud)
+        ? (result.cloud as Record<string, unknown>)
+        : {};
+    const roleListingId =
+      typeof cloud.roleListingId === "string" && cloud.roleListingId.trim()
+        ? cloud.roleListingId.trim()
+        : "";
+    if (roleListingId) {
+      this.aicsRoleBuilder = {
+        ...this.aicsRoleBuilder,
+        form: {
+          ...this.aicsRoleBuilder.form,
+          roleListingId,
+        },
+      };
+    }
+    await this.refreshAicsMarketplaceRoles();
+    await this.refreshMyRolesReadModel();
+    await this.refreshAicsMainFlowReadModel();
+    await this.refreshReviewCenter();
+    await this.refreshBuildSessionBindableCategories(reviewId);
+    this.setTab("usage");
+  }
+
+  async submitCategoryCapabilityRequest() {
+    await submitCategoryCapabilityRequest(this as unknown as AppViewState, this.buildSession);
+    await this.refreshToolSupplyControlReadModel();
+  }
+
+  async reduceRoleDevelopmentScopeToBasic() {
+    await reduceRoleDevelopmentScopeToBasic(this as unknown as AppViewState, this.buildSession);
+    await this.refreshReviewCenter();
+    await this.refreshToolSupplyControlReadModel();
+  }
+
+  async refreshBuildSessionBindableCategories(reviewId?: string) {
+    await refreshBindableCategoryReviews(
+      this as unknown as AppViewState,
+      this.buildSession,
+      reviewId,
+    );
+  }
+
+  async refreshReviewCenter() {
+    await refreshReviewCenter(this as unknown as AppViewState);
+  }
+
+  async refreshSupportContact() {
+    await refreshSupportContact(this as unknown as AppViewState);
+  }
+
+  selectReviewCenterRoleReview(reviewId: string) {
+    selectRoleReview(this as unknown as AppViewState, reviewId);
+  }
+
+  selectReviewCenterCategoryCapabilityReview(reviewId: string | null) {
+    selectCategoryCapabilityReview(this as unknown as AppViewState, reviewId);
+  }
+
+  setReviewCenterRoleFilter(filter: ReviewQueueFilter) {
+    setReviewCenterRoleFilter(this as unknown as AppViewState, filter);
+  }
+
+  setReviewCenterRoleSearch(search: string) {
+    setReviewCenterRoleSearch(this as unknown as AppViewState, search);
+  }
+
+  setReviewCenterRoleSort(sort: ReviewQueueSort) {
+    setReviewCenterRoleSort(this as unknown as AppViewState, sort);
+  }
+
+  setReviewCenterRolePage(page: number) {
+    setReviewCenterRolePage(this as unknown as AppViewState, page);
+  }
+
+  setReviewCenterRolePageSize(pageSize: number) {
+    setReviewCenterRolePageSize(this as unknown as AppViewState, pageSize);
+  }
+
+  setReviewCenterCategoryFilter(filter: CategoryCapabilityQueueFilter) {
+    setReviewCenterCategoryFilter(this as unknown as AppViewState, filter);
+  }
+
+  setReviewCenterCategorySearch(search: string) {
+    setReviewCenterCategorySearch(this as unknown as AppViewState, search);
+  }
+
+  setReviewCenterCategorySort(sort: CategoryCapabilityQueueSort) {
+    setReviewCenterCategorySort(this as unknown as AppViewState, sort);
+  }
+
+  setReviewCenterCategoryPage(page: number) {
+    setReviewCenterCategoryPage(this as unknown as AppViewState, page);
+  }
+
+  setReviewCenterCategoryPageSize(pageSize: number) {
+    setReviewCenterCategoryPageSize(this as unknown as AppViewState, pageSize);
+  }
+
+  async runRoleReviewValidation(reviewId: string) {
+    await runRoleReviewValidation(this as unknown as AppViewState, reviewId);
+  }
+
+  async bindRoleReviewCategory(reviewId: string, categoryCapabilityReviewId: string) {
+    await bindRoleReviewCategory(
+      this as unknown as AppViewState,
+      reviewId,
+      categoryCapabilityReviewId,
+    );
+    const generatedReview = this.buildSession.generateResult?.review;
+    const generatedReviewId =
+      generatedReview && typeof generatedReview === "object" && !Array.isArray(generatedReview)
+        ? String((generatedReview as Record<string, unknown>).id ?? "")
+        : "";
+    if (generatedReviewId === reviewId) {
+      await this.refreshBuildSessionBindableCategories(reviewId);
+    }
+  }
+
+  async approveRoleReview(reviewId: string) {
+    await approveRoleReview(this as unknown as AppViewState, reviewId);
+  }
+
+  async requestRoleReviewChanges(reviewId: string) {
+    await requestRoleReviewChanges(this as unknown as AppViewState, reviewId);
+  }
+
+  async rejectRoleReview(reviewId: string) {
+    await rejectRoleReview(this as unknown as AppViewState, reviewId);
+  }
+
+  async runToolSkillReviewValidation(reviewId: string) {
+    await runToolSkillReviewValidation(this as unknown as AppViewState, reviewId);
+    await this.refreshToolSupplyControlReadModel();
+  }
+
+  async runToolSkillDevelopmentValidation(todo: ToolSupplyControlSystemDevelopmentTodo) {
+    await runToolSkillDevelopmentValidation(this as unknown as AppViewState, todo);
+    await this.refreshToolSupplyControlReadModel();
+  }
+
+  async planToolSkillDevelopmentSource(todo: ToolSupplyControlSystemDevelopmentTodo) {
+    await planToolSkillDevelopmentSource(this as unknown as AppViewState, todo);
+    await this.refreshToolSupplyControlReadModel();
+  }
+
+  async selectToolSkillDevelopmentSource(
+    todo: ToolSupplyControlSystemDevelopmentTodo,
+    selectedSource: string,
+  ) {
+    await selectToolSkillDevelopmentSource(this as unknown as AppViewState, todo, selectedSource);
+    await this.refreshToolSupplyControlReadModel();
+  }
+
+  async markToolSkillDevelopmentRuntimeReady(todo: ToolSupplyControlSystemDevelopmentTodo) {
+    await markToolSkillDevelopmentRuntimeReady(this as unknown as AppViewState, todo);
+    await this.refreshToolSupplyControlReadModel();
+  }
+
+  async approveToolSkillReview(reviewId: string) {
+    await approveToolSkillReview(this as unknown as AppViewState, reviewId);
+    await this.refreshToolSupplyControlReadModel();
+  }
+
+  async activateToolSupplyCategoryCapabilityPackage(categoryCapabilityReviewId: string) {
+    await activateToolSupplyCategoryCapabilityPackage(
+      this as unknown as AppViewState,
+      categoryCapabilityReviewId,
+    );
+    await this.refreshToolSupplyControlReadModel();
+    await this.refreshReviewCenter();
+    await this.refreshBuildSessionBindableCategories();
+    if (this.buildSession.sessionId) {
+      await refreshRoleDevelopmentStatus(this as unknown as AppViewState, this.buildSession);
+    }
+  }
+
+  async approveCategoryCapabilityReview(reviewId: string) {
+    await approveCategoryCapabilityReview(this as unknown as AppViewState, reviewId);
+    await this.refreshToolSupplyControlReadModel();
+    await this.refreshAicsMainFlowReadModel();
+  }
+
+  async requestCategoryCapabilityChanges(reviewId: string) {
+    await requestCategoryCapabilityChanges(this as unknown as AppViewState, reviewId);
+  }
+
+  async rejectCategoryCapabilityReview(reviewId: string) {
+    await rejectCategoryCapabilityReview(this as unknown as AppViewState, reviewId);
+  }
+
+  async syncCategoryCapabilityReviewToCloud(reviewId: string) {
+    await syncCategoryCapabilityReviewToCloud(this as unknown as AppViewState, reviewId);
+    await this.refreshToolSupplyControlReadModel();
+    await this.refreshAicsMainFlowReadModel();
   }
 
   async refreshAicsMarketplaceRoles() {
@@ -1626,7 +1969,7 @@ export class OpenClawApp extends LitElement {
       error: null,
     };
     try {
-      const payload: Record<string, unknown> = {};
+      const payload: Record<string, unknown> = { includeUnauthorized: true };
       if (cloudAccessToken) {
         payload.cloud_access_token = cloudAccessToken;
       }
@@ -1653,8 +1996,11 @@ export class OpenClawApp extends LitElement {
               )
             : roles.length > 0
               ? null
-              : "当前迭界AI账号没有返回可显示的已授权岗位。",
+              : "当前没有可显示的岗位商品。完成本地上架后会在这里显示待授权岗位。",
       };
+      if (resultRecord.ok !== false) {
+        await this.refreshMyRolesReadModel();
+      }
     } catch (error) {
       this.aicsMarketplace = {
         ...this.aicsMarketplace,
@@ -1687,7 +2033,7 @@ export class OpenClawApp extends LitElement {
     if (!targetRoleListingId) {
       this.aicsMarketplace = {
         ...this.aicsMarketplace,
-        error: "请先填写要授权的云端岗位编号 roleListingId。",
+        error: "请先填写要授权的岗位商品编号 roleListingId。",
       };
       return;
     }
@@ -1705,6 +2051,12 @@ export class OpenClawApp extends LitElement {
       if (cloudAccessToken) {
         payload.cloud_access_token = cloudAccessToken;
       }
+      if (this.aicsRoleBuilder.form.workspaceRef.trim()) {
+        payload.workspace_ref = this.aicsRoleBuilder.form.workspaceRef.trim();
+      }
+      if (this.aicsRoleBuilder.form.deviceId.trim()) {
+        payload.device_id = this.aicsRoleBuilder.form.deviceId.trim();
+      }
       const result = await this.client.request("dijie.roleAuthorization.create", payload);
       const safeResult = redactAicsCloudAccessTokenValue(result, cloudAccessToken);
       const resultRecord =
@@ -1714,8 +2066,8 @@ export class OpenClawApp extends LitElement {
           ...this.aicsMarketplace,
           loading: false,
           result: safeResult,
-          error: toAicsUserErrorMessage(
-            resultRecord.error ?? resultRecord.summary,
+          error: toAicsAuthorizationBlockedMessage(
+            resultRecord,
             "岗位正式授权失败，请检查岗位是否为 0 元可授权岗位。",
           ),
         };
@@ -1730,18 +2082,40 @@ export class OpenClawApp extends LitElement {
               typeof (resultRecord.entitlement as Record<string, unknown>).id === "string"
             ? ((resultRecord.entitlement as Record<string, unknown>).id as string).trim()
             : "";
+      if (!entitlementId) {
+        this.aicsMarketplace = {
+          ...this.aicsMarketplace,
+          loading: false,
+          result: safeResult,
+          error: "岗位正式授权没有返回 entitlementId，不能继续任务调度。",
+        };
+        this.aicsRoleBuilder = {
+          ...this.aicsRoleBuilder,
+          result: safeResult,
+          error: "岗位正式授权没有返回 entitlementId，不能继续任务调度。",
+        };
+        return;
+      }
       this.aicsRoleBuilder = {
         ...this.aicsRoleBuilder,
         form: {
           ...this.aicsRoleBuilder.form,
           roleListingId: targetRoleListingId,
-          entitlementId: entitlementId || this.aicsRoleBuilder.form.entitlementId,
+          entitlementId,
         },
         result: safeResult,
         error: null,
       };
+      this.aicsMarketplace = {
+        ...this.aicsMarketplace,
+        loading: false,
+        result: safeResult,
+        error: null,
+      };
       await this.refreshAicsMarketplaceRoles();
+      await this.refreshMyRolesReadModel();
       await this.refreshAicsMainFlowReadModel();
+      this.setTab("workboard");
     } catch (error) {
       this.aicsMarketplace = {
         ...this.aicsMarketplace,
@@ -1925,6 +2299,7 @@ export class OpenClawApp extends LitElement {
     }
 
     const form = this.aicsRoleBuilder.form;
+    let brief: Record<string, unknown>;
     try {
       if (!form.requestZh.trim()) {
         throw new Error("中文需求不能为空。");
@@ -1932,10 +2307,11 @@ export class OpenClawApp extends LitElement {
       if (!form.roleBuildBriefJson.trim()) {
         throw new Error("岗位说明不能为空。");
       }
-      const brief = JSON.parse(form.roleBuildBriefJson);
-      if (!brief || typeof brief !== "object" || Array.isArray(brief)) {
+      const parsedBrief = JSON.parse(form.roleBuildBriefJson);
+      if (!parsedBrief || typeof parsedBrief !== "object" || Array.isArray(parsedBrief)) {
         throw new Error("岗位说明格式不正确。");
       }
+      brief = parsedBrief as Record<string, unknown>;
       for (const [field, message] of AICS_REQUIRED_ROLE_BUILDER_FIELDS) {
         if (!form[field].trim()) {
           throw new Error(message);
@@ -1980,10 +2356,41 @@ export class OpenClawApp extends LitElement {
     this.aicsRoleBuilder = {
       ...this.aicsRoleBuilder,
       running: true,
+      capabilityAnalysis: null,
       result: null,
       error: null,
     };
     try {
+      const roleTitle =
+        stringFromRecord(brief, ["roleTitle", "title", "name", "role_name", "岗位名称"]) ||
+        form.requestZh.trim().slice(0, 40);
+      const capabilityAnalysis = await this.client.request("aics.roleCapabilityAnalysis.create", {
+        roleTitle,
+        roleDescription:
+          stringFromRecord(brief, ["roleDescription", "description", "summary", "岗位说明"]) ||
+          form.requestZh.trim(),
+        targetUser: stringFromRecord(brief, ["targetUser", "target_user", "audience", "目标用户"]),
+        requiredCapabilities: stringArrayFromRecord(brief, [
+          "requiredCapabilities",
+          "required_capabilities",
+          "capabilities",
+          "所需能力",
+        ]),
+        sopFlow: stringFromRecord(brief, ["sopFlow", "sop", "workflow", "SOP流程"]),
+        dailyPlan: stringFromRecord(brief, ["dailyPlan", "daily_sop", "日规划"]),
+        weeklyPlan: stringFromRecord(brief, ["weeklyPlan", "weekly_sop", "周规划"]),
+        monthlyPlan: stringFromRecord(brief, ["monthlyPlan", "monthly_sop", "月规划"]),
+        inputOutput: stringFromRecord(brief, ["inputOutput", "input_output", "io", "输入输出"]),
+        riskBoundaries: stringArrayFromRecord(brief, [
+          "riskBoundaries",
+          "risk_boundaries",
+          "forbiddenActions",
+          "风险边界",
+        ]),
+        developerId: form.developerId.trim() || undefined,
+        listingDraftId: form.roleListingId.trim() || undefined,
+        rolePackageId: roleTitle,
+      });
       const result = await this.client.request("dijie.roleBuilder.run", payload);
       const resultRecord = result && typeof result === "object" ? (result as { ok?: unknown }) : {};
       const executionId =
@@ -1995,6 +2402,7 @@ export class OpenClawApp extends LitElement {
       this.aicsRoleBuilder = {
         ...this.aicsRoleBuilder,
         running: false,
+        capabilityAnalysis,
         result,
         form: executionId
           ? {

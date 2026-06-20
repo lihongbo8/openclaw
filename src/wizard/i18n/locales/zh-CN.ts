@@ -397,7 +397,7 @@ export const zh_CN = {
     },
     feishu: {
       allowFromPrompt: "Feishu allowFrom（用户 open_id）",
-      allowlistFindUser: "可以在飞书管理后台或通过 API 找到用户 open_id。",
+      allowlistFindUser: "可以在飞书控制台或通过 API 找到用户 open_id。",
       allowlistIntro: "通过 open_id 或 user_id 为 Feishu DM 设置允许列表。",
       allowlistTitle: "Feishu 允许列表",
       appIdPrompt: "输入 Feishu App ID",
@@ -567,7 +567,7 @@ export const zh_CN = {
       helpSsh: "1) SSH 进入你的 Nextcloud 服务器",
       instanceUrlPrompt: "输入 Nextcloud 实例 URL（例如 https://cloud.example.com）",
       setupTitle: "Nextcloud Talk bot 设置",
-      userIdHelpAdmin: "1) 在 Nextcloud 管理后台查看用户 ID",
+      userIdHelpAdmin: "1) 在 Nextcloud 管理员页面查看用户 ID",
       userIdHelpLogs: "2) 或在有人发消息时查看 webhook payload 日志",
       userIdHelpLowercase: "3) 用户 ID 通常是 Nextcloud 中的小写用户名",
       userIdTitle: "Nextcloud Talk 用户 ID",

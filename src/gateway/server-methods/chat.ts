@@ -39,6 +39,7 @@ import { resolveProviderIdForAuth } from "../../agents/provider-auth-aliases.js"
 import type { AgentMessage } from "../../agents/runtime/index.js";
 import { ensureSandboxWorkspaceForSession } from "../../agents/sandbox/context.js";
 import { resolveAgentTimeoutMs } from "../../agents/timeout.js";
+import { AicsMainFlowStore } from "../../aics-main-flow/store.js";
 import { dispatchInboundMessage } from "../../auto-reply/dispatch.js";
 import { getReplyPayloadMetadata, type ReplyPayload } from "../../auto-reply/reply-payload.js";
 import { createReplyDispatcher } from "../../auto-reply/reply/reply-dispatcher.js";
@@ -140,6 +141,7 @@ import {
   getSessionDefaults,
   loadSessionEntry,
   listAgentsForGateway,
+  readLatestRecentSessionUsageFromTranscriptAsync,
   readSessionMessageByIdAsync,
   readSessionMessagesAsync,
   resolveGatewayModelSupportsImages,
@@ -151,7 +153,12 @@ import {
 import { formatForLog } from "../ws-log.js";
 import { injectTimestamp, timestampOptsFromConfig } from "./agent-timestamp.js";
 import { setGatewayDedupeEntry } from "./agent-wait-dedupe.js";
-import { buildAicsModelPrompt, normalizeChatSendAicsContext } from "./aics-chat-context.js";
+import { recordModelUsageToApiMetering } from "./aics-api-metering.js";
+import {
+  buildAicsModelPrompt,
+  normalizeChatSendAicsContext,
+  type AicsChatAccountDataSummary,
+} from "./aics-chat-context.js";
 import { normalizeRpcAttachmentsToChatAttachments } from "./attachment-normalize.js";
 import { normalizeWebchatReplyMediaPathsForDisplay } from "./chat-reply-media.js";
 import {
@@ -176,6 +183,306 @@ type TranscriptAppendResult = {
   message?: Record<string, unknown>;
   error?: string;
 };
+
+function aicsObservationSourceKindLabel(sourceKind: string): string {
+  const labels: Record<string, string> = {
+    internal_read_model: "内部数据",
+    gateway_api: "Gateway API",
+    external_web_search: "外部搜索",
+    external_web_fetch: "外部网页",
+    external_api: "外部 API",
+    file_parse: "文件解析",
+    database_query: "数据库查询",
+    tool: "工具",
+    skill: "Skill",
+    manual: "人工输入",
+  };
+  return labels[sourceKind] ?? "观察来源";
+}
+
+function aicsChatAccountDataSummary(): AicsChatAccountDataSummary | undefined {
+  try {
+    const readModel = new AicsMainFlowStore().readModel();
+    const account = readModel.accountGoalMode;
+    const closure = readModel.executionClosure;
+    const observationWorkspace = readModel.observationWorkspace;
+    const observationCandidate = observationWorkspace?.candidate ?? null;
+    const observationCollectionReadiness = observationWorkspace?.collectionReadiness;
+    const preflight = readModel.executionPreflight;
+    const supportChecks = readModel.operationChecks.filter((item) => item.layer === "support");
+    const blockedChecks = readModel.operationChecks.filter((item) => item.status === "blocked");
+    const apiCheck = supportChecks.find((item) => item.routeTab === "apiManagement");
+    const toolSkillCheck = supportChecks.find((item) => item.routeTab === "skills");
+    const usageCheck = supportChecks.find((item) => item.routeTab === "usage");
+    const systemUsageSummary = [
+      `云端商城/岗位能力：${readModel.capabilities.matches.length ? "已有能力匹配记录" : "等待云端能力投影或岗位匹配"}`,
+      `本地 OpenClaw：主流程数据可读，当前阶段 ${readModel.currentStage}`,
+      apiCheck
+        ? `API/模型连接：${apiCheck.status === "blocked" ? `阻塞，${apiCheck.blockedReason ?? apiCheck.nextAction}` : apiCheck.nextAction}`
+        : `API/模型连接：${preflight.hasApiBinding ? "可用于执行" : "待确认可用连接"}`,
+      toolSkillCheck
+        ? `工具/Skill：${toolSkillCheck.status === "blocked" ? `阻塞，${toolSkillCheck.blockedReason ?? toolSkillCheck.nextAction}` : toolSkillCheck.nextAction}`
+        : `工具/Skill：${preflight.hasToolSkillReadiness ? "可用于执行" : "待确认工具和 Skill"}`,
+      usageCheck
+        ? `费用与授权：${usageCheck.status === "blocked" ? `阻塞，${usageCheck.blockedReason ?? usageCheck.nextAction}` : usageCheck.nextAction}`
+        : `费用与授权：${preflight.hasEntitlement && preflight.hasCostConfirmation ? "授权和费用已确认" : "待确认授权或费用"}`,
+      `调度执行：派发单${preflight.hasTaskPackage ? "已生成" : "未生成"}，执行队列${preflight.hasDispatchToRoleRequest ? "已生成" : "未生成"}，${preflight.canRun ? "可以运行" : "不可直接运行"}`,
+    ];
+    const cloudMarketplaceSummary = [
+      `岗位能力投影：${readModel.capabilities.matches.length ? `${readModel.capabilities.matches.length} 条匹配记录` : "暂无可用投影"}`,
+      `云端授权：${preflight.hasEntitlement ? "已匹配本次执行授权" : "未确认本次执行授权"}`,
+      `云端能力边界：任务调度只读云端授权能力，本地不会伪造岗位可调用状态`,
+    ];
+    const localOpenClawSummary = [
+      `Gateway/read model：可读取主流程状态`,
+      `当前阶段：${readModel.currentStage}`,
+      `本地执行预检：${preflight.canRun ? "满足运行条件" : "仍有阻塞或确认项"}`,
+    ];
+    const apiToolSkillSummary = [
+      apiCheck
+        ? `API/模型：${apiCheck.status === "blocked" ? `阻塞，${apiCheck.blockedReason ?? apiCheck.nextAction}` : apiCheck.nextAction}`
+        : `API/模型：${preflight.hasApiBinding ? "本次执行绑定可用" : "待确认模型或工具连接"}`,
+      toolSkillCheck
+        ? `工具/Skill：${toolSkillCheck.status === "blocked" ? `阻塞，${toolSkillCheck.blockedReason ?? toolSkillCheck.nextAction}` : toolSkillCheck.nextAction}`
+        : `工具/Skill：${preflight.hasToolSkillReadiness ? "本次执行所需能力可用" : "待确认工具和 Skill 能力"}`,
+    ];
+    const roleUsageSummary = [
+      `岗位授权：${preflight.hasEntitlement ? "已确认" : "未确认"}`,
+      `费用确认：${preflight.hasCostConfirmation ? "已确认" : "未确认"}`,
+      `执行队列：${preflight.hasTaskPackage && preflight.hasDispatchToRoleRequest ? "已生成" : "未完整生成"}`,
+      `运行状态：${readModel.roleExecutionSummary.statusLabel}`,
+      `执行判断：${readModel.roleExecutionSummary.userMessage}`,
+      `下一步：${readModel.roleExecutionSummary.nextAction}`,
+      `边界：${readModel.roleExecutionSummary.boundary}`,
+    ];
+    const latestPlanning = readModel.latest.planningPackage;
+    const planningSummary = latestPlanning
+      ? [
+          `当前规划：${readModel.planningSummary.title ?? latestPlanning.title}，状态${readModel.planningSummary.statusLabel}`,
+          `工作块：${readModel.planningSummary.workBlockCount} 个，可调度 ${readModel.planningSummary.dispatchableCount} 个，阻塞 ${readModel.planningSummary.blockedCount} 个，缺验收 ${readModel.planningSummary.missingAcceptanceCount} 个`,
+          `${readModel.planningSummary.userMessage} 下一步：${readModel.planningSummary.nextAction}`,
+          ...readModel.planningSummary.workBlocks.slice(0, 3).map((item) => {
+            return `${item.title}：${item.roleLabel} 做「${item.taskIntent}」，输出 ${item.expectedOutput}，验收 ${item.acceptanceCount} 条，${
+              item.dispatchable
+                ? "可进入调度检查"
+                : item.blockedReason
+                  ? `暂不能调度，原因 ${item.blockedReason}`
+                  : "等待确认或补齐条件"
+            }`;
+          }),
+        ]
+      : [readModel.planningSummary.userMessage];
+    const dispatchSummary = [
+      `派发状态：${readModel.dispatchSummary.userMessage}`,
+      `可派发工作块：${readModel.dispatchSummary.dispatchableWorkBlockCount} 个`,
+      readModel.dispatchSummary.checks.some((item) => !item.ok)
+        ? `缺少条件：${readModel.dispatchSummary.checks
+            .filter((item) => !item.ok)
+            .map((item) => `${item.label}，${item.detail}`)
+            .join("；")}`
+        : `下一步：${readModel.dispatchSummary.nextAction}`,
+      `边界：${readModel.dispatchSummary.boundary}`,
+    ];
+    const auditLedgerSummary = [
+      closure.evidenceReadback.hasAudit ? "审计记录已读回" : "审计记录未完整读回",
+      closure.evidenceReadback.hasLedger ? "账本记录已读回" : "账本记录未完整读回",
+      closure.evidenceReadback.hasCostSummary ? "费用摘要已读回" : "费用摘要缺失",
+      closure.evidenceReadback.hasModelUsage
+        ? closure.evidenceReadback.modelUsageStatus === "not_applicable"
+          ? "本次未调用模型，已说明原因"
+          : "模型费用证据已读回"
+        : "模型费用证据缺失",
+    ];
+    const nextObservationSummary = [
+      `${readModel.nextObservationSummary.title}：${readModel.nextObservationSummary.summary}`,
+      `状态：${readModel.nextObservationSummary.hasCandidate ? "已有候选" : "暂无候选"}，${readModel.nextObservationSummary.readyForReview ? "可复核" : "待执行完成"}`,
+      `产物：${readModel.nextObservationSummary.artifactTitles.length ? readModel.nextObservationSummary.artifactTitles.join("、") : "暂无可读产物标题"}`,
+      `审计${readModel.nextObservationSummary.auditComplete ? "完整" : "缺失"}，账本${readModel.nextObservationSummary.ledgerComplete ? "完整" : "缺失"}，模型费用证据${readModel.nextObservationSummary.modelUsageEvidence === "recorded" ? "已记录" : readModel.nextObservationSummary.modelUsageEvidence === "not_applicable" ? "无需" : "缺失"}`,
+      ...(readModel.nextObservationSummary.failureReason
+        ? [`失败原因：${readModel.nextObservationSummary.failureReason}`]
+        : []),
+      ...(readModel.nextObservationSummary.recoveryActions.length
+        ? [
+            `修复动作：${readModel.nextObservationSummary.recoveryActions
+              .slice(0, 3)
+              .map((action) => action.label)
+              .join("、")}`,
+          ]
+        : []),
+      `${readModel.nextObservationSummary.userMessage} 下一步：${readModel.nextObservationSummary.nextAction}`,
+      readModel.nextObservationSummary.boundary,
+    ];
+    const blockedSummary = [
+      ...readModel.blockedReasons.slice(0, 4).map((item) => item.message),
+      ...blockedChecks
+        .slice(0, 4)
+        .map((item) => `${item.title}：${item.blockedReason ?? item.nextAction}`),
+    ].filter(Boolean);
+    const currentGoal = account.currentGoal
+      ? `${account.currentGoal.title}；指标：${account.currentGoal.metric}；目标：${account.currentGoal.target}`
+      : undefined;
+    const confirmedGoal = [...readModel.objects.goals]
+      .reverse()
+      .find((goal) => goal.status === "confirmed");
+    const candidateGoal = [...readModel.objects.goals]
+      .reverse()
+      .find((goal) => goal.status === "candidate");
+    const goalForSummary = confirmedGoal ?? candidateGoal ?? readModel.latest.companyGoal;
+    const goalSummary = goalForSummary
+      ? [
+          `目标名称：${readModel.goalSummary.title ?? goalForSummary.title}`,
+          `指标：${readModel.goalSummary.metric ?? goalForSummary.metric}`,
+          `当前值：${readModel.goalSummary.currentValue ?? goalForSummary.currentValue ?? "待确认"}`,
+          `目标值：${readModel.goalSummary.target ?? goalForSummary.target}`,
+          `周期：${readModel.goalSummary.cycle ?? goalForSummary.cycle ?? "待确认"}`,
+          `负责人：${readModel.goalSummary.owner ?? goalForSummary.owner}`,
+          `来源观察 ${readModel.goalSummary.observationSourceCount} 条，来源归因 ${readModel.goalSummary.attributionSourceCount} 条`,
+          `为什么要做：${goalForSummary.whyNow ?? goalForSummary.rationale}`,
+          readModel.goalSummary.blockedReasons.length
+            ? `当前阻塞：${readModel.goalSummary.blockedReasons.join("、")}`
+            : "当前没有目标层阻塞",
+          `${readModel.goalSummary.userMessage} 下一步：${readModel.goalSummary.nextAction}`,
+        ]
+      : [readModel.goalSummary.userMessage];
+    const goalRecommendation = confirmedGoal
+      ? `${confirmedGoal.title}。当前应按主流程推进到「${account.nextStep.label}」，不要重新创建目标。`
+      : candidateGoal
+        ? `${candidateGoal.title}。这是候选目标，下一步去公司目标页确认指标、当前值、目标值、周期和负责人。`
+        : readModel.readiness.canCreateGoalCandidate
+          ? "基于已确认观察和归因生成公司目标候选，再由用户确认。"
+          : "先补齐观察和归因证据，暂时不要直接定目标。";
+    const currentBlocker = account.currentBlocker
+      ? `${account.currentBlocker.title}：${account.currentBlocker.reason}`
+      : undefined;
+    const latestAttribution = readModel.latest.attributionReport;
+    const attributionSummary = latestAttribution?.findings.length
+      ? [
+          `主要问题：${readModel.attributionSummary.topFindings
+            .map((finding) => {
+              const confidence =
+                finding.confidence === "high"
+                  ? "高可信"
+                  : finding.confidence === "medium"
+                    ? "中可信"
+                    : "低可信";
+              return `${finding.title}（${finding.dimension}，${confidence}，引用 ${finding.evidenceCount} 条观察证据）`;
+            })
+            .join("；")}`,
+          `影响说明：${readModel.attributionSummary.topFindings
+            .map((finding) => `${finding.title}：${finding.summary}`)
+            .join("；")}`,
+          readModel.attributionSummary.missingEvidenceCount === 0
+            ? "证据状态：每个归因都有观察证据引用"
+            : `证据状态：${readModel.attributionSummary.missingEvidenceCount} 个问题缺少观察证据，不能直接生成正式目标`,
+          readModel.attributionSummary.missingData.length
+            ? `还缺数据：${readModel.attributionSummary.missingData.join("；")}`
+            : "还缺数据：暂无归因层缺失提示",
+          `目标候选：${readModel.attributionSummary.userMessage}`,
+        ].join("；")
+      : undefined;
+    const evidenceSummary = [
+      closure.evidenceReadback.hasRoleResult ? "执行结果已回写" : "",
+      closure.evidenceReadback.hasBusinessArtifact ? "业务产物已读回" : "",
+      closure.evidenceReadback.hasAudit ? "审计已读回" : "",
+      closure.evidenceReadback.hasLedger ? "账本已读回" : "",
+      closure.evidenceReadback.hasModelUsage
+        ? closure.evidenceReadback.modelUsageStatus === "not_applicable"
+          ? "本次未调用模型，已说明原因"
+          : "模型费用证据已读回"
+        : "",
+    ].filter(Boolean);
+    const observationSources = Array.isArray(observationWorkspace?.sources)
+      ? observationWorkspace.sources
+      : [];
+    const observationObjects = Array.isArray(observationWorkspace?.objects)
+      ? observationWorkspace.objects
+      : [];
+    const accessibleObservationSources = observationSources.filter((source) => source.canAccess);
+    const blockedObservationSources = observationSources.filter((source) => !source.canAccess);
+    const observationObjectNameById = new Map(
+      observationObjects.map((object) => [object.id, object.name]),
+    );
+    const observationQuality = observationCandidate?.qualitySummary ?? {
+      accepted: 0,
+      needsReview: 0,
+      rejected: 0,
+      missing: observationObjects.length,
+    };
+    const uncoveredObservationLabels = (observationCandidate?.uncoveredRequiredObjectIds ?? []).map(
+      (objectId) => observationObjectNameById.get(objectId) ?? objectId,
+    );
+    const observationSummary = [
+      `可确认证据 ${observationQuality.accepted} 条，待复核 ${observationQuality.needsReview} 条，不可归因 ${observationQuality.rejected} 条，缺失 ${observationQuality.missing} 项`,
+      observationCollectionReadiness
+        ? `真实采集来源：${observationCollectionReadiness.accessibleSourceCount} 个可读取，${observationCollectionReadiness.blockedSourceCount} 个待补条件；缺连接 ${observationCollectionReadiness.missingSecretCount}，缺权限 ${observationCollectionReadiness.missingScopeCount}，待授权 ${observationCollectionReadiness.approvalRequiredCount}`
+        : "真实采集来源：观察工作台数据待刷新，其他主流程数据仍可读取",
+      observationCollectionReadiness?.blockedDetails.length
+        ? `采集修复：${observationCollectionReadiness.blockedDetails
+            .slice(0, 3)
+            .map((item) => `${item.label}，${item.repairAction}`)
+            .join("；")}`
+        : "采集修复：暂无来源阻塞",
+      `可用来源：${
+        accessibleObservationSources.length
+          ? accessibleObservationSources
+              .slice(0, 4)
+              .map(
+                (source) =>
+                  `${source.label}（${aicsObservationSourceKindLabel(source.sourceKind)}）`,
+              )
+              .join("、")
+          : "暂无可访问来源"
+      }`,
+      blockedObservationSources.length
+        ? `受阻来源：${blockedObservationSources
+            .slice(0, 3)
+            .map(
+              (source) =>
+                `${source.label}${source.missingRequirement ? `，${source.missingRequirement}` : ""}`,
+            )
+            .join("；")}`
+        : "受阻来源：无",
+      uncoveredObservationLabels.length
+        ? `还缺关键观察：${uncoveredObservationLabels.slice(0, 5).join("、")}`
+        : observationCandidate?.canConfirm
+          ? "关键观察已覆盖，可确认后进入归因"
+          : observationCandidate
+            ? "关键观察仍需复核或补采"
+            : "观察候选尚未生成，需要先开始观察",
+    ].join("；");
+    return {
+      statusLabel: `${account.headline}：${account.plainSummary}`,
+      currentGoal,
+      goalSummary,
+      goalRecommendation,
+      currentBlocker,
+      nextStep: `${account.nextStep.label}：${account.nextStep.reason}`,
+      nextTab: account.nextStep.tab,
+      stageCards: account.stageCards.map((item) => ({
+        label: item.label,
+        statusLabel: item.statusLabel,
+        nextAction: item.nextAction,
+      })),
+      systemUsageSummary,
+      cloudMarketplaceSummary,
+      localOpenClawSummary,
+      roleUsageSummary,
+      apiToolSkillSummary,
+      planningSummary,
+      dispatchSummary,
+      nextObservationSummary,
+      auditLedgerSummary,
+      blockedSummary,
+      observationSummary,
+      attributionSummary,
+      executionSummary:
+        readModel.roleExecutionSummary.businessResultSummary ?? closure.businessResult?.summary,
+      evidenceSummary,
+    };
+  } catch {
+    return undefined;
+  }
+}
 
 type AbortOrigin = "rpc" | "stop-command";
 
@@ -2455,6 +2762,57 @@ function dropLocalHistoryOverreadContextMessage(
   return [...messages.slice(0, index), ...messages.slice(index + 1)];
 }
 
+async function syncLocalDialogUsageFromTranscript(params: {
+  context: GatewayRequestContext;
+  sessionId?: string;
+  storePath?: string;
+  sessionFile?: string;
+  sessionKey: string;
+  agentId?: string;
+}): Promise<void> {
+  if (!params.sessionId || !params.storePath) {
+    return;
+  }
+  const snapshot = await readLatestRecentSessionUsageFromTranscriptAsync(
+    params.sessionId,
+    params.storePath,
+    params.sessionFile,
+    params.agentId,
+    256 * 1024,
+  );
+  if (!snapshot) {
+    return;
+  }
+  const inputTokens = typeof snapshot.inputTokens === "number" ? snapshot.inputTokens : 0;
+  const outputTokens = typeof snapshot.outputTokens === "number" ? snapshot.outputTokens : 0;
+  const totalTokens =
+    typeof snapshot.totalTokens === "number" ? snapshot.totalTokens : inputTokens + outputTokens;
+  if (inputTokens <= 0 && outputTokens <= 0 && totalTokens <= 0) {
+    return;
+  }
+  const usageRef = snapshot.messageId
+    ? `chat:${params.sessionId}:${snapshot.messageId}`
+    : `chat:${params.sessionKey}:${params.sessionId}:${snapshot.modelProvider ?? "unknown"}:${snapshot.model ?? "unknown"}:${inputTokens}:${outputTokens}:${totalTokens}`;
+  try {
+    await recordModelUsageToApiMetering({
+      context: params.context,
+      consumer: "local_dialog",
+      executionId: usageRef,
+      modelUsage: {
+        ...(snapshot.modelProvider ? { provider: snapshot.modelProvider } : {}),
+        ...(snapshot.model ? { model: snapshot.model } : {}),
+        inputTokens,
+        outputTokens,
+        totalTokens,
+      },
+    });
+  } catch (error) {
+    params.context.logGateway.debug(
+      `chat.history API metering sync skipped: ${formatForLog(error)}`,
+    );
+  }
+}
+
 async function handleChatHistoryRequest({
   params,
   respond,
@@ -2641,6 +2999,14 @@ async function handleChatHistoryRequest({
     ...(boundedInFlightRun ? { inFlightRun: boundedInFlightRun } : {}),
     ...(includeAgentsList ? { agentsList: listAgentsForGateway(cfg, modelCatalog) } : {}),
   };
+  await syncLocalDialogUsageFromTranscript({
+    context,
+    sessionId,
+    storePath,
+    sessionFile: entry?.sessionFile,
+    sessionKey: canonicalKey,
+    agentId: selectedAgent.agentId,
+  });
   respond(true, payload);
 }
 
@@ -2993,6 +3359,7 @@ export const chatHandlers: GatewayRequestHandlers = {
       ? buildAicsModelPrompt({
           message: inboundMessage,
           context: aicsContext,
+          accountData: aicsChatAccountDataSummary(),
         })
       : undefined;
     const rawModelPrompt =

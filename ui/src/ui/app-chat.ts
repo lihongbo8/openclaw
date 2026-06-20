@@ -1108,13 +1108,19 @@ function chatSubmitKey(
 }
 
 function buildChatAicsContextForMode(host: ChatHost): ChatQueueItem["aicsContext"] | undefined {
-  if (host.aicsConversationMode !== "developer") {
-    return undefined;
+  if (host.aicsConversationMode === "developer") {
+    return {
+      mode: "developer",
+      stage: host.aicsConversationStage,
+    };
   }
-  return {
-    mode: "developer",
-    stage: host.aicsConversationStage,
-  };
+  if (host.aicsConversationMode === "user") {
+    return {
+      mode: "openclaw_main",
+      stage: host.aicsConversationStage,
+    };
+  }
+  return undefined;
 }
 
 function advanceAicsConversationStageForMessage(host: ChatHost) {

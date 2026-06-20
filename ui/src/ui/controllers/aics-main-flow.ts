@@ -6,8 +6,115 @@ type AicsMainFlowReadModel = {
   currentStage: string;
   readiness: Record<string, boolean>;
   blockedReasons: Array<{ stage: string; code: string; message: string }>;
+  stageGuidance?: {
+    stage: string;
+    title: string;
+    description: string;
+    primaryActionLabel: string;
+    primaryActionTarget: string;
+    nextStepLabel: string;
+  };
+  preconditions?: Array<{
+    id: string;
+    label: string;
+    status: "met" | "missing" | "blocked";
+    message: string;
+    fixTab?: string;
+    fixActionLabel?: string;
+  }>;
+  blockerResolutions?: Array<{
+    code: string;
+    humanMessage: string;
+    impact: string;
+    fixTab: string;
+    fixActionLabel: string;
+  }>;
+  handoffPreview?: {
+    fromStage: string;
+    toStage: string;
+    outputLabel: string;
+    outputCount: number;
+    summary: string;
+  };
+  accountGoalMode?: {
+    accountLabel: string;
+    status: string;
+    headline: string;
+    plainSummary: string;
+    currentGoal?: {
+      title: string;
+      metric: string;
+      target: string;
+      owner: string;
+      status: string;
+    };
+    currentBlocker?: {
+      title: string;
+      reason: string;
+      actionLabel: string;
+      actionTab: string;
+    };
+    nextStep: {
+      label: string;
+      tab: string;
+      reason: string;
+    };
+    chatCapabilities: {
+      canReadAccountData: boolean;
+      canCreateCandidates: boolean;
+      cannotBypassMainFlow: boolean;
+      humanLabel: string;
+    };
+    stageCards: Array<{
+      label: string;
+      statusLabel: string;
+      nextAction: string;
+      routeTab: string;
+    }>;
+  };
+  executionClosure?: {
+    status: "not_ready" | "ready_to_run" | "running" | "completed" | "blocked" | "failed";
+    canRun: boolean;
+    taskPackageId?: string;
+    dispatchToRoleRequestId?: string;
+    executionId?: string;
+    roleListingId?: string;
+    entitlementId?: string;
+    businessResult?: {
+      summary: string;
+      artifactRefs: string[];
+    };
+    evidenceReadback: {
+      hasRoleResult: boolean;
+      hasBusinessArtifact: boolean;
+      hasAudit: boolean;
+      hasLedger: boolean;
+      hasModelUsage: boolean;
+      modelUsageStatus?: "recorded" | "not_applicable" | "missing";
+      modelUsageMessage?: string;
+    };
+    missingEvidence: string[];
+    recoveryActions: Array<{
+      label: string;
+      targetTab: string;
+      reason: string;
+    }>;
+  };
+  observationWorkspace?: Record<string, unknown>;
   latest: Record<string, { title?: string; summary?: string } | null>;
   counts: Record<string, number>;
+  objects?: {
+    interactions?: Array<Record<string, unknown>>;
+    observations?: Array<Record<string, unknown>>;
+    attributions?: Array<Record<string, unknown>>;
+    goals?: Array<Record<string, unknown>>;
+    planningPackages?: Array<Record<string, unknown>>;
+    rolePlanItems?: Array<Record<string, unknown>>;
+    dispatchProposalReviews?: Array<Record<string, unknown>>;
+    taskPackages?: Array<Record<string, unknown>>;
+    dispatchToRoleRequests?: Array<Record<string, unknown>>;
+    roleResults?: Array<Record<string, unknown>>;
+  };
   operationChecks?: Array<{
     id: string;
     title: string;
@@ -20,8 +127,34 @@ type AicsMainFlowReadModel = {
   }>;
 };
 
+type ObservationToolPlanRunResult = {
+  planId: string;
+  status: "completed" | "blocked" | "failed";
+  rawEvidence?: Array<Record<string, unknown>>;
+  evidence?: Array<Record<string, unknown>>;
+  qualityResults?: Array<Record<string, unknown>>;
+  candidate?: Record<string, unknown>;
+  blockedReasons?: string[];
+  userMessage?: string;
+};
+
 function text(value: unknown): string {
   return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function rolesFromReadModel(
+  value: Record<string, unknown> | null | undefined,
+): Array<Record<string, unknown>> {
+  if (!value) return [];
+  return [
+    ...(Array.isArray(value.roles) ? (value.roles as Array<Record<string, unknown>>) : []),
+    ...(Array.isArray(value.roleAssets)
+      ? (value.roleAssets as Array<Record<string, unknown>>)
+      : []),
+  ].filter(
+    (item): item is Record<string, unknown> =>
+      Boolean(item) && typeof item === "object" && !Array.isArray(item),
+  );
 }
 
 const MARKETPLACE_OBSERVATION_DOMAINS = [
@@ -48,8 +181,7 @@ const MARKETPLACE_OBSERVATION_DOMAINS = [
   {
     id: "dispatch_execution_chain",
     title: "调度与执行链路观察",
-    summary:
-      "观察 CompanyGoal、PlanningPackage、TaskPackage、DispatchToRoleRequest、RoleRun、RoleResult 和产物回写。",
+    summary: "观察公司目标、规划方案、派发单、执行队列、运行记录、执行结果和产物回写。",
   },
   {
     id: "external_product_competitor",
@@ -110,12 +242,12 @@ const MARKETPLACE_ATTRIBUTION_CAUSES = [
   {
     id: "product_experience_problem",
     title: "页面体验问题",
-    summary: "管理后台配置、保存、回显、错误提示、确认动作或下一步导航不清晰。",
+    summary: "页面配置、保存、回显、错误提示、确认动作或下一步导航不清晰。",
   },
   {
     id: "dispatch_chain_problem",
     title: "调度链路问题",
-    summary: "目标、规划、调度建议、TaskPackage、DispatchToRoleRequest 的链路断裂或状态不清。",
+    summary: "目标、规划、派发预检、派发单和执行队列的链路断裂或状态不清。",
   },
   {
     id: "role_execution_quality_problem",
@@ -200,13 +332,23 @@ function latestDispatchRequest(state: AppViewState): Record<string, unknown> {
     : {};
 }
 
-function selectAuthorizedRoleForDispatch(state: AppViewState): {
+export function selectAuthorizedRoleForDispatch(state: AppViewState): {
   roleListingId: string;
   roleTitle?: string;
   entitlementId: string;
 } | null {
   const request = latestDispatchRequest(state);
   const requestedRoleListingId = text(request.roleListingId);
+  const requestedEntitlementId = text(request.entitlementId);
+  if (requestedRoleListingId && requestedEntitlementId) {
+    const roleTitle = text(request.roleTitle);
+    return {
+      roleListingId: requestedRoleListingId,
+      entitlementId: requestedEntitlementId,
+      ...(roleTitle ? { roleTitle } : {}),
+    };
+  }
+
   const formRoleListingId = text(state.aicsRoleBuilder?.form?.roleListingId);
   const formEntitlementId = text(state.aicsRoleBuilder?.form?.entitlementId);
   if (
@@ -228,15 +370,51 @@ function selectAuthorizedRoleForDispatch(state: AppViewState): {
         (role) => (role.roleListingId || role.id) === requestedRoleListingId && role.entitlementId,
       )
     : undefined;
-  const fallback = roles.find((role) => role.entitlementId);
+  const fallback = requestedRoleListingId ? undefined : roles.find((role) => role.entitlementId);
   const selected = exact ?? fallback;
   if (!selected?.entitlementId) {
-    return null;
+    return selectAuthorizedRoleAssetForDispatch(state);
   }
   return {
     roleListingId: selected.roleListingId || selected.id,
     entitlementId: selected.entitlementId,
     ...(selected.title ? { roleTitle: selected.title } : {}),
+  };
+}
+
+function selectAuthorizedRoleAssetForDispatch(state: AppViewState): {
+  roleListingId: string;
+  roleTitle?: string;
+  entitlementId: string;
+} | null {
+  const request = latestDispatchRequest(state);
+  const requestedRoleListingId = text(request.roleListingId);
+  const readModel = state.myRoles?.readModel as Record<string, unknown> | null | undefined;
+  const roleAssets = rolesFromReadModel(readModel);
+  const exact = requestedRoleListingId
+    ? roleAssets.find(
+        (role) =>
+          text(role.roleListingId) === requestedRoleListingId &&
+          text(role.entitlementStatus) === "authorized" &&
+          text(role.entitlementId),
+      )
+    : undefined;
+  const fallback = roleAssets.find(
+    (role) =>
+      !requestedRoleListingId &&
+      text(role.entitlementStatus) === "authorized" &&
+      text(role.entitlementId),
+  );
+  const selected = exact ?? fallback;
+  if (!selected) return null;
+  const roleListingId = text(selected.roleListingId);
+  const entitlementId = text(selected.entitlementId);
+  if (!roleListingId || !entitlementId) return null;
+  const roleTitle = text(selected.title);
+  return {
+    roleListingId,
+    entitlementId,
+    ...(roleTitle ? { roleTitle } : {}),
   };
 }
 
@@ -285,8 +463,11 @@ async function callMainFlow(
     if (!state.client) throw new Error("Gateway client is not connected.");
     state.aicsMainFlow = { ...(state.aicsMainFlow ?? {}), loading: true, error: null };
     requestUpdate(state);
-    await state.client.request(method, params);
+    const result = await state.client.request<Record<string, unknown>>(method, params);
     await refreshAicsMainFlowReadModel(state);
+    if (result?.apiMetering) {
+      await state.refreshApiConnectionsReadModel?.();
+    }
     return true;
   } catch (err) {
     state.aicsMainFlow = {
@@ -297,6 +478,16 @@ async function callMainFlow(
     requestUpdate(state);
     return false;
   }
+}
+
+function blockForMissingRoleAuthorization(state: AppViewState): false {
+  state.aicsMainFlow = {
+    ...(state.aicsMainFlow ?? {}),
+    loading: false,
+    error: "请先到「费用与授权」完成该岗位的 0 元正式授权，再回到岗位执行点击“确认并运行”。",
+  };
+  requestUpdate(state);
+  return false;
 }
 
 export const aicsMainFlow = {
@@ -351,6 +542,50 @@ export const aicsMainFlow = {
   prepareObservation: (s: AppViewState, title: string, summary: string) =>
     callMainFlow(s, "aics.mainFlow.observation.prepare", { title, summary, signals: [] }),
 
+  collectObservation: (s: AppViewState, params: Record<string, unknown>) =>
+    callMainFlow(s, "aics.mainFlow.observation.collect", params),
+
+  async runObservationToolPlan(
+    s: AppViewState,
+    toolPlanId?: string,
+    params: Record<string, unknown> = {},
+  ): Promise<boolean> {
+    try {
+      if (!s.client) throw new Error("Gateway client is not connected.");
+      s.aicsMainFlow = { ...(s.aicsMainFlow ?? {}), loading: true, error: null };
+      requestUpdate(s);
+      const result = await s.client.request<{
+        runResult?: ObservationToolPlanRunResult;
+        observationPackage?: Record<string, unknown> | null;
+        readModel?: AicsMainFlowReadModel;
+      }>("aics.observation.toolPlan.run", {
+        ...params,
+        ...(toolPlanId ? { toolPlanId } : {}),
+      });
+      const readModel =
+        result.readModel ??
+        (await s.client.request<AicsMainFlowReadModel>("aics.mainFlow.readModel.get", {}));
+      s.aicsMainFlow = {
+        ...(s.aicsMainFlow ?? {}),
+        loading: false,
+        error: null,
+        readModel,
+        lastObservationRun: result.runResult ?? null,
+        lastObservationPackage: result.observationPackage ?? null,
+      };
+      requestUpdate(s);
+      return true;
+    } catch (err) {
+      s.aicsMainFlow = {
+        ...(s.aicsMainFlow ?? {}),
+        loading: false,
+        error: err instanceof Error ? err.message : "观察采集运行失败",
+      };
+      requestUpdate(s);
+      return false;
+    }
+  },
+
   confirmObservation: (s: AppViewState, observationPackageId: string) =>
     callMainFlow(s, "aics.mainFlow.observation.confirm", { observationPackageId }),
 
@@ -388,6 +623,9 @@ export const aicsMainFlow = {
     });
   },
 
+  generateAttributionFromLatest: (s: AppViewState) =>
+    callMainFlow(s, "aics.mainFlow.attribution.generateFromLatest", {}),
+
   confirmAttribution: (s: AppViewState, attributionReportId: string) =>
     callMainFlow(s, "aics.mainFlow.attribution.confirm", { attributionReportId }),
 
@@ -407,6 +645,13 @@ export const aicsMainFlow = {
     metric: string,
     target: string,
     rationale: string,
+    extras: {
+      currentValue?: string;
+      cycle?: string;
+      whyNow?: string;
+      blockedReasons?: string[];
+      readyForPlanning?: boolean;
+    } = {},
   ) =>
     callMainFlow(s, "aics.mainFlow.goal.candidate.create", {
       title,
@@ -414,7 +659,17 @@ export const aicsMainFlow = {
       metric,
       target,
       rationale,
+      ...(extras.currentValue ? { currentValue: extras.currentValue } : {}),
+      ...(extras.cycle ? { cycle: extras.cycle } : {}),
+      ...(extras.whyNow ? { whyNow: extras.whyNow } : {}),
+      ...(extras.blockedReasons?.length ? { blockedReasons: extras.blockedReasons } : {}),
+      ...(extras.readyForPlanning !== undefined
+        ? { readyForPlanning: extras.readyForPlanning }
+        : {}),
     }),
+
+  generateGoalFromLatest: (s: AppViewState) =>
+    callMainFlow(s, "aics.mainFlow.goal.generateFromLatest", {}),
 
   confirmGoal: (s: AppViewState, goalId: string) =>
     callMainFlow(s, "aics.mainFlow.goal.confirm", { goalId }),
@@ -425,7 +680,7 @@ export const aicsMainFlow = {
       blocks: [
         {
           name: "岗位供给",
-          purpose: "把已确认 CompanyGoal 拆到云端商城岗位商品、品类能力和独特能力申请。",
+          purpose: "把已确认公司目标拆到云端商城岗位商品、品类能力和独特能力申请。",
           progressGauge: "岗位商品可审核、能力包可绑定、缺口可进入独特能力申请。",
           roles: [
             { roleListingId: "cloud-marketplace-operator", roleTitle: "云端商城运营" },
@@ -438,31 +693,32 @@ export const aicsMainFlow = {
         },
         {
           name: "授权转化",
-          purpose: "管理岗位授权状态、API 供给、调用范围和 actor_context。",
-          progressGauge: "授权可读、scope 明确、缺 API 或缺权限能给出 blocked reason。",
+          purpose: "管理岗位授权状态、模型 Provider、云端连接、调用范围和 actor_context。",
+          progressGauge:
+            "授权可读、scope 明确、缺模型 Key、缺云端连接或缺权限能给出 blocked reason。",
           roles: [
             { roleListingId: "api-admin", roleTitle: "API 管理员" },
             { roleListingId: "dispatcher-admin", roleTitle: "调度管理员" },
           ],
           tasks: [
             {
-              title: "检查商城 API 与工具/Skill API 绑定",
-              targetDeliverable: "API 绑定与风险报告",
+              title: "检查迭界AI云端与模型 Token 供给",
+              targetDeliverable: "连接、模型 Token 使用范围与风险报告",
             },
-            { title: "确认岗位调度授权范围", targetDeliverable: "DispatchToRoleRequest 授权清单" },
+            { title: "确认岗位调度授权范围", targetDeliverable: "执行队列授权清单" },
           ],
         },
         {
           name: "执行质量",
           purpose: "跟踪已授权岗位执行结果、失败原因、产物回写和复盘材料。",
-          progressGauge: "TaskPackage 可追踪、RoleResult 可回写、失败可归因。",
+          progressGauge: "派发单可追踪、执行结果可回写、失败可归因。",
           roles: [{ roleListingId: "role-execution-reviewer", roleTitle: "岗位执行审核" }],
           tasks: [
             {
               title: "建立岗位执行质量口径",
               targetDeliverable: "执行成功率、失败原因、回写完整度",
             },
-            { title: "准备岗位结果复盘材料", targetDeliverable: "RoleResult 复盘摘要" },
+            { title: "准备岗位结果复盘材料", targetDeliverable: "执行结果复盘摘要" },
           ],
         },
         {
@@ -486,72 +742,123 @@ export const aicsMainFlow = {
     title: string,
     summary: string,
     rolePlanItems: Array<Record<string, unknown>>,
-  ) => callMainFlow(s, "aics.mainFlow.planning.prepare", { title, summary, rolePlanItems }),
+    goalId?: string,
+  ) => callMainFlow(s, "aics.mainFlow.planning.prepare", { title, summary, rolePlanItems, goalId }),
+
+  regeneratePlanning: (
+    s: AppViewState,
+    title: string,
+    summary: string,
+    rolePlanItems: Array<Record<string, unknown>>,
+    goalId?: string,
+  ) =>
+    callMainFlow(s, "aics.mainFlow.planning.regenerate", { title, summary, rolePlanItems, goalId }),
+
+  generatePlanningFromLatest: (s: AppViewState, regenerate = false) =>
+    callMainFlow(s, "aics.mainFlow.planning.generateFromLatest", {
+      ...(regenerate ? { mode: "regenerate" } : {}),
+    }),
 
   confirmPlanning: (s: AppViewState, planningPackageId: string) =>
     callMainFlow(s, "aics.mainFlow.planning.confirm", { planningPackageId }),
+
+  updateRolePlanItem: (s: AppViewState, params: Record<string, unknown>) =>
+    callMainFlow(s, "aics.mainFlow.planning.item.update", params),
+
+  cancelRolePlanItem: (s: AppViewState, rolePlanItemId: string, reason: string) =>
+    callMainFlow(s, "aics.mainFlow.planning.item.cancel", { rolePlanItemId, reason }),
 
   createDispatchProposal: (
     s: AppViewState,
     title: string,
     riskSummary: string,
     confirmationSummary: string,
+    planningPackageId?: string,
+    rolePlanItemId?: string,
   ) =>
     callMainFlow(s, "aics.mainFlow.dispatch.proposal.create", {
       title,
       riskSummary,
       confirmationSummary,
+      planningPackageId,
+      rolePlanItemId,
     }),
 
   confirmDispatch: (s: AppViewState, dispatchProposalReviewId: string) =>
     callMainFlow(s, "aics.mainFlow.dispatch.confirm", { dispatchProposalReviewId }),
 
-  materializeTaskPackage: (s: AppViewState, title: string, taskText: string) => {
+  materializeTaskPackage: (
+    s: AppViewState,
+    title: string,
+    taskText: string,
+    dispatchProposalReviewId?: string,
+  ) => {
     const authorizedRole = selectAuthorizedRoleForDispatch(s);
     return callMainFlow(s, "aics.mainFlow.dispatch.materializeTaskPackage", {
       title,
       taskText,
+      dispatchProposalReviewId,
       ...(authorizedRole
         ? {
             request: {
               roleListingId: authorizedRole.roleListingId,
               roleTitle: authorizedRole.roleTitle,
+              entitlementId: authorizedRole.entitlementId,
             },
           }
         : {}),
     });
   },
 
-  runApprovedTask: (s: AppViewState, taskPackageId: string) => {
-    return callMainFlow(s, "aics.mainFlow.dispatch.runApprovedTask", {
-      taskPackageId,
-    });
+  async dispatchReadyWork(s: AppViewState): Promise<boolean> {
+    return callMainFlow(s, "aics.mainFlow.dispatch.checkAndCreateQueue", {});
   },
+
+  checkAndCreateDispatchQueue: (s: AppViewState, params: Record<string, unknown> = {}) =>
+    callMainFlow(s, "aics.mainFlow.dispatch.checkAndCreateQueue", params),
+
+  recordExternalExecutionResult: (s: AppViewState, params: Record<string, unknown>) =>
+    callMainFlow(s, "aics.execution.result.record", params),
 
   confirmExecution: (s: AppViewState, dispatchToRoleRequestId: string) => {
     const authorizedRole = selectAuthorizedRoleForDispatch(s);
+    if (!authorizedRole) return Promise.resolve(blockForMissingRoleAuthorization(s));
     return callMainFlow(s, "aics.mainFlow.execution.confirm", {
       dispatchToRoleRequestId,
-      ...(authorizedRole
-        ? {
-            roleListingId: authorizedRole.roleListingId,
-            ...(authorizedRole.roleTitle ? { roleTitle: authorizedRole.roleTitle } : {}),
-            entitlementId: authorizedRole.entitlementId,
-          }
-        : {}),
+      roleListingId: authorizedRole.roleListingId,
+      ...(authorizedRole.roleTitle ? { roleTitle: authorizedRole.roleTitle } : {}),
+      entitlementId: authorizedRole.entitlementId,
     });
   },
 
   confirmExecutionCost: (s: AppViewState, dispatchToRoleRequestId: string) => {
     const authorizedRole = selectAuthorizedRoleForDispatch(s);
+    if (!authorizedRole) return Promise.resolve(blockForMissingRoleAuthorization(s));
     return callMainFlow(s, "aics.mainFlow.execution.cost.confirm", {
       dispatchToRoleRequestId,
-      ...(authorizedRole
-        ? {
-            entitlementId: authorizedRole.entitlementId,
-            ledgerRef: `ledger:pending:${authorizedRole.entitlementId}`,
-          }
-        : {}),
+      entitlementId: authorizedRole.entitlementId,
+      ledgerRef: `ledger:pending:${authorizedRole.entitlementId}`,
+    });
+  },
+
+  confirmAndRunExecution: (
+    s: AppViewState,
+    dispatchToRoleRequestId: string,
+    authorizedRoleOverride?: {
+      roleListingId: string;
+      roleTitle?: string;
+      entitlementId: string;
+      ledgerRef?: string;
+    },
+  ) => {
+    const authorizedRole = authorizedRoleOverride ?? selectAuthorizedRoleForDispatch(s);
+    if (!authorizedRole) return Promise.resolve(blockForMissingRoleAuthorization(s));
+    return callMainFlow(s, "aics.mainFlow.execution.confirmAndRun", {
+      dispatchToRoleRequestId,
+      roleListingId: authorizedRole.roleListingId,
+      ...(authorizedRole.roleTitle ? { roleTitle: authorizedRole.roleTitle } : {}),
+      entitlementId: authorizedRole.entitlementId,
+      ledgerRef: authorizedRole.ledgerRef ?? `ledger:pending:${authorizedRole.entitlementId}`,
     });
   },
 

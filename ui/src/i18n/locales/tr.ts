@@ -194,8 +194,6 @@ export const tr: TranslationMap = {
     verbose: "Ayrıntılı",
     reasoning: "Akıl yürütme",
     actions: "Eylemler",
-    addToWorkboard: "Workboard'a ekle",
-    openWorkboardCard: "Workboard kartını aç",
     noSessions: "Oturum bulunamadı.",
     noSessionsMatchFilters: "Filtrelerinizle eşleşen oturum yok.",
     showAll: "Tümünü göster",

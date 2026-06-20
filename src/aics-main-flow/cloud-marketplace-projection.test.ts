@@ -28,6 +28,7 @@ describe("cloud marketplace projection", () => {
     );
 
     expect(projection.authority).toBe("cloud_marketplace");
+    expect(projection.apiHealth.status).toBe("blocked");
     expect(projection.apiHealth.blockedReasons).toContain("api_boundary_required");
     expect(projection.businessSummary.ledgerSummary).toContain("不同步原始账本");
   });

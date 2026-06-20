@@ -108,6 +108,42 @@ export type ChatProps = {
   draft: string;
   aicsMode?: AicsConversationMode;
   aicsStage?: AicsConversationStage;
+  accountGoalMode?: {
+    accountLabel?: string;
+    status?: string;
+    headline?: string;
+    plainSummary?: string;
+    currentGoal?: {
+      title?: string;
+      metric?: string;
+      target?: string;
+      owner?: string;
+      status?: string;
+    };
+    currentBlocker?: {
+      title?: string;
+      reason?: string;
+      actionLabel?: string;
+      actionTab?: string;
+    };
+    nextStep?: {
+      label?: string;
+      tab?: string;
+      reason?: string;
+    };
+    chatCapabilities?: {
+      canReadAccountData?: boolean;
+      canCreateCandidates?: boolean;
+      cannotBypassMainFlow?: boolean;
+      humanLabel?: string;
+    };
+    stageCards?: Array<{
+      label?: string;
+      statusLabel?: string;
+      nextAction?: string;
+      routeTab?: string;
+    }>;
+  };
   onAicsModeChange?: (mode: AicsConversationMode) => void;
   onNavigate?: (tab: Tab) => void;
   queue: ChatQueueItem[];
@@ -186,6 +222,7 @@ export type ChatProps = {
   onChatScroll?: (event: Event) => void;
   basePath?: string;
   composerControls?: TemplateResult | typeof nothing | ReturnType<typeof guard>;
+  developerModePanel?: TemplateResult | typeof nothing;
   workspaceFiles?: {
     agentId: string;
     list: AgentsFilesListResult | null;
@@ -1151,6 +1188,88 @@ function renderAicsModeSwitch(props: ChatProps): TemplateResult | typeof nothing
   `;
 }
 
+function renderAccountGoalModeNotice(props: ChatProps): TemplateResult | typeof nothing {
+  const mode = props.accountGoalMode;
+  if (!mode) return nothing;
+  const nextTab = mode.nextStep?.tab;
+  const currentGoal = mode.currentGoal;
+  const blocker = mode.currentBlocker;
+  const stageCards = (mode.stageCards ?? []).slice(0, 6);
+  const statusTone =
+    mode.status === "completed" ? "#2f855a" : mode.status === "blocked" ? "#c53030" : "#2b6cb0";
+  return html`
+    <section
+      class="agent-chat__account-goal"
+      aria-label="账号经营状态"
+      style="margin:0 0 12px 0;border:1px solid var(--border-color,#e0e0e0);border-radius:8px;background:var(--bg-elevated,#fff);padding:12px;display:grid;gap:9px"
+    >
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
+        <div style="display:grid;gap:4px;min-width:0">
+          <div style="font-size:12px;color:var(--text-secondary,#666)">
+            ${mode.accountLabel || "当前账号"} · 经营目标模式
+          </div>
+          <strong style="font-size:14px;color:var(--text-primary,#222)">
+            ${mode.headline || "账号经营状态"}
+          </strong>
+          <div style="font-size:12px;color:var(--text-secondary,#666);line-height:1.5">
+            ${mode.plainSummary ||
+            mode.chatCapabilities?.humanLabel ||
+            "主对话框可以读取账号经营数据并给出下一步建议。"}
+          </div>
+        </div>
+        <span style="font-size:12px;font-weight:700;color:${statusTone};white-space:nowrap">
+          ${mode.status === "completed"
+            ? "已完成"
+            : mode.status === "blocked"
+              ? "有卡点"
+              : "进行中"}
+        </span>
+      </div>
+      ${currentGoal
+        ? html`<div style="font-size:12px;color:var(--text-secondary,#666);line-height:1.5">
+            当前目标：<strong style="color:var(--text-primary,#222)"
+              >${currentGoal.title || "未命名目标"}</strong
+            >
+            ${currentGoal.metric ? ` · 指标：${currentGoal.metric}` : ""}
+            ${currentGoal.target ? ` · 目标：${currentGoal.target}` : ""}
+          </div>`
+        : nothing}
+      ${blocker
+        ? html`<div style="font-size:12px;color:#c53030;line-height:1.5">
+            卡点：${blocker.reason || "当前主流程需要先处理阻塞项。"}
+          </div>`
+        : nothing}
+      ${stageCards.length
+        ? html`<div style="display:flex;gap:6px;flex-wrap:wrap">
+            ${stageCards.map(
+              (stage) => html`<span
+                style="font-size:11px;border:1px solid var(--border-color,#ddd);border-radius:999px;padding:3px 7px;color:var(--text-secondary,#666)"
+                title=${stage.nextAction || ""}
+                >${stage.label || "阶段"}：${stage.statusLabel || "待推进"}</span
+              >`,
+            )}
+          </div>`
+        : nothing}
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button
+          type="button"
+          class="secondary"
+          style="font-size:12px;padding:6px 10px"
+          ?disabled=${!nextTab || !props.onNavigate}
+          @click=${() => {
+            if (nextTab && props.onNavigate) props.onNavigate(nextTab as Tab);
+          }}
+        >
+          ${mode.nextStep?.label || "查看下一步"}
+        </button>
+        <span style="font-size:12px;color:var(--text-secondary,#666)">
+          ${mode.nextStep?.reason || mode.chatCapabilities?.humanLabel || ""}
+        </span>
+      </div>
+    </section>
+  `;
+}
+
 /**
  * Export chat markdown - delegates to shared utility.
  */
@@ -1808,6 +1927,7 @@ export function renderChat(props: ChatProps) {
   return html`
     <section
       class="card chat"
+      data-testid="main-chat"
       @drop=${(e: DragEvent) => handleDrop(e, props)}
       @dragover=${(e: DragEvent) => e.preventDefault()}
     >
@@ -1832,7 +1952,8 @@ export function renderChat(props: ChatProps) {
             </div>
           `
         : nothing}
-      ${renderSearchBar(requestUpdate)} ${renderPinnedSection(props, pinned, requestUpdate)}
+      ${renderAccountGoalModeNotice(props)} ${renderSearchBar(requestUpdate)}
+      ${renderPinnedSection(props, pinned, requestUpdate)}
 
       <div class="chat-workbench">
         <div class="chat-split-container ${sidebarOpen ? "chat-split-container--open" : ""}">
@@ -1896,6 +2017,7 @@ export function renderChat(props: ChatProps) {
         @click=${(event: MouseEvent) => focusComposerFromChrome(event, props.connected)}
       >
         ${renderAicsModeSwitch(props)} ${renderSlashMenu(requestUpdate, props, visibleDraft)}
+        ${props.aicsMode === "developer" ? (props.developerModePanel ?? nothing) : nothing}
         ${renderAttachmentPreview(props)}
         <div class="agent-chat__composer-status-stack">
           ${renderFallbackIndicator(props.fallbackStatus)}

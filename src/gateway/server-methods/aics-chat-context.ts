@@ -40,6 +40,31 @@ export type ChatSendAicsContext =
       workspaceDir?: string;
     };
 
+export type AicsChatAccountDataSummary = {
+  statusLabel?: string;
+  currentGoal?: string;
+  goalSummary?: string[];
+  goalRecommendation?: string;
+  currentBlocker?: string;
+  nextStep?: string;
+  nextTab?: string;
+  stageCards?: Array<{ label: string; statusLabel: string; nextAction: string }>;
+  systemUsageSummary?: string[];
+  cloudMarketplaceSummary?: string[];
+  localOpenClawSummary?: string[];
+  roleUsageSummary?: string[];
+  apiToolSkillSummary?: string[];
+  auditLedgerSummary?: string[];
+  planningSummary?: string[];
+  dispatchSummary?: string[];
+  nextObservationSummary?: string[];
+  blockedSummary?: string[];
+  observationSummary?: string;
+  attributionSummary?: string;
+  executionSummary?: string;
+  evidenceSummary?: string[];
+};
+
 function trimmedStringField(record: Record<string, unknown>, key: string): string | undefined {
   const value = record[key];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -113,6 +138,7 @@ export function buildAicsDeveloperModeModelPrompt(params: {
 export function buildAicsMainWorkflowModelPrompt(params: {
   message: string;
   context: Extract<ChatSendAicsContext, { mode: "user" | "openclaw_main" }>;
+  accountData?: AicsChatAccountDataSummary;
 }): string {
   const stageKey =
     params.context.stage && params.context.stage !== "ready" ? params.context.stage : "idle";
@@ -120,12 +146,12 @@ export function buildAicsMainWorkflowModelPrompt(params: {
   const executionChannel = params.context.executionChannel ?? "local_openclaw";
   const roleHints = [
     params.context.roleListingId
-      ? `- 已选择岗位 listing id: ${params.context.roleListingId}`
+      ? `- 已选择岗位编号（不要向用户复述原始编号）: ${params.context.roleListingId}`
       : undefined,
     params.context.roleTitle ? `- 已选择岗位名称: ${params.context.roleTitle}` : undefined,
     params.context.roleQuery ? `- 岗位匹配提示: ${params.context.roleQuery}` : undefined,
     params.context.workspaceDir
-      ? `- 系统已知 workspace_dir: ${params.context.workspaceDir}`
+      ? `- 系统已知本地工作区路径（不要主动复述完整路径）: ${params.context.workspaceDir}`
       : undefined,
   ].filter(Boolean);
   const channelInstructions =
@@ -138,8 +164,77 @@ export function buildAicsMainWorkflowModelPrompt(params: {
           "执行渠道：公司客户本地 OpenClaw。",
           "主对话不能直接调用岗位执行工具，也不能绕过本地主流程调度岗位。",
           "你只能解释当前业务状态、导航确认点，并通过 `aics.mainFlow.*` 准备观察、归因、目标、规划和调度候选项。",
-          "只有本地主流程已经形成 `TaskPackage` 和 `DispatchToRoleRequest` 后，调度层才允许进入已批准任务运行。",
+          "只有本地主流程已经形成正式派发单和执行队列后，岗位执行页才允许进入已批准任务运行。",
         ];
+  const accountDataLines = params.accountData
+    ? [
+        "",
+        "当前账号真实经营数据摘要（只用于回答用户，不要编造未出现的数据）:",
+        params.accountData.statusLabel ? `- 系统状态：${params.accountData.statusLabel}` : "",
+        params.accountData.currentGoal ? `- 当前经营目标：${params.accountData.currentGoal}` : "",
+        ...(params.accountData.goalSummary?.length
+          ? [`- 目标详情：${params.accountData.goalSummary.join("；")}`]
+          : []),
+        params.accountData.goalRecommendation
+          ? `- 当前最应该推进的目标：${params.accountData.goalRecommendation}`
+          : "",
+        params.accountData.currentBlocker ? `- 当前卡点：${params.accountData.currentBlocker}` : "",
+        params.accountData.nextStep
+          ? `- 建议下一步：${params.accountData.nextStep}${params.accountData.nextTab ? `（去 ${params.accountData.nextTab}）` : ""}`
+          : "",
+        params.accountData.observationSummary
+          ? `- 观察数据：${params.accountData.observationSummary}`
+          : "",
+        params.accountData.attributionSummary
+          ? `- 归因结果：${params.accountData.attributionSummary}`
+          : "",
+        ...(params.accountData.systemUsageSummary?.length
+          ? [`- 系统使用：${params.accountData.systemUsageSummary.join("；")}`]
+          : []),
+        ...(params.accountData.cloudMarketplaceSummary?.length
+          ? [`- 云端商城：${params.accountData.cloudMarketplaceSummary.join("；")}`]
+          : []),
+        ...(params.accountData.localOpenClawSummary?.length
+          ? [`- 本地 OpenClaw：${params.accountData.localOpenClawSummary.join("；")}`]
+          : []),
+        ...(params.accountData.apiToolSkillSummary?.length
+          ? [`- API/模型/工具/Skill：${params.accountData.apiToolSkillSummary.join("；")}`]
+          : []),
+        ...(params.accountData.roleUsageSummary?.length
+          ? [`- 岗位使用：${params.accountData.roleUsageSummary.join("；")}`]
+          : []),
+        ...(params.accountData.planningSummary?.length
+          ? [`- 规划方案：${params.accountData.planningSummary.join("；")}`]
+          : []),
+        ...(params.accountData.dispatchSummary?.length
+          ? [`- 任务调度：${params.accountData.dispatchSummary.join("；")}`]
+          : []),
+        ...(params.accountData.nextObservationSummary?.length
+          ? [`- 下一轮观察：${params.accountData.nextObservationSummary.join("；")}`]
+          : []),
+        ...(params.accountData.auditLedgerSummary?.length
+          ? [`- 审计账本：${params.accountData.auditLedgerSummary.join("；")}`]
+          : []),
+        ...(params.accountData.blockedSummary?.length
+          ? [`- 当前阻塞：${params.accountData.blockedSummary.join("；")}`]
+          : []),
+        params.accountData.executionSummary
+          ? `- 执行结果：${params.accountData.executionSummary}`
+          : "",
+        ...(params.accountData.evidenceSummary?.length
+          ? [`- 证据读回：${params.accountData.evidenceSummary.join("；")}`]
+          : []),
+        ...(params.accountData.stageCards?.length
+          ? [
+              "- 六层进度：" +
+                params.accountData.stageCards
+                  .map((item) => `${item.label}${item.statusLabel ? ` ${item.statusLabel}` : ""}`)
+                  .join(" / "),
+            ]
+          : []),
+        "- 回答边界：可以解释状态、指出卡点、建议去哪个页面确认；不能替用户确认目标、确认规划、派发任务或执行岗位。",
+      ].filter(Boolean)
+    : [];
 
   return [
     "[迭界AI业务对话]",
@@ -148,18 +243,20 @@ export function buildAicsMainWorkflowModelPrompt(params: {
     ...channelInstructions,
     "对用户保持正常业务对话：不要暴露内部状态机、技术对象、分层名称或流程阶段。",
     "需要说明状态时，只用业务语言，例如：目标缺数据、项目待确认、任务等待处理、岗位未授权、交付已完成。",
+    "当用户问“系统哪里有问题”“下一步做什么”“现在能不能用”时，必须优先按四件事回答：当前状态、主要卡点、下一步去哪个页面、做完会得到什么结果；如果账号摘要里没有对应数据，就明确说还缺哪类数据，不要编造。",
     "用户只需要说业务目标和岗位选择；cloudBaseUrl、cloud access token、execution token、entitlement、device、workspace_ref、local_gateway_id、audit upload 和费用归属都由 gateway 内部解析、校验和记录。",
     "不要要求用户粘贴 bearer token、execution token、授权编号、订单编号、结算编号、云端地址或本地 gateway id。",
-    "CompanyGoal 来自观察层、归因层、目标层的共同结果：ObservationPackage 提供事实和证据，AttributionReport 解释差距和原因，两者齐全后才能生成 CompanyGoal candidate，经用户确认后才成为正式 CompanyGoal。不要跳过观察或归因直接创建目标。",
-    "必须按观察、归因、目标、规划、调度、岗位的顺序推进；没有用户确认的 CompanyGoal 不能规划，没有确认后的 PlanningPackage / RolePlanItem 不能调度，没有 TaskPackage / DispatchToRoleRequest 不能执行岗位。",
+    "公司目标来自数据分析、归因分析和用户确认的共同结果：数据分析提供事实和证据，归因分析解释差距和原因，两者齐全后才能生成目标候选，经用户确认后才成为正式公司目标。不要跳过观察或归因直接创建目标。",
+    "必须按观察、归因、目标、规划、调度、岗位的顺序推进；没有用户确认的公司目标不能规划，没有确认后的规划方案和岗位工作块不能调度，没有正式派发单和执行队列不能执行岗位。",
     "当用户讨论“公司管理”“公司管理看板”“目标拆解后的状态”“详情页转化完成程度”时，把它理解为经营拆解状态看板，而不是公司目标总览页。",
-    "公司管理看板只围绕已确认 CompanyGoal 之后的拆解工作展示：工作块/项目主题、承接岗位、岗位任务、完成度、阻塞点、是否可进入调度；不要在这里重复展示公司目标页的总目标摘要，例如“岗位商城授权转化：整体 58%”。",
+    "公司管理看板只围绕已确认公司目标之后的拆解工作展示：工作块/项目主题、承接岗位、岗位任务、完成度、阻塞点、是否可进入调度；不要在这里重复展示公司目标页的总目标摘要，例如“岗位商城授权转化：整体 58%”。",
     "如果用户给出岗位商城运营目标，例如提升首批岗位授权转化与执行成功率，应先把目标拆成岗位供给、详情页转化、执行质量、授权费用、审核治理等工作块，再为每个工作块匹配岗位和任务状态候选。",
     "工作块拆解输出要使用业务语言：工作块名称、目的、进度口径、承接岗位、岗位要做的任务、目标产物、当前状态、阻塞原因、下一步确认点。",
-    "公司管理页可以形成待调度任务候选，但不能直接调用岗位、不能调用 provider、不能生成正式 TaskPackage；用户点击或确认进入调度后，才通过规划/调度层创建 PlanningPackage、RolePlanItem 或 DispatchProposal。",
-    "执行结果只能来自调度层回读的 RoleResult、AuditSummary、费用归属和失败原因；不要伪造执行结果。",
-    "如果没有系统已知 workspace_dir，先请用户选择当前本地工作区，不要自己编造路径。",
+    "公司管理页可以形成待调度任务候选，但不能直接调用岗位、不能调用 provider、不能生成正式派发单；用户点击或确认进入调度后，才通过规划/调度层创建正式规划、岗位工作块或派发预检。",
+    "执行结果只能来自调度层读回的业务结果、审计记录、费用账本和失败原因；不要伪造执行结果，也不要向用户展示内部对象名。",
+    "如果没有系统已知本地工作区路径，先请用户选择当前本地工作区，不要自己编造路径。",
     ...(roleHints.length > 0 ? ["", "系统传入的岗位/工作区上下文:", ...roleHints] : []),
+    ...accountDataLines,
     "",
     "用户消息:",
     params.message,
@@ -169,6 +266,7 @@ export function buildAicsMainWorkflowModelPrompt(params: {
 export function buildAicsModelPrompt(params: {
   message: string;
   context: ChatSendAicsContext;
+  accountData?: AicsChatAccountDataSummary;
 }): string {
   return params.context.mode === "developer"
     ? buildAicsDeveloperModeModelPrompt({
@@ -178,5 +276,6 @@ export function buildAicsModelPrompt(params: {
     : buildAicsMainWorkflowModelPrompt({
         message: params.message,
         context: params.context,
+        accountData: params.accountData,
       });
 }

@@ -192,8 +192,6 @@ export const vi: TranslationMap = {
     verbose: "Chi tiết",
     reasoning: "Suy luận",
     actions: "Hành động",
-    addToWorkboard: "Thêm vào Workboard",
-    openWorkboardCard: "Mở thẻ Workboard",
     noSessions: "Không tìm thấy phiên nào.",
     noSessionsMatchFilters: "Không có phiên nào khớp với bộ lọc của bạn.",
     showAll: "Hiển thị tất cả",

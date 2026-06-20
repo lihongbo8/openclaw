@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import { render } from "lit";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectErrorDetailCodes } from "../../../../packages/gateway-protocol/src/connect-error-details.js";
 import { i18n } from "../../i18n/index.ts";
 import type { AppViewState } from "../app-view-state.ts";
@@ -249,6 +249,26 @@ describe("resolveLoginFailureFeedback", () => {
 describe("renderLoginGate", () => {
   beforeEach(async () => {
     await i18n.setLocale("en");
+  });
+
+  it("wraps credential inputs in a real submit form", async () => {
+    const container = document.createElement("div");
+    const connect = vi.fn();
+    const state = createState({ connect });
+
+    render(renderLoginGate(state), container);
+    await Promise.resolve();
+
+    const form = container.querySelector<HTMLFormElement>("form.login-gate__form");
+    expect(form).toBeInstanceOf(HTMLFormElement);
+    const passwordInputs = Array.from(
+      container.querySelectorAll<HTMLInputElement>('input[type="password"]'),
+    );
+    expect(passwordInputs).toHaveLength(2);
+    expect(passwordInputs.every((input) => input.closest("form") === form)).toBe(true);
+
+    form?.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true }));
+    expect(connect).toHaveBeenCalledTimes(1);
   });
 
   it("renders an accessible structured failure panel with raw error details", async () => {

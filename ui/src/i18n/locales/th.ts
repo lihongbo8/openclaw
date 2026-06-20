@@ -190,8 +190,6 @@ export const th: TranslationMap = {
     verbose: "ละเอียด",
     reasoning: "การให้เหตุผล",
     actions: "การดำเนินการ",
-    addToWorkboard: "เพิ่มไปยัง Workboard",
-    openWorkboardCard: "เปิดการ์ด Workboard",
     noSessions: "ไม่พบเซสชัน",
     noSessionsMatchFilters: "ไม่มีเซสชันที่ตรงกับตัวกรองของคุณ",
     showAll: "แสดงทั้งหมด",

@@ -39,6 +39,7 @@ describe("iconForTab", () => {
       workboard: "folder",
       aics: "brain",
       skills: "zap",
+      reviewCenter: "check",
       apiManagement: "link",
       usage: "barChart",
       sessions: "fileText",
@@ -67,6 +68,7 @@ describe("titleForTab", () => {
       workboard: "Workboard",
       aics: "Role Workbench",
       skills: "Skills",
+      reviewCenter: "tabs.reviewCenter",
       apiManagement: "API Management",
       usage: "Usage Records",
       sessions: "Sessions",
@@ -89,6 +91,7 @@ describe("titleForTab", () => {
       workboard: "任务调度",
       aics: "岗位执行",
       skills: "工具与 Skill",
+      reviewCenter: "审核中心",
       apiManagement: "API 管理",
       usage: "费用与授权",
       sessions: "对话记录",
@@ -101,20 +104,21 @@ describe("titleForTab", () => {
 describe("subtitleForTab", () => {
   it("returns expected subtitles for every tab", () => {
     expect(Object.fromEntries(ALL_TABS.map((tab) => [tab, subtitleForTab(tab)]))).toEqual({
-      chat: "Start work in natural language.",
+      chat: "主对话框作为管理助手：解释状态、准备建议、导航确认点。",
       businessOverview: "发起经营意图，查看主流程状态与经营观察入口。",
-      observation: "subtitles.observation",
-      attribution: "subtitles.attribution",
-      goals: "Annual, quarterly, monthly, and weekly operating goals.",
-      company: "Departments, people operations, and operating accountability.",
-      workboard: "Agent work queue and session handoff.",
-      aics: "Dispatched role tasks, execution state, blockers, and returned artifacts.",
-      skills: "Tool permissions, Skills, API bindings, and cloud capability control.",
-      apiManagement: "API 供给、绑定配置路径、SecretRef 与风险监控。",
-      usage: "Conversation, role task, and cost records.",
-      sessions: "Active sessions and defaults.",
-      dreams: "Memory dreaming, consolidation, and reflection.",
-      config: "Edit openclaw.json.",
+      observation: "只处理观察数据、数据缺口、异常和初步可信度。",
+      attribution: "基于观察包分析完成判断、差距、原因、置信度和影响程度。",
+      goals: "管理公司目标、目标依据、确认材料和治理检查。",
+      company: "把已确认目标拆成规划方案与岗位工作项。",
+      workboard: "任务调度只做预检、能力匹配和派发，不直接执行岗位。",
+      aics: "岗位执行只运行已授权调度任务，并展示执行结果。",
+      skills: "",
+      reviewCenter: "本地上架前审核岗位包、能力绑定、跑通性、合格性和风险。",
+      apiManagement: "多个模型/API Key、供给对象与调用计量。",
+      usage: "查看岗位授权、执行费用和计量摘要。",
+      sessions: "查看对话记录、运行状态和会话级配置。",
+      dreams: "睡眠时进行记忆巩固。",
+      config: "Context Profile、Appearance、Gateway。",
       appearance: "Theme, UI, and setup wizard settings.",
     });
   });
@@ -161,6 +165,7 @@ describe("normalizePath", () => {
 describe("pathForTab", () => {
   it("returns correct path without base", () => {
     expect(pathForTab("aics")).toBe("/aics");
+    expect(pathForTab("reviewCenter")).toBe("/review-center");
     expect(pathForTab("apiManagement")).toBe("/api-management");
     expect(pathForTab("chat")).toBe("/chat");
     expect(pathForTab("businessOverview")).toBe("/business-overview");
@@ -181,6 +186,7 @@ describe("tabFromPath", () => {
     expect(tabFromPath("/company")).toBe("company");
     expect(tabFromPath("/projects")).toBe("projects");
     expect(tabFromPath("/aics")).toBe("aics");
+    expect(tabFromPath("/review-center")).toBe("reviewCenter");
     expect(tabFromPath("/api-management")).toBe("apiManagement");
     expect(tabFromPath("/admin-console")).toBeNull();
     expect(tabFromPath("/marketplace")).toBeNull();
@@ -252,6 +258,7 @@ describe("TAB_GROUPS", () => {
       "workboard",
       "aics",
       "skills",
+      "reviewCenter",
       "apiManagement",
       "usage",
       "sessions",

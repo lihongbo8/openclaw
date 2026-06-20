@@ -192,8 +192,6 @@ export const id: TranslationMap = {
     verbose: "Verbose",
     reasoning: "Penalaran",
     actions: "Tindakan",
-    addToWorkboard: "Tambahkan ke Workboard",
-    openWorkboardCard: "Buka kartu Workboard",
     noSessions: "Tidak ada sesi yang ditemukan.",
     noSessionsMatchFilters: "Tidak ada sesi yang cocok dengan filter Anda.",
     showAll: "Tampilkan semua",

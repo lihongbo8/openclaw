@@ -1450,6 +1450,42 @@ describe("sendChatMessage", () => {
     expect(sendParams.message).toBe("continue");
   });
 
+  it("sends OpenClaw main AICS context so chat can read account operating data", async () => {
+    const request = vi.fn().mockResolvedValue({ runId: "run-aics", status: "started" });
+    const state = createState({
+      aicsConversationMode: "user",
+      aicsConversationStage: "ready",
+      connected: true,
+      client: { request } as unknown as ChatState["client"],
+    });
+
+    await sendChatMessage(state, "我现在系统哪里有问题，下一步做什么？");
+
+    const sendParams = requireRecord(request.mock.calls[0]?.[1]);
+    expect(sendParams.aicsContext).toEqual({
+      mode: "openclaw_main",
+      stage: "ready",
+    });
+  });
+
+  it("keeps developer AICS context separate from the OpenClaw main operating cockpit", async () => {
+    const request = vi.fn().mockResolvedValue({ runId: "run-dev", status: "started" });
+    const state = createState({
+      aicsConversationMode: "developer",
+      aicsConversationStage: "intake",
+      connected: true,
+      client: { request } as unknown as ChatState["client"],
+    });
+
+    await sendChatMessage(state, "我要开发一个商城运营岗位");
+
+    const sendParams = requireRecord(request.mock.calls[0]?.[1]);
+    expect(sendParams.aicsContext).toEqual({
+      mode: "developer",
+      stage: "intake",
+    });
+  });
+
   it("does not reuse another global agent's visible session id for queued sends", async () => {
     const request = vi.fn().mockResolvedValue({ runId: "run-work", status: "started" });
     const state = createState({

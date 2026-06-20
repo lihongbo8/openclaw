@@ -26,15 +26,18 @@ export const BUILD_SESSION_STATES = [
 ] as const;
 
 export type BuildSessionState = (typeof BUILD_SESSION_STATES)[number];
+export const MAX_DEVELOPER_BUILD_SESSIONS = 3;
 
 export type BuildSessionBrief = {
   roleTitle: string;
   roleDescription: string;
+  targetUser?: string;
   targetCategory: string;
   coreResponsibilities: string[];
   taskExamples: string[];
   dailySop: string[];
   weeklySop: string[];
+  monthlySop?: string[];
   requiredCapabilities: string[];
   inputTypes: string[];
   outputTypes: string[];
@@ -60,6 +63,12 @@ export type BuildSessionRecord = {
   /** 修复重试 */
   repairCount: number;
   maxRepairs: number;
+};
+
+export type BuildSessionScopeReduction = {
+  keptCapabilities: string[];
+  disabledCapabilities: string[];
+  reason: string;
 };
 
 function emptySession(sessionId: string, requirements: string): BuildSessionRecord {
@@ -99,6 +108,49 @@ function saveSession(session: BuildSessionRecord): void {
   writeFileSync(resolveSessionPath(session.sessionId), JSON.stringify(session, null, 2), "utf-8");
 }
 
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function listSessionsFromDisk(): BuildSessionRecord[] {
+  const dir = path.join(resolveStateDir(), "build-sessions");
+  if (!existsSync(dir)) return [];
+  try {
+    const fs = require("node:fs");
+    return fs
+      .readdirSync(dir)
+      .filter((f: string) => f.endsWith(".json"))
+      .map((f: string) => {
+        try {
+          return JSON.parse(readFileSync(path.join(dir, f), "utf-8")) as BuildSessionRecord;
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean)
+      .sort((a: BuildSessionRecord, b: BuildSessionRecord) => b.updatedAt - a.updatedAt);
+  } catch {
+    return [];
+  }
+}
+
+function countsTowardDeveloperLimit(session: BuildSessionRecord): boolean {
+  return session.state !== "failed" && session.state !== "cancelled";
+}
+
+export function countDeveloperBuildSessions(): number {
+  return listSessionsFromDisk().filter(countsTowardDeveloperLimit).length;
+}
+
+export function assertDeveloperBuildSessionLimit(): void {
+  const current = countDeveloperBuildSessions();
+  if (current >= MAX_DEVELOPER_BUILD_SESSIONS) {
+    throw new Error(
+      `开发者中心暂定最多开发 ${MAX_DEVELOPER_BUILD_SESSIONS} 个岗位。请先取消或清理已有岗位后再创建新岗位。`,
+    );
+  }
+}
+
 // ======================================================================
 // Public API
 // ======================================================================
@@ -106,6 +158,7 @@ function saveSession(session: BuildSessionRecord): void {
 export const BuildSession = {
   /** 创建新会话 */
   create(requirements: string): BuildSessionRecord {
+    assertDeveloperBuildSessionLimit();
     const session = emptySession(randomUUID(), requirements);
     saveSession(session);
     return session;
@@ -118,25 +171,7 @@ export const BuildSession = {
 
   /** 列出所有会话 */
   listAll(): BuildSessionRecord[] {
-    const dir = path.join(resolveStateDir(), "build-sessions");
-    if (!existsSync(dir)) return [];
-    try {
-      const fs = require("node:fs");
-      return fs
-        .readdirSync(dir)
-        .filter((f: string) => f.endsWith(".json"))
-        .map((f: string) => {
-          try {
-            return JSON.parse(readFileSync(path.join(dir, f), "utf-8")) as BuildSessionRecord;
-          } catch {
-            return null;
-          }
-        })
-        .filter(Boolean)
-        .sort((a: BuildSessionRecord, b: BuildSessionRecord) => b.updatedAt - a.updatedAt);
-    } catch {
-      return [];
-    }
+    return listSessionsFromDisk();
   },
 
   // ---- 状态转换 ----
@@ -152,7 +187,9 @@ export const BuildSession = {
     // 自动匹配品类模板
     const lowerReqs = session.userRequirements.toLowerCase();
     let matched: CategoryTemplate | undefined;
-    if (
+    if (isMarketplaceOpsRequirement(lowerReqs)) {
+      matched = undefined;
+    } else if (
       lowerReqs.includes("美工") ||
       lowerReqs.includes("图片") ||
       lowerReqs.includes("设计") ||
@@ -218,6 +255,44 @@ export const BuildSession = {
     if (note) {
       session.userConfirmations.push(note);
     }
+    saveSession(session);
+    return session;
+  },
+
+  /** confirming → confirming: 关闭缺失能力，继续生成基础版岗位 */
+  reduceScopeToBasicVersion(
+    sessionId: string,
+    reduction: BuildSessionScopeReduction,
+  ): BuildSessionRecord {
+    const session = loadSession(sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    if (session.state !== "confirming") {
+      throw new Error(`Cannot reduce scope from state "${session.state}"`);
+    }
+    if (!session.brief) {
+      throw new Error("Brief is required before reducing scope");
+    }
+    const keptCapabilities = uniqueStrings(reduction.keptCapabilities);
+    const disabledCapabilities = uniqueStrings(reduction.disabledCapabilities);
+    if (keptCapabilities.length === 0) {
+      throw new Error("当前没有可保留的已具备能力，不能生成基础版岗位。");
+    }
+    if (disabledCapabilities.length === 0) {
+      throw new Error("没有需要关闭的缺失能力。");
+    }
+    const disabledMessage = `基础版已关闭暂不可用能力：${disabledCapabilities.join("、")}。`;
+    const reason = reduction.reason.trim() || "缺失能力暂不可用，先生成基础版岗位。";
+    session.brief = {
+      ...session.brief,
+      requiredCapabilities: keptCapabilities,
+      forbiddenActions: uniqueStrings([...session.brief.forbiddenActions, disabledMessage]),
+      qualityStandards: uniqueStrings([
+        ...session.brief.qualityStandards,
+        `基础版范围说明：${reason}`,
+      ]),
+    };
+    session.capabilityReport = resolveCapabilities(keptCapabilities);
+    session.userConfirmations.push(`${disabledMessage} ${reason}`);
     saveSession(session);
     return session;
   },
@@ -316,6 +391,19 @@ export const BuildSession = {
   },
 };
 
+function isMarketplaceOpsRequirement(value: string): boolean {
+  return (
+    (value.includes("商城") && value.includes("运营")) ||
+    value.includes("岗位商城") ||
+    value.includes("授权转化") ||
+    value.includes("执行成功率") ||
+    value.includes("ledger") ||
+    value.includes("audit") ||
+    value.includes("审计") ||
+    value.includes("账本")
+  );
+}
+
 // ======================================================================
 // 岗位包结构生成
 // ======================================================================
@@ -347,6 +435,8 @@ export function generateRolePackageStructure(
       description: brief.roleDescription,
       version: "1.0.0",
       requiredCapabilities: brief.requiredCapabilities,
+      workPatterns: inferWorkPatterns(brief),
+      outputContracts: inferOutputContracts(brief),
       workflows: ["main-workflow.md"],
       skills: template?.skills.map((s) => s.skillId) ?? [],
       knowledgeFiles: ["knowledge.md"],
@@ -382,17 +472,34 @@ export function generateRolePackageStructure(
     ...brief.qualityStandards.map((q) => `- ${q}`),
   ].join("\n");
 
+  // README.md
+  files["README.md"] = [
+    `# ${brief.roleTitle}`,
+    "",
+    brief.roleDescription,
+    "",
+    "## 本地上架检查",
+    "- 岗位包生成完成后进入本地上架检查。",
+    "- 必须通过一键综合检查和人工确认后，由岗位开发者确认生成本地正式岗位商品。",
+  ].join("\n");
+
   // SOP.md
   files["SOP.md"] = [
     "# 标准操作流程",
     "",
     template?.commonSop ?? "",
     "",
+    "## 目标用户",
+    brief.targetUser || "未填写",
+    "",
     "## 每日",
     ...brief.dailySop.map((s) => `- ${s}`),
     "",
     "## 每周",
     ...brief.weeklySop.map((s) => `- ${s}`),
+    "",
+    "## 每月",
+    ...(brief.monthlySop ?? []).map((s) => `- ${s}`),
   ].join("\n");
 
   // skills.md
@@ -437,6 +544,37 @@ export function generateRolePackageStructure(
   return { packageDir, files };
 }
 
+function inferWorkPatterns(brief: BuildSessionBrief): string[] {
+  const text = [
+    brief.roleDescription,
+    ...brief.coreResponsibilities,
+    ...brief.taskExamples,
+    ...brief.outputTypes,
+  ].join(" ");
+  const patterns = new Set<string>();
+  if (/分析|诊断|复盘|报告|总结|数据|指标/u.test(text)) patterns.add("analyze");
+  if (/生成|撰写|创作|设计|图片|文案|详情页|报告/u.test(text)) patterns.add("generate");
+  if (/转换|整理|改写|格式/u.test(text)) patterns.add("transform");
+  if (/发布|上传|创建工单|修改库存|外部系统/u.test(text)) patterns.add("operate");
+  if (patterns.size > 1) patterns.add("composite");
+  if (patterns.size === 0) patterns.add("generate");
+  return [...patterns];
+}
+
+function inferOutputContracts(brief: BuildSessionBrief): string[] {
+  const text = [...brief.outputTypes, brief.roleDescription, ...brief.taskExamples].join(" ");
+  const contracts = new Set<string>();
+  if (/图片|图像|海报|视觉|png|jpg|jpeg|webp/u.test(text)) contracts.add("image");
+  if (/详情页|页面|html|网页|landing/u.test(text)) contracts.add("html");
+  if (/表格|xlsx|csv|数据表/u.test(text)) contracts.add("spreadsheet");
+  if (/json|结构化/u.test(text)) contracts.add("json");
+  if (/发布|上传|工单|外部记录|record/u.test(text)) contracts.add("external_record");
+  if (/打包|zip|压缩包|交付包/u.test(text)) contracts.add("package");
+  if (/报告|文档|复盘|总结|方案|草稿|计划/u.test(text)) contracts.add("document");
+  if (contracts.size === 0) contracts.add("document");
+  return [...contracts];
+}
+
 // ======================================================================
 // 校验
 // ======================================================================
@@ -450,8 +588,14 @@ function validatePackage(pkgDir: string, session: BuildSessionRecord): string[] 
   if (!existsSync(path.join(pkgDir, "listing.md"))) {
     errors.push("缺少 listing.md");
   }
+  if (!existsSync(path.join(pkgDir, "README.md"))) {
+    errors.push("缺少 README.md");
+  }
   if (!existsSync(path.join(pkgDir, "SOP.md"))) {
     errors.push("缺少 SOP.md");
+  }
+  if (!existsSync(path.join(pkgDir, "validation.md"))) {
+    errors.push("缺少 validation.md");
   }
 
   if (session.brief && errors.length === 0) {
@@ -460,6 +604,12 @@ function validatePackage(pkgDir: string, session: BuildSessionRecord): string[] 
       const manifest = JSON.parse(readFileSync(path.join(pkgDir, "manifest.json"), "utf-8"));
       if (!manifest.requiredCapabilities?.length) {
         errors.push("manifest.json 缺少 requiredCapabilities");
+      }
+      if (!manifest.workPatterns?.length) {
+        errors.push("manifest.json 缺少 workPatterns");
+      }
+      if (!manifest.outputContracts?.length) {
+        errors.push("manifest.json 缺少 outputContracts");
       }
       if (!manifest.workflows?.length) {
         errors.push("manifest.json 缺少 workflows");

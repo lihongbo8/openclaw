@@ -61,9 +61,7 @@ export function renderRoleTasksPage(state: AppViewState, _onNavigate: (tab: Tab)
         ? html`
             <div style="text-align:center;padding:40px;color:var(--text-secondary,#666)">
               <p style="font-size:16px;margin-bottom:8px">暂无任务</p>
-              <p style="font-size:13px">
-                先在「任务调度」确认调度并生成 TaskPackage / DispatchToRoleRequest。
-              </p>
+              <p style="font-size:13px">先在「任务调度」确认调度并生成派发单和执行队列。</p>
             </div>
           `
         : html`

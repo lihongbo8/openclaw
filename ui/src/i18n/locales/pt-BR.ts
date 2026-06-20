@@ -192,8 +192,6 @@ export const pt_BR: TranslationMap = {
     verbose: "Detalhado",
     reasoning: "Raciocínio",
     actions: "Ações",
-    addToWorkboard: "Adicionar ao Workboard",
-    openWorkboardCard: "Abrir cartão do Workboard",
     noSessions: "Nenhuma sessão encontrada.",
     noSessionsMatchFilters: "Nenhuma sessão corresponde aos seus filtros.",
     showAll: "Mostrar tudo",

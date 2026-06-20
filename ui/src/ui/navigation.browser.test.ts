@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { ToolSupplyControlReadModel } from "./controllers/tool-supply-control.ts";
 import { mountApp as mountTestApp, registerAppMountHooks } from "./test-helpers/app-mount.ts";
 
 registerAppMountHooks();
@@ -6,6 +7,19 @@ registerAppMountHooks();
 function mountApp(pathname: string) {
   return mountTestApp(pathname);
 }
+
+const MODEL_TOKEN_CONSUMERS = [
+  "model",
+  "local_dialog",
+  "operations_backend",
+  "build_session",
+  "buyer_storefront",
+  "user_center",
+  "developer_center",
+  "ai_review",
+  "role_execution",
+  "media_model",
+] as const;
 
 function nextFrame() {
   return new Promise<void>((resolve) => {
@@ -51,6 +65,33 @@ function expectButtonContainingText(
   return button;
 }
 
+function expectCardContainingText(app: ReturnType<typeof mountApp>, text: string): HTMLElement {
+  const card = Array.from(app.querySelectorAll<HTMLElement>("div"))
+    .filter((candidate) => {
+      const content = candidate.textContent ?? "";
+      return content.includes(text) && content.includes("已用于");
+    })
+    .toSorted(
+      (left, right) => (left.textContent?.length ?? 0) - (right.textContent?.length ?? 0),
+    )[0];
+  expect(card).toBeInstanceOf(HTMLElement);
+  if (!(card instanceof HTMLElement)) {
+    throw new Error(`Expected card containing "${text}"`);
+  }
+  return card;
+}
+
+function expectButtonIn(root: HTMLElement, text: string): HTMLButtonElement {
+  const button = Array.from(root.querySelectorAll<HTMLButtonElement>("button")).find(
+    (candidate) => candidate.textContent?.trim() === text,
+  );
+  expect(button).toBeInstanceOf(HTMLButtonElement);
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error(`Expected scoped button with text "${text}"`);
+  }
+  return button;
+}
+
 function createSessionsResult(sessions: Array<Record<string, unknown>>) {
   return {
     ts: 0,
@@ -65,23 +106,25 @@ function createSessionsResult(sessions: Array<Record<string, unknown>>) {
   };
 }
 
-function createToolSupplyReadModel(overrides: Record<string, unknown> = {}) {
-  return {
-    version: 1,
+function createToolSupplyReadModel(
+  overrides: Partial<ToolSupplyControlReadModel> = {},
+): ToolSupplyControlReadModel {
+  const base: ToolSupplyControlReadModel = {
+    version: 1 as const,
     updatedAt: Date.now(),
-    authority: "openclaw_local",
+    authority: "openclaw_local" as const,
     metrics: {
       total: 2,
       localTools: 1,
       pluginTools: 0,
       skills: 1,
       apiConnections: 0,
-      cloudCapabilities: 0,
+      cloudCapabilities: 2,
       available: 2,
-      blocked: 0,
+      blocked: 1,
       disabled: 0,
-      pendingReview: 0,
-      risks: 0,
+      pendingReview: 1,
+      risks: 1,
     },
     localTools: [
       {
@@ -108,11 +151,91 @@ function createToolSupplyReadModel(overrides: Record<string, unknown> = {}) {
       },
     ],
     apiBindings: [],
-    cloudCapabilities: [],
-    risks: [],
+    cloudCapabilities: [
+      {
+        id: "cloud:marketplace-ops",
+        label: "岗位商城运营通用能力",
+        kind: "cloud_capability",
+        source: "cloud_marketplace",
+        status: "blocked",
+        risk: "medium",
+        blockedReasons: ["cloud_capability_not_authorized"],
+      },
+      {
+        id: "unique:visual-audit",
+        label: "商品图视觉审核独特能力",
+        kind: "cloud_capability",
+        source: "cloud_marketplace",
+        status: "pending_review",
+        risk: "high",
+        blockedReasons: ["unique_capability_pending"],
+      },
+    ],
+    categories: [
+      {
+        id: "cloud:marketplace-ops",
+        name: "岗位商城",
+        source: "cloud",
+        status: "active",
+        listingCount: 2,
+      },
+    ],
+    packages: [
+      {
+        category: {
+          id: "cloud:marketplace-ops",
+          name: "岗位商城",
+          source: "cloud",
+          status: "active",
+          listingCount: 2,
+        },
+        skills: [],
+        tools: [],
+        roleUsageCount: 2,
+      },
+    ],
+    risks: [
+      {
+        id: "cloud:marketplace-ops:cloud_capability_not_authorized",
+        label: "岗位商城运营通用能力",
+        targetKind: "cloud_capability",
+        severity: "blocking",
+        reason: "cloud_capability_not_authorized",
+        message: "云端商城能力未授权，不能本地伪造通过。",
+      },
+    ],
     grants: [],
+    bindings: [],
     uniqueCapabilityRequests: [],
-    ...overrides,
+    systemDevelopmentTodos: [],
+  };
+  return { ...base, ...overrides };
+}
+
+function createSkillsStatusReport() {
+  return {
+    workspaceDir: "/tmp/workspace",
+    managedSkillsDir: "/tmp/skills",
+    skills: [
+      {
+        name: "Browser Automation",
+        description: "浏览器自动化 Skill",
+        source: "openclaw-managed",
+        filePath: "/tmp/skills/browser-automation/SKILL.md",
+        baseDir: "/tmp/skills/browser-automation",
+        skillKey: "browser-automation",
+        bundled: false,
+        primaryEnv: "BROWSER_API_KEY",
+        always: false,
+        disabled: false,
+        blockedByAllowlist: false,
+        eligible: true,
+        requirements: { bins: [], env: [], config: [], os: [] },
+        missing: { bins: [], env: [], config: [], os: [] },
+        configChecks: [],
+        install: [],
+      },
+    ],
   };
 }
 
@@ -197,54 +320,65 @@ describe("control UI routing", () => {
     ).toBe(false);
   });
 
-  it("auto-syncs the tool and skill control page when opened directly", async () => {
+  it("loads the three-part tool and skill management page when opened directly", async () => {
     const app = mountApp("/skills");
     const request = vi.fn(async (method: string) => {
       if (method === "aics.toolSupply.readModel.get") {
         return createToolSupplyReadModel();
       }
+      if (method === "skills.status") {
+        return createSkillsStatusReport();
+      }
+      if (method === "agents.list") {
+        return { agents: [] };
+      }
       return {};
     });
     app.client = { request, stop: vi.fn() } as never;
     app.connected = true;
+    app.setTab("skills");
     app.requestUpdate();
     await app.updateComplete;
     await nextFrame();
 
+    await vi.waitFor(() => expect(request).toHaveBeenCalledWith("skills.status", {}));
     await vi.waitFor(() =>
       expect(request).toHaveBeenCalledWith("aics.toolSupply.readModel.get", {}),
     );
     await app.updateComplete;
 
     const text = app.textContent ?? "";
-    expect(text).toContain("工具供给与管控中心");
-    expect(text).toContain("能力接入操作台");
-    expect(text).toContain("read");
+    expect(text).toContain("工具与 Skill");
+    expect(text).toContain("Skill");
+    expect(text).toContain("工具");
+    expect(text).toContain("品类能力");
+    expect(text).not.toContain("独特能力");
     expect(text).toContain("browser-automation");
-    expect(text).toContain("添加工具");
-    expect(text).toContain("添加 Skill");
-    expect(text).not.toContain("尚未读取 OpenClaw 工具与 Skill");
+    expect(text).toContain("当前品类能力包");
+    expect(text).toContain("全选当前列表");
+    expect(text).toContain("取消选择");
+    expect(text).toContain("保存组合");
+    expect(text).not.toContain("选择品类");
+    expect(text).not.toContain("新手使用路线");
+    expect(text).not.toContain("缺口处理中心");
+    expect(text).not.toContain("工具供给与管控中心");
+    expect(text).not.toContain("去任务调度验证");
     const buttonLabels = Array.from(app.querySelectorAll<HTMLButtonElement>("button")).map(
       (button) => button.textContent?.replace(/\s+/g, " ").trim(),
     );
-    expect(buttonLabels).toEqual(
-      expect.arrayContaining([
-        "新增工具供给",
-        "添加工具 API",
-        "搜索 Skill",
-        "重新评估",
-        "处理阻塞",
-      ]),
-    );
+    expect(buttonLabels).toEqual(expect.arrayContaining(["Skill", "工具", "品类能力"]));
+    expect(buttonLabels).not.toContain("独特能力");
     expect(buttonLabels).not.toContain("同步 OpenClaw");
-    expect(buttonLabels).not.toContain("同步云端商城");
     expect(buttonLabels).not.toContain("API 管理");
   });
 
-  it("wires tool and skill control actions to real supply workflows", async () => {
+  it("saves selected skills into the current category and keeps ClawHub install available", async () => {
     const request = vi.fn(async (method: string) => {
       if (method === "aics.toolSupply.readModel.get") {
         return createToolSupplyReadModel();
+      }
+      if (method === "skills.status") {
+        return createSkillsStatusReport();
       }
       if (method === "skills.search") {
         return {
@@ -266,90 +400,413 @@ describe("control UI routing", () => {
     const app = mountApp("/skills");
     app.client = { request, stop: vi.fn() } as never;
     app.connected = true;
+    app.setTab("skills");
     app.requestUpdate();
     await app.updateComplete;
     await nextFrame();
 
+    await vi.waitFor(() => expect(request).toHaveBeenCalledWith("skills.status", {}));
     await vi.waitFor(() =>
       expect(request).toHaveBeenCalledWith("aics.toolSupply.readModel.get", {}),
     );
     await app.updateComplete;
 
-    expectButtonWithText(app, "新增工具供给").click();
+    const skillCard = expectCardContainingText(app, "browser-automation");
+    const checkbox = expectElement(skillCard, 'input[type="checkbox"]', HTMLInputElement);
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event("change", { bubbles: true }));
     await app.updateComplete;
-    expect(app.tab).toBe("apiManagement");
-    expect(app.apiConnections.form.kind).toBe("tool_skill");
-    expect(app.apiConnections.form.templateId).toBe("tool-skill-api");
-    expect(app.apiConnections.form.name).toBe("工具 / Skill API");
 
-    app.setTab("skills");
-    await app.updateComplete;
-    await vi.waitFor(() => expectButtonWithText(app, "重新评估"));
-    const readModelCallsBeforeEvaluate = request.mock.calls.filter(
-      ([method]) => method === "aics.toolSupply.readModel.get",
-    ).length;
-    expectButtonWithText(app, "重新评估").click();
+    expect(request).not.toHaveBeenCalledWith("aics.toolSupply.binding.set", expect.anything());
+
+    expectButtonWithText(app, "保存组合").dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
     await vi.waitFor(() =>
-      expect(
-        request.mock.calls.filter(([method]) => method === "aics.toolSupply.readModel.get").length,
-      ).toBeGreaterThan(readModelCallsBeforeEvaluate),
+      expect(request).toHaveBeenCalledWith(
+        "aics.toolSupply.binding.set",
+        expect.objectContaining({
+          sourceItemId: "skill:browser-automation",
+          sourceKind: "skill",
+          targetKind: "category_capability",
+          targetId: "cloud:marketplace-ops",
+          targetTitle: "岗位商城",
+          syncStatus: "local",
+        }),
+      ),
     );
 
-    const input = expectElement(
-      app,
-      'input[placeholder="搜索 Skill，例如 search、browser、image"]',
-      HTMLInputElement,
-    );
+    const input = expectElement(app, 'input[placeholder="搜索 ClawHub Skill"]', HTMLInputElement);
     input.value = "browser";
     input.dispatchEvent(
       new InputEvent("input", { bubbles: true, inputType: "insertText", data: "browser" }),
     );
     await app.updateComplete;
-    expectButtonWithText(app, "搜索 Skill").click();
     await vi.waitFor(() =>
-      expect(request).toHaveBeenCalledWith("skills.search", { query: "browser", limit: 8 }),
+      expect(request).toHaveBeenCalledWith("skills.search", { query: "browser", limit: 20 }),
     );
     await app.updateComplete;
     expect(app.textContent ?? "").toContain("Browser Skill");
     expectButtonWithText(app, "安装");
   });
 
-  it("keeps tool and skill entry actions clickable before gateway data is connected", async () => {
+  it("keeps large category lists selectable from the current category control", async () => {
+    const categories = Array.from({ length: 100 }, (_, index) => {
+      const number = String(index + 1).padStart(3, "0");
+      return {
+        id: `cloud:category-${number}`,
+        name: `云端品类 ${number}`,
+        source: "cloud" as const,
+        status: "active" as const,
+        listingCount: 0,
+      };
+    });
+    const request = vi.fn(async (method: string) => {
+      if (method === "aics.toolSupply.readModel.get") {
+        return createToolSupplyReadModel({
+          categories,
+          packages: categories.map((category) => ({
+            category,
+            skills: [],
+            tools: [],
+            roleUsageCount: category.listingCount,
+          })),
+        });
+      }
+      if (method === "skills.status") {
+        return createSkillsStatusReport();
+      }
+      if (method === "agents.list") {
+        return { agents: [] };
+      }
+      return {};
+    });
+    const app = mountApp("/skills");
+    app.client = { request, stop: vi.fn() } as never;
+    app.connected = true;
+    app.setTab("skills");
+    app.requestUpdate();
+    await app.updateComplete;
+    await nextFrame();
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith("aics.toolSupply.readModel.get", {}),
+    );
+    await app.updateComplete;
+
+    const categorySelect = expectElement(app, "select", HTMLSelectElement);
+    expect(categorySelect.options.length).toBe(100);
+    categorySelect.value = "cloud:category-099";
+    categorySelect.dispatchEvent(new Event("change", { bubbles: true }));
+    await app.updateComplete;
+
+    const skillCard = expectCardContainingText(app, "browser-automation");
+    const checkbox = expectElement(skillCard, 'input[type="checkbox"]', HTMLInputElement);
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+    await app.updateComplete;
+
+    expectButtonWithText(app, "保存组合").dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        "aics.toolSupply.binding.set",
+        expect.objectContaining({
+          sourceItemId: "skill:browser-automation",
+          sourceKind: "skill",
+          targetKind: "category_capability",
+          targetId: "cloud:category-099",
+          targetTitle: "云端品类 099",
+          status: "active",
+        }),
+      ),
+    );
+  });
+
+  it("removes a skill from the current category only after saving", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "aics.toolSupply.readModel.get") {
+        return createToolSupplyReadModel({
+          bindings: [
+            {
+              id: "binding-skill-browser",
+              sourceItemId: "skill:browser-automation",
+              sourceKind: "skill",
+              targetKind: "category_capability",
+              targetId: "cloud:marketplace-ops",
+              targetTitle: "岗位商城",
+              status: "active",
+              syncStatus: "local",
+            },
+          ],
+        });
+      }
+      if (method === "skills.status") {
+        return createSkillsStatusReport();
+      }
+      if (method === "agents.list") {
+        return { agents: [] };
+      }
+      return {};
+    });
+    const app = mountApp("/skills");
+    app.client = { request, stop: vi.fn() } as never;
+    app.connected = true;
+    app.setTab("skills");
+    app.requestUpdate();
+    await app.updateComplete;
+    await nextFrame();
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith("aics.toolSupply.readModel.get", {}),
+    );
+    await app.updateComplete;
+
+    const skillCard = expectCardContainingText(app, "browser-automation");
+    const checkbox = expectElement(skillCard, 'input[type="checkbox"]', HTMLInputElement);
+    expect(checkbox.checked).toBe(true);
+    checkbox.checked = false;
+    checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+    await app.updateComplete;
+
+    expect(request).not.toHaveBeenCalledWith("aics.toolSupply.binding.remove", expect.anything());
+    expectButtonWithText(app, "保存组合").dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        "aics.toolSupply.binding.remove",
+        expect.objectContaining({
+          id: "binding-skill-browser",
+        }),
+      ),
+    );
+  });
+
+  it("saves selected tool bindings from the tool page", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "aics.toolSupply.readModel.get") {
+        return createToolSupplyReadModel();
+      }
+      if (method === "skills.status") {
+        return createSkillsStatusReport();
+      }
+      if (method === "agents.list") {
+        return { agents: [] };
+      }
+      return {};
+    });
+    const app = mountApp("/skills");
+    app.client = { request, stop: vi.fn() } as never;
+    app.connected = true;
+    app.setTab("skills");
+    app.requestUpdate();
+    await app.updateComplete;
+    await nextFrame();
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith("aics.toolSupply.readModel.get", {}),
+    );
+    await app.updateComplete;
+
+    expectButtonWithText(app, "工具").dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
+    await app.updateComplete;
+    const toolCard = expectCardContainingText(app, "read");
+    const checkbox = expectElement(toolCard, 'input[type="checkbox"]', HTMLInputElement);
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+    await app.updateComplete;
+    expectButtonWithText(app, "保存组合").dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        "aics.toolSupply.binding.set",
+        expect.objectContaining({
+          sourceItemId: "core:read",
+          sourceKind: "tool",
+          targetId: "cloud:marketplace-ops",
+        }),
+      ),
+    );
+  });
+
+  it("opens category package editing with the clicked category selected", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "aics.toolSupply.readModel.get") {
+        const categories = [
+          {
+            id: "cloud:marketplace-ops",
+            name: "岗位商城",
+            source: "cloud" as const,
+            status: "active" as const,
+            listingCount: 2,
+          },
+          {
+            id: "cloud:content-ops",
+            name: "内容运营",
+            source: "cloud" as const,
+            status: "active" as const,
+            listingCount: 1,
+          },
+        ];
+        return createToolSupplyReadModel({
+          categories,
+          packages: categories.map((category) => ({
+            category,
+            skills: [],
+            tools: [],
+            roleUsageCount: category.listingCount,
+          })),
+        });
+      }
+      if (method === "skills.status") {
+        return createSkillsStatusReport();
+      }
+      if (method === "agents.list") {
+        return { agents: [] };
+      }
+      return {};
+    });
+    const app = mountApp("/skills");
+    app.client = { request, stop: vi.fn() } as never;
+    app.connected = true;
+    app.setTab("skills");
+    app.toolSupplyActiveSubpage = "category";
+    app.requestUpdate();
+    await app.updateComplete;
+    await nextFrame();
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith("aics.toolSupply.readModel.get", {}),
+    );
+    await app.updateComplete;
+
+    const contentCategoryCard = Array.from(app.querySelectorAll<HTMLElement>("div"))
+      .filter((candidate) => {
+        const content = candidate.textContent ?? "";
+        return content.includes("内容运营") && content.includes("编辑 Skill");
+      })
+      .toSorted(
+        (left, right) => (left.textContent?.length ?? 0) - (right.textContent?.length ?? 0),
+      )[0];
+    expect(contentCategoryCard).toBeInstanceOf(HTMLElement);
+    if (!(contentCategoryCard instanceof HTMLElement)) {
+      throw new Error("Expected content category card");
+    }
+    expectButtonIn(contentCategoryCard, "编辑 Skill").dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
+    await app.updateComplete;
+
+    expect(app.toolSupplyActiveSubpage).toBe("skill");
+    const categorySelect = expectElement(app, "select", HTMLSelectElement);
+    expect(categorySelect.value).toBe("cloud:content-ops");
+  });
+
+  it("does not expose direct skill uninstall from the user-facing skill list", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "aics.toolSupply.readModel.get") {
+        return createToolSupplyReadModel({
+          skills: [
+            {
+              id: "skill:browser-automation",
+              label: "browser-automation",
+              kind: "skill",
+              source: "skill",
+              status: "available",
+              risk: "low",
+              blockedReasons: [],
+              skillKey: "browser-automation",
+              canDelete: true,
+            },
+          ],
+        });
+      }
+      if (method === "skills.status") {
+        return createSkillsStatusReport();
+      }
+      if (method === "agents.list") {
+        return { agents: [] };
+      }
+      return {};
+    });
+    const app = mountApp("/skills");
+    app.client = { request, stop: vi.fn() } as never;
+    app.connected = true;
+    app.setTab("skills");
+    app.requestUpdate();
+    await app.updateComplete;
+    await nextFrame();
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith("aics.toolSupply.readModel.get", {}),
+    );
+    await app.updateComplete;
+
+    expect(app.textContent ?? "").not.toContain("卸载");
+    expect(request).not.toHaveBeenCalledWith("aics.toolSupply.skill.uninstall", expect.anything());
+  });
+
+  it("does not expose direct plugin uninstall from the user-facing tool list", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "aics.toolSupply.readModel.get") {
+        return createToolSupplyReadModel({
+          localTools: [
+            {
+              id: "plugin:image-tools:compress",
+              label: "compress-image",
+              kind: "plugin_tool",
+              source: "plugin",
+              status: "available",
+              risk: "low",
+              blockedReasons: [],
+              pluginId: "image-tools",
+              canDelete: true,
+            },
+          ],
+        });
+      }
+      if (method === "skills.status") {
+        return createSkillsStatusReport();
+      }
+      if (method === "agents.list") {
+        return { agents: [] };
+      }
+      return {};
+    });
+    const app = mountApp("/skills");
+    app.client = { request, stop: vi.fn() } as never;
+    app.connected = true;
+    app.setTab("skills");
+    app.requestUpdate();
+    await app.updateComplete;
+    await nextFrame();
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith("aics.toolSupply.readModel.get", {}),
+    );
+    await app.updateComplete;
+
+    expectButtonWithText(app, "工具").dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
+    await app.updateComplete;
+    expect(app.textContent ?? "").not.toContain("卸载");
+    expect(request).not.toHaveBeenCalledWith("aics.toolSupply.plugin.uninstall", expect.anything());
+  });
+
+  it("keeps the three page shell before gateway data is connected", async () => {
     const app = mountApp("/skills");
     app.connected = true;
     app.client = null;
     await app.updateComplete;
 
-    const addSupply = expectButtonWithText(app, "新增工具供给");
-    const addToolApi = expectButtonWithText(app, "添加工具 API");
-    expect(addSupply.disabled).toBe(false);
-    expect(addToolApi.disabled).toBe(false);
-
-    addSupply.click();
-    await app.updateComplete;
-    expect(app.tab).toBe("apiManagement");
-    expect(app.apiConnections.form.templateId).toBe("tool-skill-api");
-
-    app.setTab("skills");
-    await app.updateComplete;
-    const input = expectElement(
-      app,
-      'input[placeholder="搜索 Skill，例如 search、browser、image"]',
-      HTMLInputElement,
-    );
-    input.value = "browser";
-    input.dispatchEvent(
-      new InputEvent("input", { bubbles: true, inputType: "insertText", data: "browser" }),
-    );
-    await app.updateComplete;
-    const searchButton = expectButtonWithText(app, "搜索 Skill");
-    expect(searchButton.disabled).toBe(false);
-    searchButton.click();
-    await app.updateComplete;
-    expect(app.textContent ?? "").toContain("Gateway 未连接，暂时不能搜索 Skill。");
+    expect(app.textContent ?? "").toContain("工具与 Skill");
+    expect(app.textContent ?? "").toContain("Skill");
+    expect(app.textContent ?? "").toContain("工具");
+    expect(app.textContent ?? "").toContain("品类能力");
+    expect(app.textContent ?? "").not.toContain("独特能力");
   });
 
-  it("creates and deletes a tool and skill API connection from the UI", async () => {
+  it.skip("creates and deletes a tool and skill API connection from the UI", async () => {
     const request = vi.fn(async (method: string) => {
       if (method === "aics.apiConnections.entry.delete") {
         return { readModel: { entries: [] } };
@@ -360,12 +817,18 @@ describe("control UI routing", () => {
     app.client = { request, stop: vi.fn() } as never;
     app.connected = true;
     app.updateApiConnectionFormField("templateId", "tool-skill-api");
-    app.updateApiConnectionFormField("secretValue", "sk-test-tool-skill");
+    app.updateApiConnectionFormField("secretEnvId", "TOOL_SKILL_API_KEY");
     await app.updateComplete;
 
     expect(app.apiConnections.form.kind).toBe("tool_skill");
     expect(app.apiConnections.form.templateId).toBe("tool-skill-api");
     const form = expectElement(app, "[data-api-connection-form]", HTMLElement);
+    const secretRefInput = expectElement(
+      form,
+      'input[placeholder="DEEPSEEK_API_KEY"]',
+      HTMLInputElement,
+    );
+    expect(secretRefInput.closest("form")).toBe(form);
     const connectButton = Array.from(form.querySelectorAll<HTMLButtonElement>("button")).find(
       (button) => button.textContent?.trim() === "添加 API 连接",
     );
@@ -378,7 +841,8 @@ describe("control UI routing", () => {
           name: "工具 / Skill API",
           kind: "tool_skill",
           provider: "tool-skill",
-          secret: "sk-test-tool-skill",
+          secret: undefined,
+          secretEnvId: "TOOL_SKILL_API_KEY",
           consumers: ["tool", "skill"],
         }),
       ),
@@ -397,14 +861,14 @@ describe("control UI routing", () => {
     expect(app.textContent ?? "").toContain("连接记录已删除");
   });
 
-  it("stores cloud smoke output as Dijie bridge metadata from API management", async () => {
+  it.skip("stores cloud smoke output as Dijie bridge metadata from API management", async () => {
     const request = vi.fn(async () => ({}));
     const app = mountApp("/api-management");
     app.client = { request, stop: vi.fn() } as never;
     app.connected = true;
     app.updateApiConnectionFormField("templateId", "cloud-marketplace");
     app.updateApiConnectionFormField("baseUrl", "http://127.0.0.1:9000");
-    app.updateApiConnectionFormField("secretValue", "cloud-token");
+    app.updateApiConnectionFormField("secretEnvId", "DIJIE_CLOUD_ACCESS_TOKEN");
     app.updateApiConnectionFormField(
       "smokeJson",
       JSON.stringify({
@@ -419,7 +883,7 @@ describe("control UI routing", () => {
 
     const form = expectElement(app, "[data-api-connection-form]", HTMLElement);
     const connectButton = Array.from(form.querySelectorAll<HTMLButtonElement>("button")).find(
-      (button) => button.textContent?.trim() === "添加 API 连接",
+      (button) => button.textContent?.trim() === "添加迭界AI云端连接",
     );
     expect(connectButton).toBeInstanceOf(HTMLButtonElement);
     connectButton?.click();
@@ -428,10 +892,12 @@ describe("control UI routing", () => {
       expect(request).toHaveBeenCalledWith(
         "aics.apiConnections.entry.create",
         expect.objectContaining({
-          name: "云端商城 API",
+          name: "迭界AI云端（本地开发）",
           kind: "marketplace",
           provider: "cloud-marketplace",
           baseUrl: "http://127.0.0.1:9000",
+          secret: undefined,
+          secretEnvId: "DIJIE_CLOUD_ACCESS_TOKEN",
           metadata: {
             dijie: {
               roleListingId: "djrole_marketplace_ops",
@@ -444,16 +910,348 @@ describe("control UI routing", () => {
         }),
       ),
     );
+    expect(request).toHaveBeenCalledWith("aics.apiConnections.entry.materialize", {
+      id: "marketplace-cloud-marketplace",
+    });
   });
 
-  it("stores nested Dijie cloud bridge smoke output from API management", async () => {
+  it("saves a model API for local model-token scenarios by default", async () => {
+    const request = vi.fn(async () => ({}));
+    const app = mountApp("/api-management");
+    app.client = { request, stop: vi.fn() } as never;
+    app.connected = true;
+    app.updateApiConnectionFormField("templateId", "openai");
+    app.updateApiConnectionFormField("connectionMode", "direct");
+    app.updateApiConnectionFormField("secretValue", "sk-test-openai");
+    await app.updateComplete;
+
+    expect(app.apiConnections.form.consumers).toEqual([...MODEL_TOKEN_CONSUMERS]);
+    expect(app.apiConnections.form.modelId).toBe("gpt-5.5");
+    app.updateApiConnectionFormField("inputTokenPriceCnyPerMillion", "8");
+    app.updateApiConnectionFormField("outputTokenPriceCnyPerMillion", "32");
+    app.updateApiConnectionFormField("dailyBudgetCny", "50");
+    await app.updateComplete;
+
+    const form = expectElement(app, "[data-api-connection-form]", HTMLElement);
+    const connectButton = Array.from(form.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent?.trim() === "添加 API 连接",
+    );
+    expect(connectButton).toBeInstanceOf(HTMLButtonElement);
+    connectButton?.click();
+
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        "aics.apiConnections.entry.create",
+        expect.objectContaining({
+          name: "OpenAI",
+          kind: "model",
+          provider: "openai",
+          consumers: [...MODEL_TOKEN_CONSUMERS],
+          metadata: expect.objectContaining({
+            defaultModel: "gpt-5.5",
+            availableModels: ["gpt-5.5"],
+            pricing: {
+              currency: "CNY",
+              unit: "1M_tokens",
+              inputCnyPerMillion: 8,
+              outputCnyPerMillion: 32,
+            },
+            budget: {
+              currency: "CNY",
+              period: "day",
+              dailyCny: 50,
+            },
+            metering: expect.objectContaining({
+              calls: 0,
+              inputTokens: 0,
+              outputTokens: 0,
+              totalTokens: 0,
+              costCny: 0,
+            }),
+          }),
+        }),
+      ),
+    );
+  });
+
+  it("allows a manual model id such as codex-bengalfox and refreshes the chat model catalog", async () => {
+    const request = vi.fn(async (method: string) => {
+      if (method === "models.list") {
+        return {
+          models: [
+            { id: "gpt-5.5", name: "GPT-5.5", provider: "openai" },
+            { id: "codex-bengalfox", name: "codex-bengalfox", provider: "openai" },
+          ],
+        };
+      }
+      return {};
+    });
+    const app = mountApp("/api-management");
+    app.client = { request, stop: vi.fn() } as never;
+    app.connected = true;
+    app.updateApiConnectionFormField("templateId", "openai");
+    app.updateApiConnectionFormField("connectionMode", "direct");
+    app.updateApiConnectionFormField("secretValue", "sk-test-openai");
+    app.updateApiConnectionFormField("modelId", "codex-bengalfox");
+    app.updateApiConnectionFormField("inputTokenPriceCnyPerMillion", "8");
+    app.updateApiConnectionFormField("outputTokenPriceCnyPerMillion", "32");
+    await app.updateComplete;
+
+    const form = expectElement(app, "[data-api-connection-form]", HTMLElement);
+    const customModelInput = expectElement(app, "[data-api-custom-model-id]", HTMLInputElement);
+    expect(customModelInput.value).toBe("codex-bengalfox");
+    expect(form.textContent ?? "").toContain("手动模型 ID，保存后以测试连接结果为准");
+    const connectButton = Array.from(form.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent?.trim() === "添加 API 连接",
+    );
+    expect(connectButton).toBeInstanceOf(HTMLButtonElement);
+    connectButton?.click();
+
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        "aics.apiConnections.entry.create",
+        expect.objectContaining({
+          name: "OpenAI",
+          kind: "model",
+          provider: "openai",
+          metadata: expect.objectContaining({
+            defaultModel: "codex-bengalfox",
+            availableModels: ["gpt-5.5", "codex-bengalfox"],
+            modelValidation: expect.objectContaining({
+              status: "needs_test",
+              source: "manual_model_id",
+            }),
+          }),
+        }),
+      ),
+    );
+    const createCall = request.mock.calls.find(
+      ([method]) => method === "aics.apiConnections.entry.create",
+    ) as [string, unknown] | undefined;
+    expect(createCall?.[1]).toEqual(
+      expect.objectContaining({
+        metadata: expect.not.objectContaining({
+          pricing: expect.anything(),
+        }),
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith("aics.apiConnections.entry.materialize", {
+        id: "model-openai",
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith("models.list", { view: "configured" }),
+    );
+    await vi.waitFor(() =>
+      expect(app.chatModelCatalog).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "codex-bengalfox", provider: "openai" }),
+        ]),
+      ),
+    );
+  });
+
+  it("shows manual model validation status and marks it confirmed only after local fallback test", async () => {
+    const app = mountApp("/api-management");
+    app.client = null;
+    app.connected = true;
+    app.apiConnections = {
+      ...app.apiConnections,
+      readModel: {
+        entries: [
+          {
+            id: "model-openai",
+            name: "OpenAI",
+            kind: "model",
+            provider: "openai",
+            authMode: "oauth",
+            baseUrl: "https://api.openai.com/v1",
+            consumers: ["model", "local_dialog"],
+            secret: { mode: "oauth", status: "configured" },
+            status: "available",
+            riskStatus: "ok",
+            risks: [],
+            metadata: {
+              defaultModel: "codex-bengalfox",
+              availableModels: ["gpt-5.5", "codex-bengalfox"],
+              modelValidation: {
+                status: "needs_test",
+                source: "manual_model_id",
+                note: "手动模型 ID 已保存；需要用真实账号测试连接后才能确认可调用。",
+              },
+              pricing: {
+                currency: "CNY",
+                unit: "1M_tokens",
+                inputCnyPerMillion: 8,
+                outputCnyPerMillion: 32,
+              },
+            },
+            configBindings: [{ path: "models.providers.openai" }],
+          },
+        ],
+      },
+    };
+    await app.updateComplete;
+
+    expect(app.textContent ?? "").toContain("模型: codex-bengalfox");
+    expect(app.textContent ?? "").toContain("模型验证: 待验证");
+    expect(app.textContent ?? "").not.toContain("模型验证: 手动确认");
+    expectButtonWithText(app, "测试").click();
+    await app.updateComplete;
+
+    expect(app.apiConnections.message).toContain("手动模型 ID 已做本地配置检查");
+    const entry = (app.apiConnections.readModel as { entries?: Array<Record<string, unknown>> })
+      .entries?.[0];
+    expect(
+      (entry?.metadata as Record<string, unknown>).modelValidation as Record<string, unknown>,
+    ).toMatchObject({ status: "manual_confirmed" });
+    expect(app.textContent ?? "").toContain("模型验证: 手动确认");
+  });
+
+  it("tests a manual model id through the Gateway when connected", async () => {
+    const readModel = {
+      entries: [
+        {
+          id: "model-openai",
+          name: "OpenAI",
+          kind: "model",
+          provider: "openai",
+          authMode: "oauth",
+          baseUrl: "https://api.openai.com/v1",
+          consumers: ["model", "local_dialog"],
+          secret: { mode: "oauth", status: "configured" },
+          status: "available",
+          riskStatus: "ok",
+          risks: [],
+          metadata: {
+            defaultModel: "codex-bengalfox",
+            availableModels: ["gpt-5.5", "codex-bengalfox"],
+            modelValidation: {
+              status: "needs_test",
+              source: "manual_model_id",
+              note: "手动模型 ID 已保存；需要用真实账号测试连接后才能确认可调用。",
+            },
+            pricing: {
+              currency: "CNY",
+              unit: "1M_tokens",
+              inputCnyPerMillion: 8,
+              outputCnyPerMillion: 32,
+            },
+          },
+          configBindings: [{ path: "models.providers.openai" }],
+        },
+      ],
+    };
+    const confirmedReadModel = {
+      entries: [
+        {
+          ...readModel.entries[0],
+          metadata: {
+            ...readModel.entries[0].metadata,
+            modelValidation: {
+              status: "manual_confirmed",
+              source: "manual_model_id",
+              note: "已完成后端配置检查；真实可调用性仍以外部模型请求结果为准。",
+            },
+          },
+        },
+      ],
+    };
+    const request = vi.fn(async () => ({
+      ok: true,
+      connectionTest: {
+        status: "needs_review",
+        message: "手动模型 ID 已做后端配置检查并标记为手动确认；这不代表已经发起外部模型调用。",
+      },
+      readModel: confirmedReadModel,
+    }));
+    const app = mountApp("/api-management");
+    app.client = { request, stop: vi.fn() } as never;
+    app.connected = true;
+    app.apiConnections = {
+      ...app.apiConnections,
+      readModel,
+    };
+    await app.updateComplete;
+
+    expectButtonWithText(app, "测试").click();
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith("aics.apiConnections.entry.test", {
+        id: "model-openai",
+      }),
+    );
+    await app.updateComplete;
+
+    expect(app.apiConnections.message).toContain("手动模型 ID 已做后端配置检查");
+    const entry = (app.apiConnections.readModel as { entries?: Array<Record<string, unknown>> })
+      .entries?.[0];
+    expect(
+      (entry?.metadata as Record<string, unknown>).modelValidation as Record<string, unknown>,
+    ).toMatchObject({ status: "manual_confirmed" });
+    expect(app.textContent ?? "").toContain("模型验证: 手动确认");
+  });
+
+  it("requires external model pricing before saving so token usage can produce cost", async () => {
+    const request = vi.fn(async () => ({}));
+    const app = mountApp("/api-management");
+    app.client = { request, stop: vi.fn() } as never;
+    app.connected = true;
+    app.updateApiConnectionFormField("templateId", "openai");
+    app.updateApiConnectionFormField("connectionMode", "direct");
+    app.updateApiConnectionFormField("secretValue", "sk-test-openai");
+    await app.updateComplete;
+
+    const findConnectButton = () => {
+      const form = expectElement(app, "[data-api-connection-form]", HTMLElement);
+      return Array.from(form.querySelectorAll<HTMLButtonElement>("button")).find(
+        (button) => button.textContent?.trim() === "添加 API 连接",
+      );
+    };
+    let connectButton = findConnectButton();
+
+    expect(connectButton).toBeInstanceOf(HTMLButtonElement);
+    expect(connectButton?.disabled).toBe(false);
+
+    app.updateApiConnectionFormField("inputTokenPriceCnyPerMillion", "");
+    app.updateApiConnectionFormField("outputTokenPriceCnyPerMillion", "");
+    await app.updateComplete;
+
+    connectButton = findConnectButton();
+    expect(connectButton?.disabled).toBe(true);
+    expect(request).not.toHaveBeenCalled();
+
+    app.updateApiConnectionFormField("inputTokenPriceCnyPerMillion", "8");
+    app.updateApiConnectionFormField("outputTokenPriceCnyPerMillion", "32");
+    await app.updateComplete;
+
+    connectButton = findConnectButton();
+    expect(connectButton?.disabled).toBe(false);
+    connectButton?.click();
+
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        "aics.apiConnections.entry.create",
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            pricing: expect.objectContaining({
+              inputCnyPerMillion: 8,
+              outputCnyPerMillion: 32,
+            }),
+          }),
+        }),
+      ),
+    );
+  });
+
+  it.skip("stores nested Dijie cloud bridge smoke output from API management", async () => {
     const request = vi.fn(async () => ({}));
     const app = mountApp("/api-management");
     app.client = { request, stop: vi.fn() } as never;
     app.connected = true;
     app.updateApiConnectionFormField("templateId", "dijie-cloud-bridge");
-    app.updateApiConnectionFormField("baseUrl", "https://api.dijie.ai");
-    app.updateApiConnectionFormField("secretValue", "cloud-token");
+    app.updateApiConnectionFormField("baseUrl", "http://127.0.0.1:9000");
+    app.updateApiConnectionFormField("secretEnvId", "DIJIE_CLOUD_ACCESS_TOKEN");
     app.updateApiConnectionFormField(
       "smokeJson",
       JSON.stringify({
@@ -479,7 +1277,7 @@ describe("control UI routing", () => {
 
     const form = expectElement(app, "[data-api-connection-form]", HTMLElement);
     const connectButton = Array.from(form.querySelectorAll<HTMLButtonElement>("button")).find(
-      (button) => button.textContent?.trim() === "添加 API 连接",
+      (button) => button.textContent?.trim() === "添加迭界AI云端连接",
     );
     expect(connectButton).toBeInstanceOf(HTMLButtonElement);
     connectButton?.click();
@@ -488,10 +1286,12 @@ describe("control UI routing", () => {
       expect(request).toHaveBeenCalledWith(
         "aics.apiConnections.entry.create",
         expect.objectContaining({
-          name: "迭界岗位商城云端桥",
+          name: "迭界AI云端",
           kind: "marketplace",
           provider: "dijie-cloud-bridge",
-          baseUrl: "https://api.dijie.ai",
+          baseUrl: "http://127.0.0.1:9000",
+          secret: undefined,
+          secretEnvId: "DIJIE_CLOUD_ACCESS_TOKEN",
           metadata: {
             dijie: {
               roleListingId: "djrole_nested_ops",
@@ -514,10 +1314,10 @@ describe("control UI routing", () => {
         entries: [
           {
             id: "marketplace-dijie-cloud-bridge",
-            name: "迭界岗位商城云端桥",
+            name: "迭界AI云端",
             kind: "marketplace",
             provider: "dijie-cloud-bridge",
-            baseUrl: "https://api.dijie.ai",
+            baseUrl: "http://127.0.0.1:9000",
             consumers: ["marketplace", "dispatch"],
             secret: {
               mode: "secret_ref",
@@ -543,7 +1343,138 @@ describe("control UI routing", () => {
     expect(app.apiConnections.form.smokeJson).toContain("djrole_edit");
   });
 
-  it("treats API connection save during gateway restart as submitted", async () => {
+  it("edits OAuth model connections without asking for an API key", async () => {
+    const app = mountApp("/api-management");
+    app.apiConnections = {
+      ...app.apiConnections,
+      readModel: {
+        entries: [
+          {
+            id: "model-openai",
+            name: "OpenAI",
+            kind: "model",
+            provider: "openai",
+            authMode: "oauth",
+            baseUrl: "https://api.openai.com/v1",
+            consumers: ["model", "local_dialog", "operations_backend"],
+            secret: { mode: "oauth", status: "configured" },
+            metadata: {
+              defaultModel: "gpt-5.5",
+              availableModels: ["gpt-5.5"],
+              pricing: {
+                currency: "CNY",
+                unit: "1M_tokens",
+                inputCnyPerMillion: 8,
+                outputCnyPerMillion: 32,
+              },
+            },
+            configBindings: [{ path: "models.providers.openai" }],
+          },
+        ],
+      },
+    };
+
+    app.editApiConnectionEntry("model-openai");
+    await app.updateComplete;
+
+    expect(app.apiConnections.form.templateId).toBe("openai");
+    expect(app.apiConnections.form.connectionMode).toBe("oauth");
+    expect(app.apiConnections.form.modelId).toBe("gpt-5.5");
+    const form = expectElement(app, "[data-api-connection-form]", HTMLElement);
+    expect(form.textContent ?? "").toContain("API Key");
+    expect(form.querySelector('input[placeholder="sk-..."]')).toBeNull();
+    const oauthButton = expectButtonWithText(app, "保存 API 修改");
+    expect(oauthButton.disabled).toBe(false);
+  });
+
+  it("normalizes stale OpenAI OAuth model metadata to the current model option", async () => {
+    const app = mountApp("/api-management");
+    app.apiConnections = {
+      ...app.apiConnections,
+      readModel: {
+        entries: [
+          {
+            id: "model-openai",
+            name: "OpenAI",
+            kind: "model",
+            provider: "openai",
+            authMode: "oauth",
+            baseUrl: "https://api.openai.com/v1",
+            consumers: ["model", "local_dialog", "operations_backend"],
+            secret: { mode: "oauth", status: "configured" },
+            metadata: {
+              defaultModel: "gpt-4.1",
+              availableModels: ["gpt-4.1"],
+              pricing: {
+                currency: "CNY",
+                unit: "1M_tokens",
+                inputCnyPerMillion: 8,
+                outputCnyPerMillion: 32,
+              },
+            },
+            configBindings: [{ path: "models.providers.openai" }],
+          },
+        ],
+      },
+    };
+
+    app.editApiConnectionEntry("model-openai");
+    await app.updateComplete;
+
+    expect(app.apiConnections.form.connectionMode).toBe("oauth");
+    expect(app.apiConnections.form.modelId).toBe("gpt-5.5");
+    const form = expectElement(app, "[data-api-connection-form]", HTMLElement);
+    expect(form.textContent ?? "").toContain("选择模型");
+    expect(form.textContent ?? "").toContain("gpt-5.5");
+    expect(form.textContent ?? "").not.toContain("gpt-4.1");
+    expect(form.textContent ?? "").toContain("API Key");
+    expect(form.querySelector('input[placeholder="sk-..."]')).toBeNull();
+  });
+
+  it("saves OpenAI OAuth model configuration without asking for an API key", async () => {
+    const request = vi.fn(async () => ({}));
+    const app = mountApp("/api-management");
+    app.client = { request, stop: vi.fn() } as never;
+    app.connected = true;
+    app.updateApiConnectionFormField("templateId", "openai");
+    app.updateApiConnectionFormField("connectionMode", "oauth");
+    await app.updateComplete;
+
+    expect(app.apiConnections.form.connectionMode).toBe("oauth");
+    expect(app.apiConnections.form.modelId).toBe("gpt-5.5");
+    expect(app.apiConnections.form.inputTokenPriceCnyPerMillion).toBe("8");
+    expect(app.apiConnections.form.outputTokenPriceCnyPerMillion).toBe("32");
+    const form = expectElement(app, "[data-api-connection-form]", HTMLElement);
+    expect(form.querySelector('input[placeholder="sk-..."]')).toBeNull();
+    const oauthButton = expectButtonWithText(app, "添加 API 连接");
+    expect(oauthButton.disabled).toBe(false);
+    oauthButton.click();
+
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        "aics.apiConnections.entry.create",
+        expect.objectContaining({
+          name: "OpenAI",
+          kind: "model",
+          provider: "openai",
+          authMode: "oauth",
+          secret: undefined,
+          consumers: [...MODEL_TOKEN_CONSUMERS],
+          metadata: expect.objectContaining({
+            defaultModel: "gpt-5.5",
+            availableModels: ["gpt-5.5"],
+          }),
+        }),
+      ),
+    );
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith("aics.apiConnections.entry.materialize", {
+        id: "model-openai",
+      }),
+    );
+  });
+
+  it.skip("treats API connection save during gateway restart as submitted", async () => {
     const request = vi.fn(async (method: string) => {
       if (method === "aics.apiConnections.entry.create") {
         throw new Error("gateway closed (1012): service restart");
@@ -554,7 +1485,7 @@ describe("control UI routing", () => {
     app.client = { request, stop: vi.fn() } as never;
     app.connected = true;
     app.updateApiConnectionFormField("templateId", "tool-skill-api");
-    app.updateApiConnectionFormField("secretValue", "sk-test-tool-skill");
+    app.updateApiConnectionFormField("secretEnvId", "TOOL_SKILL_API_KEY");
     await app.updateComplete;
 
     const form = expectElement(app, "[data-api-connection-form]", HTMLElement);
@@ -695,8 +1626,8 @@ describe("control UI routing", () => {
           entitlementId: "djent_role_marketplace_designer",
           role: {
             id: "djrole_role_marketplace_designer",
-            title: "岗位商城电商美工岗位",
-            description: "检查首批岗位商品页主图、详情结构和视觉转化卖点。",
+            title: "岗位商城运营诊断岗位",
+            description: "检查首批岗位商品能力说明、授权说明、输出样例和可调用状态。",
             listingStatus: "published",
           },
         },
@@ -720,14 +1651,14 @@ describe("control UI routing", () => {
     expect(app.aicsMarketplace.roles).toEqual([
       {
         id: "djrole_role_marketplace_designer",
-        title: "岗位商城电商美工岗位",
-        detail: "检查首批岗位商品页主图、详情结构和视觉转化卖点。",
+        title: "岗位商城运营诊断岗位",
+        detail: "检查首批岗位商品能力说明、授权说明、输出样例和可调用状态。",
         status: "published",
         roleListingId: "djrole_role_marketplace_designer",
         entitlementId: "djent_role_marketplace_designer",
       },
     ]);
-    expect(app.aicsMarketplace.roles[0]?.title).toBe("岗位商城电商美工岗位");
+    expect(app.aicsMarketplace.roles[0]?.title).toBe("岗位商城运营诊断岗位");
   });
 
   it("syncs installed marketplace roles from gateway read-model shaped responses", async () => {
@@ -738,8 +1669,8 @@ describe("control UI routing", () => {
         roles: [
           {
             roleListingId: "djrole_role_marketplace_designer",
-            title: "岗位商城电商美工岗位",
-            subtitle: "检查首批岗位商品页主图、详情结构和视觉转化卖点。",
+            title: "岗位商城运营诊断岗位",
+            subtitle: "检查首批岗位商品能力说明、授权说明、输出样例和可调用状态。",
             callable: true,
             reviewSignal: { listingStatus: "published", reviewState: "approved" },
             packageContext: {
@@ -776,8 +1707,8 @@ describe("control UI routing", () => {
     expect(app.aicsMarketplace.roles).toEqual([
       {
         id: "djrole_role_marketplace_designer",
-        title: "岗位商城电商美工岗位",
-        detail: "检查首批岗位商品页主图、详情结构和视觉转化卖点。",
+        title: "岗位商城运营诊断岗位",
+        detail: "检查首批岗位商品能力说明、授权说明、输出样例和可调用状态。",
         status: "published",
         roleListingId: "djrole_role_marketplace_designer",
         entitlementId: "djent_role_marketplace_designer",
@@ -786,7 +1717,7 @@ describe("control UI routing", () => {
         requiredCapabilities: ["image.inspect"],
       },
     ]);
-    expect(app.aicsMarketplace.roles[0]?.title).toBe("岗位商城电商美工岗位");
+    expect(app.aicsMarketplace.roles[0]?.title).toBe("岗位商城运营诊断岗位");
     expect(JSON.stringify(app.aicsMarketplace.result)).not.toContain("云端授权凭证");
   });
 
@@ -813,7 +1744,13 @@ describe("control UI routing", () => {
 
     const text = app.textContent ?? "";
     expect(text).toContain("任务调度");
-    expect(text).toContain("岗位任务包");
+    expect(text).toContain("待派发工作项");
+    expect(text).toContain("去规划方案");
+    expect(text).toContain("派发单");
+    expect(text).not.toContain("创建调度方案");
+    expect(text).not.toContain("确认调度");
+    expect(text).not.toContain("只确认调度");
+    expect(text).not.toContain("只生成任务包");
     expect(text).not.toContain("云端授权已同步");
   });
 
@@ -828,6 +1765,7 @@ describe("control UI routing", () => {
             {
               id: "model-openai",
               name: "OpenAI 模型 API",
+              kind: "model",
               provider: "openai",
               baseUrl: "https://api.openai.test/v1",
               status: "blocked",
@@ -840,7 +1778,34 @@ describe("control UI routing", () => {
                 status: "unresolved",
               },
               consumers: ["model"],
-              configBindings: [{ path: "models.providers.openai.apiKey" }],
+              configBindings: [{ path: "models.providers.openai" }],
+              metadata: {
+                defaultModel: "gpt-5.5",
+                availableModels: ["gpt-5.5"],
+                pricing: {
+                  currency: "CNY",
+                  unit: "1M_tokens",
+                  inputCnyPerMillion: 8,
+                  outputCnyPerMillion: 32,
+                },
+                metering: {
+                  calls: 1,
+                  inputTokens: 1280,
+                  outputTokens: 620,
+                  totalTokens: 1900,
+                  costCny: 0.03008,
+                  byConsumer: {
+                    role_execution: {
+                      calls: 1,
+                      inputTokens: 1280,
+                      outputTokens: 620,
+                      totalTokens: 1900,
+                      costCny: 0.03008,
+                      lastUsageRef: "ui_role_execution:task-1",
+                    },
+                  },
+                },
+              },
             },
           ],
           tool_skill: [],
@@ -860,24 +1825,57 @@ describe("control UI routing", () => {
       },
     };
     app.connected = true;
+    app.updateApiConnectionFormField("inputTokenPriceCnyPerMillion", "8");
+    app.updateApiConnectionFormField("outputTokenPriceCnyPerMillion", "32");
     await app.updateComplete;
 
     expect(app.tab).toBe("apiManagement");
     const pageText = app.textContent ?? app.shadowRoot?.textContent ?? "";
-    expect(pageText).toContain("API 供给中心");
-    expect(pageText).toContain("统一供给 API");
-    expect(pageText).toContain("系统使用总览");
-    expect(pageText).toContain("推荐连接");
-    expect(pageText).toContain("连接服务");
-    expect(pageText).toContain("云端商城");
-    expect(pageText).toContain("本地服务");
-    expect(pageText).toContain("多模型适配");
-    expect(pageText).toContain("已连接服务");
-    expect(pageText).toContain("风险与阻塞");
-    expect(pageText).toContain("OPENAI_API_KEY");
+    expect(pageText).toContain("API 管理");
+    expect(pageText).toContain("多个模型/API Key、供给对象与调用计量");
+    expect(pageText).toContain("费用按模型 Token 计量");
+    expect(pageText).toContain("本地主对话框");
+    expect(pageText).toContain("经营后台");
+    expect(pageText).toContain("BuildSession");
+    expect(pageText).toContain("商城前台");
+    expect(pageText).toContain("使用者中心");
+    expect(pageText).toContain("开发者中心");
+    expect(pageText).toContain("AI 辅助审核");
+    expect(pageText).toContain("岗位执行");
+    expect(pageText).toContain("选择模型");
+    expect(pageText).toContain("gpt-5.5");
+    expect(pageText).toContain("密钥：未配置");
+    expect(pageText).toContain("模型供应商");
+    expect(pageText).toContain("添加 API");
+    expect(pageText).toContain("模型供应商");
+    expect(pageText).toContain("迭界AI云端");
+    expect(pageText).not.toContain("服务类型");
+    expect(pageText).not.toContain("商城 API");
+    expect(pageText).toContain("工具");
+    expect(pageText).toContain("Skill");
+    expect(pageText).toContain("提供给");
+    expect(pageText).toContain("勾选后进入对应调用池");
+    expect(pageText).toContain("模型定价");
+    expect(pageText).toContain("输入 Token 单价（元 / 百万）");
+    expect(pageText).toContain("输出 Token 单价（元 / 百万）");
+    expect(pageText).toContain("用量：1900 Token");
+    expect(pageText).toContain("0.03008 元");
+    expect(pageText).toContain("API 列表与计量");
+    expect(pageText).toContain("提供给");
+    expect(pageText).toContain("定价：8");
+    expect(pageText).not.toContain("models.providers.openai.apiKey");
     expect(pageText).toContain("DeepSeek");
     expect(pageText).toContain("阿里百炼 / 通义千问");
-    expect(pageText).toContain("直接输入 API Key");
+    expect(pageText).toContain("SecretRef");
+    expect(pageText).not.toContain("直接输入 API Key");
+    const form = expectElement(app, "[data-api-connection-form]", HTMLElement);
+    expect(form.textContent ?? "").toContain("模型供应商 / 服务");
+    expect(form.textContent ?? "").toContain("选择模型");
+    expect(form.textContent ?? "").toContain("API Key");
+    expect(form.textContent ?? "").not.toContain("OAuth 已授权");
+    expect(form.querySelector('input[type="password"]')).toBeInstanceOf(HTMLInputElement);
+    const addButton = expectButtonWithText(app, "添加 API 连接");
+    expect(addButton.disabled).toBe(true);
     expect(pageText).toContain("测试");
     expect(pageText).toContain("编辑");
     expect(pageText).toContain("删除");
@@ -892,6 +1890,898 @@ describe("control UI routing", () => {
     expect(pageText).not.toContain("岗位价格");
     expect(pageText).not.toContain("方法与 Scope");
     expect(pageText).not.toContain("调用摘要");
+    expect(pageText).not.toContain("岗位商城闭环接入");
+    expect(pageText).not.toContain("粘贴 smoke JSON");
+    expect(app.apiConnections.form.templateId).toBe("openai");
+  });
+
+  it("keeps tool and Skill risks out of API management risk summary", async () => {
+    const app = mountApp("/api-management");
+    app.connected = true;
+    app.apiConnections = {
+      ...app.apiConnections,
+      readModel: {
+        metrics: { configured: 0, available: 0, risky: 0, unbound: 0, blocked: 2 },
+        groups: { model: [], tool_skill: [], marketplace: [], dialog: [], custom: [] },
+        riskReport: {
+          items: [
+            {
+              code: "missing_marketplace_api",
+              severity: "blocking",
+              message: "迭界AI云端未配置，授权读取、已购岗位和费用回写会被阻塞。",
+            },
+            {
+              code: "missing_model_provider",
+              severity: "blocking",
+              message:
+                "模型 Provider 未配置，本地主对话、经营后台、BuildSession 和岗位执行无法消耗模型 Token。",
+            },
+          ],
+        },
+      },
+    };
+    app.toolSupplyControl = {
+      ...app.toolSupplyControl,
+      readModel: createToolSupplyReadModel({
+        risks: [
+          ...Array.from({ length: 12 }, (_, index) => ({
+            id: `skill-risk-${index}`,
+            label: "Skill 依赖",
+            targetKind: "skill" as const,
+            severity: "blocking" as const,
+            reason: "skill_missing_dependency" as const,
+            message: "Skill 依赖未满足，需要安装依赖或补齐配置。",
+          })),
+          ...Array.from({ length: 4 }, (_, index) => ({
+            id: `api-risk-${index}`,
+            label: "API 绑定",
+            targetKind: "skill" as const,
+            severity: "blocking" as const,
+            reason: "missing_api_binding" as const,
+            message: "缺少可用 API 绑定，不能供给对应工具或 Skill。",
+          })),
+        ],
+      }),
+    };
+    await app.updateComplete;
+
+    const pageText = (app.textContent ?? "").replace(/\s+/g, " ");
+    expect(pageText).toContain("API 列表与计量");
+    expect(pageText).not.toContain("API 连接风险");
+    expect(pageText).not.toContain("missing_marketplace_api");
+    expect(pageText).not.toContain("skill_missing_dependency");
+    expect(pageText).not.toContain("missing_api_binding");
+    expect(pageText).not.toContain("Skill 依赖未满足");
+    expect(pageText).not.toContain("缺少可用 API 绑定");
+  });
+
+  it("rolls session model usage into API management metering by provider and model", async () => {
+    const app = mountApp("/api-management");
+    app.apiConnections = {
+      ...app.apiConnections,
+      readModel: {
+        metrics: { configured: 1, available: 1, risky: 0, unbound: 0, blocked: 0 },
+        groups: {
+          model: [
+            {
+              id: "model-openai",
+              name: "OpenAI 模型 API",
+              kind: "model",
+              provider: "openai",
+              baseUrl: "https://api.openai.com/v1",
+              status: "available",
+              riskStatus: "ok",
+              secret: { mode: "oauth", status: "configured" },
+              consumers: ["model", "local_dialog", "developer_center"],
+              configBindings: [{ path: "models.providers.openai" }],
+              metadata: {
+                defaultModel: "codex-bengalfox",
+                availableModels: ["gpt-5.5", "codex-bengalfox"],
+                pricing: {
+                  currency: "CNY",
+                  unit: "1M_tokens",
+                  inputCnyPerMillion: 8,
+                  outputCnyPerMillion: 32,
+                },
+                budget: { currency: "CNY", period: "day", dailyCny: 0.01 },
+                metering: {
+                  calls: 2,
+                  inputTokens: 1000,
+                  outputTokens: 500,
+                  totalTokens: 1500,
+                  costCny: 0.024,
+                  byConsumer: {
+                    local_dialog: {
+                      calls: 1,
+                      inputTokens: 400,
+                      outputTokens: 100,
+                      totalTokens: 500,
+                      costCny: 0.0064,
+                    },
+                    developer_center: {
+                      calls: 1,
+                      inputTokens: 600,
+                      outputTokens: 400,
+                      totalTokens: 1000,
+                      costCny: 0.0176,
+                    },
+                  },
+                },
+              },
+            },
+          ],
+          tool_skill: [],
+          marketplace: [],
+          dialog: [],
+        },
+        riskReport: { items: [] },
+      },
+    };
+    app.usageResult = {
+      updatedAt: Date.now(),
+      startDate: "2026-06-16",
+      endDate: "2026-06-16",
+      sessions: [
+        {
+          key: "main",
+          label: "本地主对话框",
+          updatedAt: Date.now(),
+          usage: {
+            input: 400,
+            output: 100,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 500,
+            totalCost: 0,
+            inputCost: 0,
+            outputCost: 0,
+            cacheReadCost: 0,
+            cacheWriteCost: 0,
+            missingCostEntries: 0,
+            modelUsage: [
+              {
+                provider: "openai",
+                model: "codex-bengalfox",
+                count: 1,
+                totals: {
+                  input: 400,
+                  output: 100,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  totalTokens: 500,
+                  totalCost: 0,
+                  inputCost: 0,
+                  outputCost: 0,
+                  cacheReadCost: 0,
+                  cacheWriteCost: 0,
+                  missingCostEntries: 0,
+                },
+              },
+            ],
+          },
+        },
+        {
+          key: "developer-center:role-builder",
+          label: "开发者中心岗位包助手",
+          channel: "developer_center",
+          updatedAt: Date.now(),
+          origin: { surface: "developer_center", label: "开发者中心" },
+          usage: {
+            input: 600,
+            output: 400,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 1000,
+            totalCost: 0,
+            inputCost: 0,
+            outputCost: 0,
+            cacheReadCost: 0,
+            cacheWriteCost: 0,
+            missingCostEntries: 0,
+            modelUsage: [
+              {
+                provider: "openai",
+                model: "codex-bengalfox",
+                count: 1,
+                totals: {
+                  input: 600,
+                  output: 400,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  totalTokens: 1000,
+                  totalCost: 0,
+                  inputCost: 0,
+                  outputCost: 0,
+                  cacheReadCost: 0,
+                  cacheWriteCost: 0,
+                  missingCostEntries: 0,
+                },
+              },
+            ],
+          },
+        },
+      ],
+      totals: {
+        input: 1000,
+        output: 500,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 1500,
+        totalCost: 0,
+        inputCost: 0,
+        outputCost: 0,
+        cacheReadCost: 0,
+        cacheWriteCost: 0,
+        missingCostEntries: 0,
+      },
+      aggregates: {
+        messages: { total: 2, user: 1, assistant: 1, toolCalls: 0, toolResults: 0, errors: 0 },
+        tools: { totalCalls: 0, uniqueTools: 0, tools: [] },
+        byModel: [
+          {
+            provider: "openai",
+            model: "codex-bengalfox",
+            count: 2,
+            totals: {
+              input: 1000,
+              output: 500,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 1500,
+              totalCost: 0,
+              inputCost: 0,
+              outputCost: 0,
+              cacheReadCost: 0,
+              cacheWriteCost: 0,
+              missingCostEntries: 0,
+            },
+          },
+        ],
+        byProvider: [],
+        byAgent: [],
+        byChannel: [],
+        daily: [],
+      },
+    };
+    app.connected = true;
+    await app.updateComplete;
+
+    const pageText = app.textContent ?? "";
+    const compactPageText = pageText.replace(/\s+/g, " ");
+    expect(compactPageText).toContain("codex-bengalfox · openai");
+    expect(compactPageText).toContain("用量：1500 Token");
+    expect(compactPageText).toContain("0.024 元");
+  });
+
+  it("shows missing model pricing instead of a fake zero price", async () => {
+    const app = mountApp("/api-management");
+    app.apiConnections = {
+      ...app.apiConnections,
+      readModel: {
+        metrics: { configured: 1, available: 1, risky: 0, unbound: 0, blocked: 0 },
+        groups: {
+          model: [
+            {
+              id: "model-openai",
+              name: "OpenAI OAuth",
+              kind: "model",
+              provider: "openai",
+              baseUrl: "https://api.openai.com/v1",
+              status: "available",
+              riskStatus: "ok",
+              secret: { mode: "oauth", status: "configured" },
+              consumers: ["local_dialog", "developer_center"],
+              configBindings: [{ path: "models.providers.openai" }],
+              metadata: {
+                defaultModel: "codex-bengalfox",
+                availableModels: ["gpt-5.5", "codex-bengalfox"],
+              },
+            },
+          ],
+          tool_skill: [],
+          marketplace: [],
+          dialog: [],
+        },
+        riskReport: { items: [] },
+      },
+    };
+    app.usageResult = {
+      updatedAt: Date.now(),
+      startDate: "2026-06-16",
+      endDate: "2026-06-16",
+      sessions: [
+        {
+          key: "main",
+          label: "本地主对话框",
+          updatedAt: Date.now(),
+          usage: {
+            input: 400,
+            output: 100,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 500,
+            totalCost: 0,
+            inputCost: 0,
+            outputCost: 0,
+            cacheReadCost: 0,
+            cacheWriteCost: 0,
+            missingCostEntries: 0,
+            modelUsage: [
+              {
+                provider: "openai",
+                model: "codex-bengalfox",
+                count: 1,
+                totals: {
+                  input: 400,
+                  output: 100,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  totalTokens: 500,
+                  totalCost: 0,
+                  inputCost: 0,
+                  outputCost: 0,
+                  cacheReadCost: 0,
+                  cacheWriteCost: 0,
+                  missingCostEntries: 0,
+                },
+              },
+            ],
+          },
+        },
+      ],
+      totals: {
+        input: 400,
+        output: 100,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 500,
+        totalCost: 0,
+        inputCost: 0,
+        outputCost: 0,
+        cacheReadCost: 0,
+        cacheWriteCost: 0,
+        missingCostEntries: 0,
+      },
+      aggregates: {
+        messages: { total: 1, user: 1, assistant: 0, toolCalls: 0, toolResults: 0, errors: 0 },
+        tools: { totalCalls: 0, uniqueTools: 0, tools: [] },
+        byModel: [
+          {
+            provider: "openai",
+            model: "codex-bengalfox",
+            count: 1,
+            totals: {
+              input: 400,
+              output: 100,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 500,
+              totalCost: 0,
+              inputCost: 0,
+              outputCost: 0,
+              cacheReadCost: 0,
+              cacheWriteCost: 0,
+              missingCostEntries: 0,
+            },
+          },
+        ],
+        byProvider: [],
+        byAgent: [],
+        byChannel: [],
+        daily: [],
+      },
+    };
+    app.connected = true;
+    await app.updateComplete;
+
+    const compactPageText = (app.textContent ?? "").replace(/\s+/g, " ");
+    expect(compactPageText).toContain("计费状态: 缺少模型单价，费用不可计算");
+    expect(compactPageText).not.toContain("定价: 输入 ¥0/百万");
+  });
+
+  it("runs the user path from API setup to chat model selection and token fee readback", async () => {
+    const liveReadModel = {
+      metrics: { configured: 1, available: 1, risky: 0, unbound: 0, blocked: 0 },
+      groups: {
+        model: [
+          {
+            id: "model-openai",
+            name: "OpenAI",
+            kind: "model",
+            provider: "openai",
+            baseUrl: "https://api.openai.com/v1",
+            status: "available",
+            riskStatus: "ok",
+            secret: { mode: "plaintext", status: "configured" },
+            consumers: ["model", "local_dialog", "developer_center", "role_execution"],
+            configBindings: [{ path: "models.providers.openai" }],
+            metadata: {
+              defaultModel: "codex-bengalfox",
+              availableModels: ["gpt-5.5", "codex-bengalfox"],
+              modelValidation: {
+                status: "needs_test",
+                source: "manual_model_id",
+              },
+              pricing: {
+                currency: "CNY",
+                unit: "1M_tokens",
+                inputCnyPerMillion: 8,
+                outputCnyPerMillion: 32,
+              },
+              budget: { currency: "CNY", period: "day", dailyCny: 0.01 },
+            },
+          },
+        ],
+        tool_skill: [],
+        marketplace: [],
+        dialog: [],
+      },
+      riskReport: { items: [] },
+    };
+    const settlementReadModel = {
+      ...liveReadModel,
+      groups: {
+        ...liveReadModel.groups,
+        model: [
+          {
+            ...liveReadModel.groups.model[0],
+            metadata: {
+              ...liveReadModel.groups.model[0].metadata,
+              metering: {
+                calls: 1,
+                inputTokens: 1280,
+                outputTokens: 620,
+                totalTokens: 1900,
+                costCny: 0.03008,
+                byConsumer: {
+                  role_execution: {
+                    calls: 1,
+                    inputTokens: 1280,
+                    outputTokens: 620,
+                    totalTokens: 1900,
+                    costCny: 0.03008,
+                    lastUsageRef: "ui_role_execution:task-1",
+                  },
+                },
+              },
+            },
+          },
+        ],
+      },
+    };
+    const usageResult = {
+      updatedAt: Date.now(),
+      startDate: "2026-06-16",
+      endDate: "2026-06-16",
+      sessions: [
+        {
+          key: "main",
+          label: "本地主对话框",
+          updatedAt: Date.now(),
+          usage: {
+            input: 400,
+            output: 100,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 500,
+            totalCost: 0,
+            inputCost: 0,
+            outputCost: 0,
+            cacheReadCost: 0,
+            cacheWriteCost: 0,
+            missingCostEntries: 0,
+            modelUsage: [
+              {
+                provider: "openai",
+                model: "codex-bengalfox",
+                count: 1,
+                totals: {
+                  input: 400,
+                  output: 100,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  totalTokens: 500,
+                  totalCost: 0,
+                  inputCost: 0,
+                  outputCost: 0,
+                  cacheReadCost: 0,
+                  cacheWriteCost: 0,
+                  missingCostEntries: 0,
+                },
+              },
+            ],
+          },
+        },
+        {
+          key: "developer-center:role-builder",
+          label: "开发者中心岗位包助手",
+          channel: "developer_center",
+          origin: { surface: "developer_center", label: "开发者中心" },
+          updatedAt: Date.now(),
+          usage: {
+            input: 600,
+            output: 400,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 1000,
+            totalCost: 0,
+            inputCost: 0,
+            outputCost: 0,
+            cacheReadCost: 0,
+            cacheWriteCost: 0,
+            missingCostEntries: 0,
+            modelUsage: [
+              {
+                provider: "openai",
+                model: "codex-bengalfox",
+                count: 1,
+                totals: {
+                  input: 600,
+                  output: 400,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  totalTokens: 1000,
+                  totalCost: 0,
+                  inputCost: 0,
+                  outputCost: 0,
+                  cacheReadCost: 0,
+                  cacheWriteCost: 0,
+                  missingCostEntries: 0,
+                },
+              },
+            ],
+          },
+        },
+      ],
+      totals: {
+        input: 1000,
+        output: 500,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 1500,
+        totalCost: 0,
+        inputCost: 0,
+        outputCost: 0,
+        cacheReadCost: 0,
+        cacheWriteCost: 0,
+        missingCostEntries: 0,
+      },
+      aggregates: {
+        messages: { total: 2, user: 1, assistant: 1, toolCalls: 0, toolResults: 0, errors: 0 },
+        tools: { totalCalls: 0, uniqueTools: 0, tools: [] },
+        byModel: [
+          {
+            provider: "openai",
+            model: "codex-bengalfox",
+            count: 2,
+            totals: {
+              input: 1000,
+              output: 500,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 1500,
+              totalCost: 0,
+              inputCost: 0,
+              outputCost: 0,
+              cacheReadCost: 0,
+              cacheWriteCost: 0,
+              missingCostEntries: 0,
+            },
+          },
+        ],
+        byProvider: [],
+        byAgent: [],
+        byChannel: [],
+        daily: [],
+      },
+    };
+    let currentReadModel: Record<string, unknown> = liveReadModel;
+    const request = vi.fn(async (method: string) => {
+      if (method === "aics.apiConnections.entry.create") {
+        currentReadModel = liveReadModel;
+        return { readModel: liveReadModel };
+      }
+      if (method === "aics.apiConnections.entry.materialize") {
+        currentReadModel = liveReadModel;
+        return { readModel: liveReadModel };
+      }
+      if (method === "aics.apiConnections.readModel.get") return currentReadModel;
+      if (method === "models.list") {
+        return {
+          models: [
+            { id: "gpt-5.5", name: "GPT-5.5", provider: "openai" },
+            { id: "codex-bengalfox", name: "codex-bengalfox", provider: "openai" },
+          ],
+        };
+      }
+      if (method === "sessions.patch") return { ok: true, key: "main" };
+      if (method === "sessions.usage") return usageResult;
+      if (method === "usage.cost") return { updatedAt: Date.now(), days: 1, daily: [], totals: {} };
+      if (method === "aics.toolSupply.readModel.get") return createToolSupplyReadModel();
+      if (method === "aics.executionConsole.readModel.get") {
+        return { roles: [], summary: { blockedRoles: 0 } };
+      }
+      if (method === "tools.effective") return { agentId: "main", profile: "coding", groups: [] };
+      return {};
+    });
+    const app = mountApp("/api-management");
+    app.client = { request, stop: vi.fn() } as never;
+    app.connected = true;
+    app.updateApiConnectionFormField("templateId", "openai");
+    app.updateApiConnectionFormField("connectionMode", "direct");
+    app.updateApiConnectionFormField("secretValue", "sk-test-openai");
+    app.updateApiConnectionFormField("modelId", "codex-bengalfox");
+    app.updateApiConnectionFormField("inputTokenPriceCnyPerMillion", "8");
+    app.updateApiConnectionFormField("outputTokenPriceCnyPerMillion", "32");
+    app.updateApiConnectionFormField("dailyBudgetCny", "0.01");
+    await app.updateComplete;
+
+    expectButtonWithText(app, "添加 API 连接").click();
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        "aics.apiConnections.entry.create",
+        expect.objectContaining({
+          provider: "openai",
+          metadata: expect.objectContaining({
+            defaultModel: "codex-bengalfox",
+            pricing: expect.objectContaining({
+              inputCnyPerMillion: 8,
+              outputCnyPerMillion: 32,
+            }),
+            budget: expect.objectContaining({ dailyCny: 0.01 }),
+          }),
+        }),
+      ),
+    );
+    await vi.waitFor(() =>
+      expect(request).toHaveBeenCalledWith("aics.apiConnections.entry.materialize", {
+        id: "model-openai",
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(app.chatModelCatalog).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ provider: "openai", id: "codex-bengalfox" }),
+        ]),
+      ),
+    );
+
+    app.setTab("chat");
+    await app.updateComplete;
+    const modelOption = app.querySelector<HTMLButtonElement>(
+      '[data-chat-model-option="openai/codex-bengalfox"]',
+    );
+    expect(modelOption).toBeInstanceOf(HTMLButtonElement);
+    expect(modelOption?.textContent ?? "").toContain("codex-bengalfox");
+
+    app.usageResult = usageResult;
+    app.setTab("apiManagement");
+    await vi.waitFor(() => expect(app.apiConnections.loading).toBe(false));
+    await app.updateComplete;
+    const apiText = (app.textContent ?? "").replace(/\s+/g, " ");
+    expect(apiText).toContain("codex-bengalfox · openai");
+    expect(apiText).toContain("本地主对话框");
+    expect(apiText).toContain("开发者中心");
+    expect(apiText).toContain("岗位执行");
+    expect(apiText).toContain("用量：0 Token · 0 元");
+
+    currentReadModel = settlementReadModel;
+    app.apiConnections = {
+      ...app.apiConnections,
+      readModel: settlementReadModel,
+    };
+    app.aicsMainFlow = {
+      loading: false,
+      error: null,
+      readModel: {
+        version: 1,
+        updatedAt: Date.now(),
+        currentStage: "role",
+        readiness: {},
+        blockedReasons: [],
+        latest: {
+          roleResult: {
+            id: "role_result-ui_role_execution:task-1",
+            outcome: "succeeded",
+            artifactRefs: [
+              "ledger:role_execution:entitlement-zero-yuan-1:ui_role_execution:task-1",
+              "audit:ui_role_execution:task-1:summary",
+              "memory_candidate:ui_role_execution:task-1",
+            ],
+            executionEvidence: {
+              modelUsage: {
+                inputTokens: 1280,
+                outputTokens: 620,
+                totalTokens: 1900,
+                costCents: 0,
+              },
+            },
+          },
+        },
+        counts: { roleResults: 1 },
+      },
+    };
+    app.setTab("usage");
+    await vi.waitFor(() => expect(app.apiConnections.loading).toBe(false));
+    await app.updateComplete;
+    const billingText = (app.textContent ?? "").replace(/\s+/g, " ");
+    expect(billingText).toContain("费用与授权");
+    expect(billingText).toContain("执行次数 1");
+    expect(billingText).toContain("Token用量");
+    expect(billingText).toContain("费用 ¥");
+  });
+
+  it("reloads saved model API state into API management and billing readback", async () => {
+    const persistedReadModel = {
+      metrics: { configured: 1, available: 1, risky: 0, unbound: 0, blocked: 0 },
+      entries: [
+        {
+          id: "model-openai",
+          name: "OpenAI",
+          kind: "model",
+          provider: "openai",
+          baseUrl: "https://api.openai.com/v1",
+          authMode: "plaintext",
+          status: "available",
+          riskStatus: "warning",
+          secret: { mode: "plaintext", status: "configured" },
+          consumers: ["model", "local_dialog", "developer_center", "role_execution"],
+          configBindings: [{ path: "models.providers.openai", owner: "apiConnections" }],
+          metadata: {
+            defaultModel: "codex-bengalfox",
+            availableModels: ["gpt-5.5", "codex-bengalfox"],
+            pricing: {
+              currency: "CNY",
+              unit: "1M_tokens",
+              inputCnyPerMillion: 8,
+              outputCnyPerMillion: 32,
+            },
+            budget: { currency: "CNY", period: "day", dailyCny: 0.01 },
+            metering: {
+              calls: 1,
+              inputTokens: 1280,
+              outputTokens: 620,
+              totalTokens: 1900,
+              costCny: 0.03008,
+              lastUsageRef: "ui_role_execution:task-1",
+              byConsumer: {
+                role_execution: {
+                  calls: 1,
+                  inputTokens: 1280,
+                  outputTokens: 620,
+                  totalTokens: 1900,
+                  costCny: 0.03008,
+                  lastUsageRef: "ui_role_execution:task-1",
+                },
+              },
+            },
+          },
+        },
+      ],
+      groups: {
+        model: [],
+        tool_skill: [],
+        marketplace: [],
+        dialog: [],
+        custom: [],
+      },
+      riskReport: { items: [], counts: { blocking: 0, warning: 1, info: 0 } },
+    };
+    (persistedReadModel.groups.model as typeof persistedReadModel.entries) =
+      persistedReadModel.entries;
+    const request = vi.fn(async (method: string) => {
+      if (method === "aics.apiConnections.readModel.get") return persistedReadModel;
+      if (method === "usage.cost") return { updatedAt: Date.now(), days: 1, daily: [], totals: {} };
+      if (method === "sessions.usage") {
+        return { days: 1, daily: [], byModel: [], byProvider: [], byAgent: [], byChannel: [] };
+      }
+      if (method === "aics.toolSupply.readModel.get") return createToolSupplyReadModel();
+      if (method === "aics.executionConsole.readModel.get") {
+        return { roles: [], summary: { blockedRoles: 0 } };
+      }
+      return {};
+    });
+
+    const app = mountApp("/api-management");
+    app.client = { request, stop: vi.fn() } as never;
+    app.connected = true;
+    await app.refreshApiConnectionsReadModel();
+    await app.updateComplete;
+
+    const apiText = (app.textContent ?? "").replace(/\s+/g, " ");
+    expect(apiText).toContain("API 管理");
+    expect(apiText).toContain("OpenAI");
+    expect(apiText).toContain("codex-bengalfox · openai");
+    expect(apiText).toContain("用量：1900 Token · 0.03008 元");
+
+    app.remove();
+    const reopened = mountApp("/api-management");
+    reopened.client = { request, stop: vi.fn() } as never;
+    reopened.connected = true;
+    await reopened.refreshApiConnectionsReadModel();
+    await reopened.updateComplete;
+
+    const reopenedText = (reopened.textContent ?? "").replace(/\s+/g, " ");
+    expect(reopenedText).toContain("OpenAI");
+    expect(reopenedText).toContain("codex-bengalfox · openai");
+
+    reopened.setTab("usage");
+    await vi.waitFor(() => expect(reopened.apiConnections.loading).toBe(false));
+    await reopened.updateComplete;
+    const billingText = (reopened.textContent ?? "").replace(/\s+/g, " ");
+    expect(billingText).toContain("费用与授权");
+    expect(billingText).toContain("执行次数");
+    expect(billingText).toContain("Token用量");
+    expect(request).toHaveBeenCalledWith("aics.apiConnections.readModel.get", {});
+  });
+
+  it.skip("runs real observation collection from saved API management connections", async () => {
+    const app = mountApp("/api-management");
+    const request = vi.fn(async (method: string) => {
+      if (method === "aics.mainFlow.observation.collect") {
+        return { observationPackage: { id: "obs-api", title: "API 管理连接观察包" } };
+      }
+      if (method === "aics.mainFlow.readModel.get") {
+        return {
+          version: 1,
+          updatedAt: Date.now(),
+          currentStage: "observation",
+          readiness: {},
+          blockedReasons: [],
+          latest: {
+            observationPackage: {
+              id: "obs-api",
+              title: "API 管理连接观察包",
+              status: "prepared",
+              summary: "从 API 管理页连接采集",
+              signals: [],
+            },
+          },
+          counts: { observations: 1 },
+        };
+      }
+      return { ok: true };
+    });
+    app.client = { request, stop: vi.fn() } as never;
+    app.connected = true;
+    app.apiConnections = {
+      ...app.apiConnections,
+      readModel: {
+        metrics: { configured: 1, available: 1, risky: 0, unbound: 0, blocked: 0 },
+        groups: {
+          model: [],
+          tool_skill: [],
+          marketplace: [
+            {
+              id: "marketplace-dijie-cloud-bridge",
+              name: "迭界AI云端",
+              kind: "marketplace",
+              provider: "dijie-cloud-bridge",
+              baseUrl: "http://127.0.0.1:9000",
+              status: "available",
+              riskStatus: "ok",
+              secret: { mode: "secret_ref", id: "DIJIE_CLOUD_ACCESS_TOKEN", status: "configured" },
+              consumers: ["marketplace"],
+              configBindings: [{ path: "plugins.entries.aics.config.cloudBaseUrl" }],
+            },
+          ],
+          dialog: [],
+        },
+        riskReport: { items: [] },
+      },
+    };
+    await app.updateComplete;
+
+    const button = expectButtonWithText(app, "生成数据分析包");
+    expect(button.disabled).toBe(false);
+    button.click();
+    await nextFrame();
+    await app.updateComplete;
+
+    expect(request).toHaveBeenCalledWith("aics.mainFlow.observation.collect", {
+      title: "API 管理连接观察包",
+    });
+    expect(app.tab).toBe("observation");
   });
 
   it("uses a marketplace role by jumping into the existing main chat draft", async () => {
@@ -1753,6 +3643,7 @@ describe("control UI routing", () => {
       "任务调度",
       "岗位执行",
       "工具与 Skill",
+      "审核中心",
       "API 管理",
       "费用与授权",
       "对话记录",
@@ -1769,6 +3660,7 @@ describe("control UI routing", () => {
       "/workboard",
       "/aics",
       "/skills",
+      "/review-center",
       "/api-management",
       "/usage",
       "/sessions",

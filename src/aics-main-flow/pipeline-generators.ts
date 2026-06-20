@@ -38,22 +38,51 @@ export function generateGoalCandidate(input: GoalGenerateInput): CreateGoalCandi
 
   const isOnTrack = attributionResult.completionStatus === "on_track";
   const isDataInsufficient = attributionResult.dataInsufficient;
-  const defaultMarketplaceGoalTitle = "提升岗位商城首批岗位授权转化与执行成功率";
+  const topCause = attributionResult.rankedCauses[0];
+  const causeTitles = attributionResult.rankedCauses.map((cause) => cause.title);
+  const sourceObservationSignalIds = [
+    ...new Set(attributionResult.rankedCauses.flatMap((cause) => cause.evidenceRefs)),
+  ];
+  const sourceAttributionFindingIds = attributionResult.rankedCauses.map(
+    (cause) => `finding-${cause.rank}`,
+  );
 
   // 从归因结果推断目标类型
-  let title = defaultMarketplaceGoalTitle;
+  let title = "提升岗位商城首批岗位授权转化与执行成功率";
   let metric = "首批岗位授权转化与执行成功率";
   let target = "首批岗位商品完成可授权展示，授权转化和执行成功率进入可追踪状态";
+  let currentValue = inferCurrentValue(attributionResult.gapSummary);
+  const blockedReasons: string[] = [];
   let rationale: string;
 
   if (isDataInsufficient) {
+    title = "补齐岗位商城经营观察数据基线";
+    metric = "可归因经营证据完整度";
+    currentValue = "证据不足";
+    target = "观察证据、归因发现和关键经营指标均可追溯";
+    blockedReasons.push("观察证据不足，暂不能进入正式规划");
     rationale =
       "当前缺少足够的岗位供给、授权转化、执行质量、费用和审核阻塞数据。先以岗位商城首批岗位运营为目标，建立可追踪数据基线。";
   } else if (isOnTrack) {
-    const topCause = attributionResult.rankedCauses[0];
     rationale = `归因分析显示岗位商城运营处于可推进状态：${attributionResult.gapSummary}。继续巩固 ${topCause?.title ?? "授权转化与执行质量"}。`;
   } else {
-    const topCause = attributionResult.rankedCauses[0];
+    if (causeTitles.includes("API / 模型 / 工具 / Skill 问题")) {
+      title = "清零 API、模型、工具和 Skill 执行阻塞";
+      metric = "系统使用阻塞数";
+      target = "API、模型、工具、Skill 阻塞数降到 0";
+    } else if (causeTitles.includes("岗位供给问题") || causeTitles.includes("商城问题")) {
+      title = "补齐首批岗位商品审核与可授权材料";
+      metric = "首批岗位商品可授权完成度";
+      target = "首批岗位商品完成审核、能力标签和输出样例补齐";
+    } else if (causeTitles.includes("调度链路问题") || causeTitles.includes("岗位执行质量问题")) {
+      title = "提升云端商城到本地 OpenClaw 的岗位执行闭环成功率";
+      metric = "岗位执行闭环成功率";
+      target = "岗位执行链路成功率达到 90%，产物、审计、账本和模型证据完整回读";
+    } else if (causeTitles.includes("授权问题") || causeTitles.includes("能力路由问题")) {
+      title = "打通岗位授权与能力路由可调用链路";
+      metric = "已授权岗位可调用率";
+      target = "已授权岗位可调用率达到 90%，关键能力路由阻塞清零";
+    }
     rationale =
       `归因分析发现 ${attributionResult.rankedCauses.length} 个岗位商城运营问题，` +
       `最关键是：${topCause?.summary ?? attributionResult.gapSummary}`;
@@ -63,11 +92,27 @@ export function generateGoalCandidate(input: GoalGenerateInput): CreateGoalCandi
     title,
     owner: input.owner,
     metric,
+    currentValue,
     target,
+    cycle: "当前经营周期",
     rationale,
+    whyNow: topCause?.summary ?? "该目标来自最新观察和归因结果，需先确认目标，再进入规划拆解。",
     attributionReportId: input.attributionReportId,
     observationPackageId: input.observationPackageId,
+    sourceObservationSignalIds,
+    sourceAttributionFindingIds,
+    blockedReasons,
+    readyForPlanning: !isDataInsufficient && blockedReasons.length === 0,
   };
+}
+
+function inferCurrentValue(summary: string): string {
+  const normalized = summary.trim();
+  if (!normalized) return "待确认";
+  const actualMatch = normalized.match(/实际\s*([^，。；]+)/);
+  if (actualMatch?.[1]) return actualMatch[1].trim();
+  const gapMatch = normalized.match(/(阻塞数|完成率|成功率|转化率|证据完整度)[^，。；]*/);
+  return gapMatch?.[0]?.trim() || "来自最新观察，待用户确认";
 }
 
 // ======================================================================
@@ -100,40 +145,91 @@ export function generatePlanningPackage(input: PlanningGenerateInput): {
   if (isRoleMarketplaceOperation) {
     const marketplaceItems = [
       {
-        title: "岗位供给优化",
-        roleCapabilityRef: "data-analysis",
+        title: "岗位供给与审核优化",
+        roleCapabilityRef: "marketplace-operations",
         taskIntent: "梳理首批岗位商品的供给完整度、审核状态、能力标签和上架阻塞。",
         expectedOutput: "岗位供给清单、缺口判断、审核阻塞和下一步补齐建议。",
         humanConfirmationRequired: false,
+        capabilityMatchSummary: "适合商城运营岗位承接，需要读取岗位商品、审核、品类和授权状态。",
+        acceptanceCriteria: [
+          "列出首批岗位商品的审核状态、能力标签和输出样例缺口",
+          "每个缺口给出负责人、处理顺序和验收口径",
+          "明确哪些岗位商品已满足进入授权和调度前检查",
+        ],
       },
       {
-        title: "岗位详情页转化优化",
-        roleCapabilityRef: "ecommerce-visual",
+        title: "岗位商品信息架构优化",
+        roleCapabilityRef: "marketplace-listing-ops",
         taskIntent:
-          "让电商美工岗位为岗位商城首批岗位商品输出展示优化建议、详情页结构建议、授权转化视觉建议。",
-        expectedOutput: "岗位商品页展示优化方案、详情页模块结构、主视觉和授权转化建议。",
+          "优化首批岗位商品的能力说明、授权说明、输出样例、调用边界和审核材料，让买家能判断岗位是否可用。",
+        expectedOutput: "岗位商品信息架构、授权说明、输出样例清单、可调用边界和审核材料补齐建议。",
         humanConfirmationRequired: true,
+        capabilityMatchSummary:
+          "适合商品运营岗位承接，需要岗位详情、能力说明、样例产物和审核意见。",
+        acceptanceCriteria: [
+          "每个岗位商品都有买家能看懂的能力说明和调用边界",
+          "每个岗位商品至少有一个可审核的输出样例或样例缺口说明",
+          "审核材料能直接交给商城审核模块继续处理",
+        ],
       },
       {
-        title: "执行质量提升",
-        roleCapabilityRef: "data-analysis",
-        taskIntent: "分析岗位执行成功率、失败原因、产物回写和用户反馈，找出首批岗位执行质量问题。",
-        expectedOutput: "执行质量诊断、失败模式、可验证改进动作和回写要求。",
+        title: "能力路由与执行质量提升",
+        roleCapabilityRef: "capability-routing",
+        taskIntent:
+          "分析岗位授权、能力匹配、工具/Skill/API 准备度、执行成功率、失败原因、产物回写和用户反馈。",
+        expectedOutput: "能力路由诊断、执行质量诊断、失败模式、可验证改进动作和回写要求。",
         humanConfirmationRequired: false,
+        capabilityMatchSummary:
+          "适合能力路由/执行质量岗位承接，需要读取授权、工具、Skill、API 和历史执行结果。",
+        acceptanceCriteria: [
+          "列出每个可授权岗位的能力匹配状态和不可调用原因",
+          "执行失败原因能映射到 API、工具、Skill、授权或调度修复入口",
+          "产物、审计、账本和模型证据的回写要求清晰",
+        ],
       },
       {
-        title: "授权费用治理",
-        roleCapabilityRef: "billing-governance",
-        taskIntent: "核对岗位授权、执行确认、费用确认和 ledger 记录是否能支撑调度前闸门。",
-        expectedOutput: "授权/费用闸门检查表、阻塞项和费用与授权页面处理建议。",
+        title: "API 与模型连接治理",
+        roleCapabilityRef: "api-connection-ops",
+        taskIntent:
+          "核对云端商城、本地 Gateway、多模型 Provider、工具 API、Skill 依赖和 SecretRef 是否能支撑岗位执行。",
+        expectedOutput: "系统使用连通性检查表、缺失 SecretRef、blocked reason 和修复顺序。",
         humanConfirmationRequired: true,
+        capabilityMatchSummary:
+          "适合系统连接运营岗位承接，需要 API 管理页、SecretRef、模型 Provider 和本地服务健康状态。",
+        acceptanceCriteria: [
+          "列出云端商城、本地 Gateway、模型 Provider、工具和 Skill 的可用状态",
+          "缺失连接必须给出要去的页面和填写项",
+          "不包含费用、账单和岗位价格明细",
+        ],
       },
       {
-        title: "审核阻塞处理",
-        roleCapabilityRef: "marketplace-review",
-        taskIntent: "定位岗位审核、能力目录、云端岗位桥和本地调度之间的确认点。",
-        expectedOutput: "审核阻塞清单、确认点负责人和解除阻塞顺序。",
+        title: "授权闸门治理",
+        roleCapabilityRef: "authorization-governance",
+        taskIntent: "核对岗位授权、执行确认、费用确认引用和 ledger 摘要是否能支撑调度前闸门。",
+        expectedOutput:
+          "授权闸门检查表、阻塞项和费用与授权页面处理建议，不在 API 管理页展示费用明细。",
         humanConfirmationRequired: true,
+        capabilityMatchSummary:
+          "适合费用与授权运营岗位承接，需要授权状态、执行确认、费用确认和账本摘要。",
+        acceptanceCriteria: [
+          "每个待调度岗位都有授权状态和费用确认状态",
+          "缺授权或缺费用确认时给出费用与授权页面修复入口",
+          "不在规划层直接执行岗位或创建正式 TaskPackage",
+        ],
+      },
+      {
+        title: "外部能力吸收与风险治理",
+        roleCapabilityRef: "external-capability-risk",
+        taskIntent: "观察竞品、外部模型、工具、产品能力和风险变化，判断哪些能力应被岗位商城吸收。",
+        expectedOutput: "外部能力机会清单、风险清单、可吸收能力建议和暂不吸收原因。",
+        humanConfirmationRequired: true,
+        capabilityMatchSummary:
+          "适合外部观察/风险治理岗位承接，需要外部信息采集工具、模型分析和风险规则。",
+        acceptanceCriteria: [
+          "外部能力或风险必须有来源和时间",
+          "每个可吸收能力都说明适合绑定到哪个品类包或岗位能力",
+          "风险项必须给出继续观察、暂缓或进入审核的建议",
+        ],
       },
     ];
 
@@ -148,6 +244,7 @@ export function generatePlanningPackage(input: PlanningGenerateInput): {
         planningPackageId: "",
         category: "岗位商城",
         ...item,
+        blockedReasons: [],
       })),
     );
   }
@@ -172,6 +269,13 @@ export function generatePlanningPackage(input: PlanningGenerateInput): {
       taskIntent: `收集 "${goal.metric}" 相关数据，建立可靠度量基线`,
       expectedOutput: "包含至少5个量化信号的新 ObservationPackage",
       humanConfirmationRequired: false,
+      capabilityMatchSummary:
+        "适合数据分析岗位承接，需要内部经营数据、外部信息采集和证据整理能力。",
+      acceptanceCriteria: [
+        "每条观察信号都有证据来源",
+        "缺失或过期数据必须标记为待验证",
+        "输出能被归因层直接引用",
+      ],
     });
   }
 
@@ -193,6 +297,12 @@ export function generatePlanningPackage(input: PlanningGenerateInput): {
         taskIntent: finding.summary,
         expectedOutput: `解决 "${finding.title}" 的工作成果和验证证据`,
         humanConfirmationRequired: finding.confidence === "high",
+        capabilityMatchSummary: `根据归因发现 "${finding.title}" 匹配对应岗位能力。`,
+        acceptanceCriteria: [
+          `修复动作能对应归因发现：${finding.title}`,
+          "输出包含业务结果、验证方式和下一步调度建议",
+          "未满足执行条件时必须写明阻塞原因",
+        ],
       });
     }
   }
@@ -212,6 +322,12 @@ export function generatePlanningPackage(input: PlanningGenerateInput): {
       taskIntent: `执行为达成目标 "${goal.metric} = ${goal.target}" 所需的通用工作任务`,
       expectedOutput: `目标 "${goal.title}" 的阶段性进展报告`,
       humanConfirmationRequired: true,
+      capabilityMatchSummary: "适合通用运营岗位承接，需要根据目标补齐具体执行条件。",
+      acceptanceCriteria: [
+        "说明谁负责、做什么、输出什么",
+        "产物和验收标准能被调度层读取",
+        "缺 API、授权、工具或 Skill 时明确阻塞原因",
+      ],
     });
   }
 
@@ -237,6 +353,9 @@ export function generatePlanningPackage(input: PlanningGenerateInput): {
         taskIntent: item.taskIntent,
         expectedOutput: item.expectedOutput,
         humanConfirmationRequired: item.humanConfirmationRequired,
+        capabilityMatchSummary: item.capabilityMatchSummary,
+        blockedReasons: item.blockedReasons ?? [],
+        acceptanceCriteria: item.acceptanceCriteria,
       })),
     },
     rolePlanItems,
@@ -315,8 +434,8 @@ export function materializeTaskPackage(input: MaterializeInput): MaterializeTask
     dispatchProposalReviewId: dispatchProposal.id,
     request: {
       roleListingId:
-        rolePlanItem.roleCapabilityRef === "ecommerce-visual"
-          ? "role_marketplace_ecommerce_visual"
+        rolePlanItem.roleCapabilityRef === "marketplace-listing-ops"
+          ? "role_marketplace_listing_operations"
           : undefined,
       roleTitle: rolePlanItem.title,
       workspaceDir: undefined,
@@ -330,7 +449,19 @@ export function materializeTaskPackage(input: MaterializeInput): MaterializeTask
 
 function findCapabilityForFinding(findingTitle: string): string {
   const lower = findingTitle.toLowerCase();
-  if (lower.includes("岗位商城") || lower.includes("授权转化")) return "ecommerce-visual";
+  if (lower.includes("能力路由") || lower.includes("执行成功") || lower.includes("可调用"))
+    return "capability-routing";
+  if (
+    lower.includes("api") ||
+    lower.includes("模型") ||
+    lower.includes("tool") ||
+    lower.includes("skill")
+  )
+    return "api-connection-ops";
+  if (lower.includes("审核")) return "marketplace-review";
+  if (lower.includes("授权")) return "authorization-governance";
+  if (lower.includes("岗位商城") || lower.includes("岗位商品") || lower.includes("转化"))
+    return "marketplace-listing-ops";
   if (lower.includes("数据") || lower.includes("指标")) return "data-analysis";
   if (lower.includes("图片") || lower.includes("美工")) return "visual-design";
   if (lower.includes("视频")) return "video-production";

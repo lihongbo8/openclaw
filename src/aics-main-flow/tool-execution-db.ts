@@ -20,7 +20,7 @@ export type ToolExecutionRecord = {
   toolCapability: string;
   inputSummary: string;
   outputSummary: string;
-  status: "ok" | "error" | "timeout";
+  status: "ok" | "error" | "timeout" | "needs_human_confirm";
   durationMs: number;
   costCents: number;
   artifactRefs: string[];
@@ -73,7 +73,11 @@ export const ToolExecutionDb = {
       toolCapability: params.toolCapability,
       inputSummary: params.inputSummary.slice(0, 200),
       outputSummary: params.response.executionSummary.slice(0, 200),
-      status: params.response.blockedReason ? "error" : "ok",
+      status: params.response.needHumanConfirm
+        ? "needs_human_confirm"
+        : params.response.blockedReason
+          ? "error"
+          : "ok",
       durationMs: params.durationMs,
       costCents: params.response.costSummary.costCents,
       artifactRefs: params.response.artifactRefs,
@@ -99,12 +103,18 @@ export const ToolExecutionDb = {
   },
 
   /** 错误统计 */
-  errorStats(since: number): { total: number; errors: number; timeout: number } {
+  errorStats(since: number): {
+    total: number;
+    errors: number;
+    timeout: number;
+    needsHumanConfirm: number;
+  } {
     const records = loadRecords().filter((r) => r.createdAt >= since);
     return {
       total: records.length,
       errors: records.filter((r) => r.status === "error").length,
       timeout: records.filter((r) => r.status === "timeout").length,
+      needsHumanConfirm: records.filter((r) => r.status === "needs_human_confirm").length,
     };
   },
 };

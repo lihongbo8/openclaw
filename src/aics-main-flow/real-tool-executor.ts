@@ -15,64 +15,24 @@ export type RealToolExecutor = {
   execute(request: ToolCallRequest): Promise<ToolExecutionResponse>;
 };
 
-// ═══ DeepSeek 模型执行器 ═══
+// ═══ Deprecated model executor ═══
 
 export function createDeepSeekExecutor(apiKey?: string): RealToolExecutor {
+  void apiKey;
   return {
     capabilities: ["model.reasoning", "model.planning", "model.prompt_gen"],
     async execute(request: ToolCallRequest): Promise<ToolExecutionResponse> {
       const s = Date.now();
-      try {
-        const key = resolveKey(apiKey, "DEEPSEEK_API_KEY");
-        const model = (request.params.model as string) || "deepseek-chat";
-        const messages = request.params.messages as Array<{ role: string; content: string }>;
-        const maxTokens = (request.params.max_tokens as number) || 4096;
-
-        const res = await fetch("https://api.deepseek.com/v1/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-          body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature: 0.7 }),
-          signal: AbortSignal.timeout(request.timeoutMs || 30000),
-        });
-        if (!res.ok) {
-          const err = await res.text().catch(() => "");
-          return {
-            callId: request.callId,
-            ok: false,
-            toolName: "deepseek",
-            output: null,
-            artifacts: [],
-            durationMs: Date.now() - s,
-            error: `DeepSeek ${res.status}: ${err.slice(0, 200)}`,
-          };
-        }
-        const data = (await res.json()) as Record<string, unknown>;
-        const choice = (data.choices as Array<Record<string, unknown>>)?.[0];
-        const content = ((choice?.message as Record<string, unknown>)?.content as string) || "";
-        return {
-          callId: request.callId,
-          ok: true,
-          toolName: "deepseek",
-          output: content,
-          artifacts: [],
-          durationMs: Date.now() - s,
-          modelUsage: {
-            model,
-            inputTokens: (data.usage as Record<string, number>)?.prompt_tokens ?? 0,
-            outputTokens: (data.usage as Record<string, number>)?.completion_tokens ?? 0,
-          },
-        };
-      } catch (err) {
-        return {
-          callId: request.callId,
-          ok: false,
-          toolName: "deepseek",
-          output: null,
-          artifacts: [],
-          durationMs: Date.now() - s,
-          error: err instanceof Error ? err.message : String(err),
-        };
-      }
+      return {
+        callId: request.callId,
+        ok: false,
+        toolName: "deepseek",
+        output: null,
+        artifacts: [],
+        durationMs: Date.now() - s,
+        error:
+          "DeepSeek 直连执行器已停用；模型调用必须通过 API 管理的 SecretRef、Provider 和 consumer resolver。",
+      };
     },
   };
 }
@@ -337,7 +297,6 @@ export function createQualityCheckExecutor(): RealToolExecutor {
 
 export function createAllRealToolExecutors(): RealToolExecutor[] {
   return [
-    createDeepSeekExecutor(),
     createImageGenExecutor(),
     createVideoGenExecutor(),
     createFilePackExecutor(),

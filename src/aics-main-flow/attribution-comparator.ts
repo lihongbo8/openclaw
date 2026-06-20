@@ -5,13 +5,31 @@ import type {
   ObservationSignal,
 } from "./types.js";
 
+export const AICS_ATTRIBUTION_DIMENSIONS = [
+  "商城问题",
+  "本地服务问题",
+  "岗位供给问题",
+  "授权问题",
+  "能力路由问题",
+  "API / 模型 / 工具 / Skill 问题",
+  "页面体验问题",
+  "调度链路问题",
+  "岗位执行质量问题",
+  "外部能力未吸收",
+  "外部产品压力",
+  "风险与数据质量问题",
+  "目标设定问题",
+] as const;
+
+export type AicsAttributionDimension = (typeof AICS_ATTRIBUTION_DIMENSIONS)[number];
+
 /**
  * 单个归因发现
  */
 export type RankedCause = {
   /** 原因排序（1 = 最可能主因） */
   rank: number;
-  title: string;
+  title: AicsAttributionDimension | "目标与实际差距" | "目标指标无法量化";
   summary: string;
   confidence: "low" | "medium" | "high";
   impactLevel: "critical" | "high" | "medium" | "low" | "negligible";
@@ -57,21 +75,10 @@ export function compareObservationsToGoal(
   input: AttributionCompareInput,
 ): AttributionCompareResult {
   const { observation, previousGoal } = input;
+  const attributionSignals = attributionEligibleSignals(observation.signals);
   const rankedCauses: RankedCause[] = [];
   let rank = 0;
 
-  // 如果没有历史目标，无法对比
-  if (!previousGoal) {
-    return {
-      completionStatus: "unknown",
-      gapSummary: "缺少上一周期公司目标，无法进行归因对比。需要先建立目标基线。",
-      rankedCauses: [],
-      dataInsufficient: true,
-      dataInsufficientReason: "缺少历史 CompanyGoal 记录，无法计算目标和实际结果的差距。",
-    };
-  }
-
-  // 检查观察数据是否充分
   if (observation.signals.length === 0) {
     return {
       completionStatus: "unknown",
@@ -82,8 +89,51 @@ export function compareObservationsToGoal(
     };
   }
 
+  if (attributionSignals.length === 0) {
+    return {
+      completionStatus: "unknown",
+      gapSummary: "当前观察包没有可用于正式归因的证据信号。",
+      rankedCauses: [],
+      dataInsufficient: true,
+      dataInsufficientReason: "观察信号缺少 evidenceRefs，或被标记为不可归因/待验证。",
+    };
+  }
+
+  // 如果没有历史目标，仍然可以基于观察证据生成原因候选；但不能声称完成率差距。
+  if (!previousGoal) {
+    for (const signal of attributionSignals) {
+      const marketplaceCause = classifyMarketplaceCause(signal);
+      if (!marketplaceCause) continue;
+      rankedCauses.push({
+        rank: ++rank,
+        title: marketplaceCause.title,
+        summary: marketplaceCause.summary,
+        confidence: marketplaceCause.confidence,
+        impactLevel: marketplaceCause.impactLevel,
+        evidenceRefs: [signal.id],
+      });
+    }
+    if (rankedCauses.length === 0) {
+      const first = attributionSignals[0];
+      rankedCauses.push({
+        rank: 1,
+        title: "风险与数据质量问题",
+        summary: `当前观察证据尚未命中固定归因维度，需要人工复核：${first.summary}`,
+        confidence: "low",
+        impactLevel: "medium",
+        evidenceRefs: [first.id],
+      });
+    }
+    return {
+      completionStatus: "unknown",
+      gapSummary: `基于 ${attributionSignals.length} 条已确认观察证据生成归因候选；由于尚无已确认目标，本报告只解释问题来源，不计算目标完成率。`,
+      rankedCauses: rankedCauses.sort((a, b) => a.rank - b.rank),
+      dataInsufficient: false,
+    };
+  }
+
   // 简单的信号匹配分析：查找与目标指标相关的信号
-  const relevantSignals = findRelevantSignals(observation.signals, previousGoal.metric);
+  const relevantSignals = findRelevantSignals(attributionSignals, previousGoal.metric);
 
   if (relevantSignals.length === 0) {
     return {
@@ -109,7 +159,7 @@ export function compareObservationsToGoal(
       summary: `目标 "${previousGoal.metric}" 的目标值 "${previousGoal.target}" 或观察信号中缺少可量化的数值，无法精确计算差距。`,
       confidence: "low",
       impactLevel: "medium",
-      evidenceRefs: [observation.id, previousGoal.id],
+      evidenceRefs: relevantSignals.map((s) => s.id),
     });
 
     return {
@@ -138,32 +188,29 @@ export function compareObservationsToGoal(
 
   // 自动识别可能的原因
   rank++;
-  const gapSignal = findGapSignal(observation.signals, previousGoal.metric);
+  const gapSignal = findGapSignal(attributionSignals, previousGoal.metric);
   rankedCauses.push({
     rank,
     title: "目标与实际差距",
     summary: `目标 ${previousGoal.target}，实际约 ${avgActual.toFixed(2)}，${direction} ${gapPct.toFixed(1)}%。${gapSignal?.summary ?? ""}`,
     confidence: gapPct > 30 ? "high" : "medium",
     impactLevel: gapPct > 30 ? "critical" : gapPct > 10 ? "high" : "medium",
-    evidenceRefs: [observation.id, previousGoal.id, ...relevantSignals.map((s) => s.id)],
+    evidenceRefs: relevantSignals.map((s) => s.id),
   });
 
-  // 查找异常信号
-  for (const signal of observation.signals) {
-    if (
-      signal.summary.includes("失败") ||
-      signal.summary.includes("阻塞") ||
-      signal.summary.includes("不可用") ||
-      signal.summary.includes("缺失")
-    ) {
-      rank++;
+  // 查找岗位商城生产运营维度的异常信号
+  const seenCauseSignalIds = new Set<string>();
+  for (const signal of attributionSignals) {
+    const marketplaceCause = classifyMarketplaceCause(signal);
+    if (marketplaceCause && !seenCauseSignalIds.has(signal.id)) {
+      seenCauseSignalIds.add(signal.id);
       rankedCauses.push({
-        rank,
-        title: signal.title,
-        summary: signal.summary,
-        confidence: "medium",
-        impactLevel: "high",
-        evidenceRefs: signal.evidenceRefs,
+        rank: ++rank,
+        title: marketplaceCause.title,
+        summary: marketplaceCause.summary,
+        confidence: marketplaceCause.confidence,
+        impactLevel: marketplaceCause.impactLevel,
+        evidenceRefs: [signal.id],
       });
     }
   }
@@ -177,6 +224,150 @@ export function compareObservationsToGoal(
     rankedCauses: rankedCauses.sort((a, b) => a.rank - b.rank),
     dataInsufficient: false,
   };
+}
+
+function attributionEligibleSignals(signals: ObservationSignal[]): ObservationSignal[] {
+  return signals.filter((signal) => {
+    const record = signal as ObservationSignal & {
+      usableForAttribution?: boolean;
+      confidence?: string;
+      credibility?: string;
+      qualityStatus?: string;
+    };
+    if (!signal.evidenceRefs.length) return false;
+    if (record.usableForAttribution === false) return false;
+    if (record.qualityStatus === "rejected" || record.qualityStatus === "needs_review")
+      return false;
+    if (record.confidence === "low" || record.credibility === "low") return false;
+    return true;
+  });
+}
+
+function classifyMarketplaceCause(
+  signal: ObservationSignal,
+): Pick<RankedCause, "title" | "summary" | "confidence" | "impactLevel"> | null {
+  const text = `${signal.title} ${signal.summary}`.toLowerCase();
+  const hasProblem =
+    /失败|阻塞|不可用|缺失|无反应|pending|rejected|blocked|unhealthy|timeout|error|异常/.test(text);
+  if (/目标|指标|target|metric|过高|过低|不合理|无法量化|口径/.test(text) && hasProblem) {
+    return {
+      title: "目标设定问题",
+      summary: signal.summary,
+      confidence: "medium",
+      impactLevel: "high",
+    };
+  }
+  if (/数据质量|缺证据|无证据|低可信|过期|待验证|样本|口径不一致/.test(text)) {
+    return {
+      title: "风险与数据质量问题",
+      summary: signal.summary,
+      confidence: "medium",
+      impactLevel: "medium",
+    };
+  }
+  if (
+    /本地|runtime|openclaw|gateway|sqlite|进程|端口|localhost|127\.0\.0\.1/.test(text) &&
+    hasProblem
+  ) {
+    return {
+      title: "本地服务问题",
+      summary: signal.summary,
+      confidence: "high",
+      impactLevel: "high",
+    };
+  }
+  if (/api|secretref|provider|模型|tool|skill|工具|连接|健康/.test(text) && hasProblem) {
+    return {
+      title: "API / 模型 / 工具 / Skill 问题",
+      summary: signal.summary,
+      confidence: "high",
+      impactLevel: "high",
+    };
+  }
+  if (/授权|entitlement|authorized|scope|actor_context|费用确认|额度/.test(text) && hasProblem) {
+    return {
+      title: "授权问题",
+      summary: signal.summary,
+      confidence: "high",
+      impactLevel: "critical",
+    };
+  }
+  if (/能力路由|可调用|callable|capability|独特能力/.test(text) && hasProblem) {
+    return {
+      title: "能力路由问题",
+      summary: signal.summary,
+      confidence: "high",
+      impactLevel: "high",
+    };
+  }
+  if (
+    /岗位供给|岗位数量|岗位质量|品类|能力标签|样例|listing|role listing/.test(text) &&
+    hasProblem
+  ) {
+    return {
+      title: "岗位供给问题",
+      summary: signal.summary,
+      confidence: "medium",
+      impactLevel: "high",
+    };
+  }
+  if (/审核|audit|review|发布|上架|商品|商城/.test(text) && hasProblem) {
+    return {
+      title: "商城问题",
+      summary: signal.summary,
+      confidence: "medium",
+      impactLevel: "high",
+    };
+  }
+  if (/页面|按钮|点击|无法使用|滑动|表单|保存|回显|体验|导航/.test(text) && hasProblem) {
+    return {
+      title: "页面体验问题",
+      summary: signal.summary,
+      confidence: "medium",
+      impactLevel: "medium",
+    };
+  }
+  if (/执行质量|产物|验收|结果质量|输出|审计|账本|readback|roleresult/.test(text) && hasProblem) {
+    return {
+      title: "岗位执行质量问题",
+      summary: signal.summary,
+      confidence: "medium",
+      impactLevel: "high",
+    };
+  }
+  if (/调度|dispatch|taskpackage|roleplanitem|派发|执行队列/.test(text) && hasProblem) {
+    return {
+      title: "调度链路问题",
+      summary: signal.summary,
+      confidence: "medium",
+      impactLevel: "high",
+    };
+  }
+  if (/竞品|竞争|替代品|外部产品|产品压力|价格压力/.test(text)) {
+    return {
+      title: "外部产品压力",
+      summary: signal.summary,
+      confidence: "medium",
+      impactLevel: "medium",
+    };
+  }
+  if (/外部|技术|工具|模型|可吸收|capability_library|新能力/.test(text)) {
+    return {
+      title: text.includes("风险") ? "风险与数据质量问题" : "外部能力未吸收",
+      summary: signal.summary,
+      confidence: "medium",
+      impactLevel: "medium",
+    };
+  }
+  if (hasProblem) {
+    return {
+      title: "风险与数据质量问题",
+      summary: signal.summary,
+      confidence: "medium",
+      impactLevel: "high",
+    };
+  }
+  return null;
 }
 
 /**

@@ -215,6 +215,24 @@ export const FormalMemoryStore = {
       memory.scopeRef ?? null,
       memory.version,
     );
+    try {
+      const row = one<{ rowid: number }>(
+        "SELECT rowid FROM formal_memories WHERE memory_id = ?",
+        memory.memoryId,
+      );
+      if (row) {
+        ex(
+          `INSERT INTO formal_memories_fts(rowid,title,content,tags)
+           VALUES(?,?,?,?)`,
+          row.rowid,
+          memory.title,
+          memory.content,
+          JSON.stringify(memory.tags),
+        );
+      }
+    } catch {
+      /* FTS not available */
+    }
     return memory;
   },
 
@@ -226,13 +244,17 @@ export const FormalMemoryStore = {
   search(query: string, limit = 20): FormalMemory[] {
     // 优先用 FTS，回退 LIKE
     try {
-      const fts = many<{ memory_id: string }>(
-        "SELECT memory_id FROM formal_memories_fts WHERE formal_memories_fts MATCH ? LIMIT ?",
+      const fts = many<any>(
+        `SELECT fm.*
+         FROM formal_memories_fts
+         JOIN formal_memories fm ON fm.rowid = formal_memories_fts.rowid
+         WHERE formal_memories_fts MATCH ?
+         LIMIT ?`,
         query,
         limit,
       );
       if (fts.length) {
-        return fts.map((r) => this.getById(r.memory_id)).filter(Boolean) as FormalMemory[];
+        return fts.map(rowToMemory);
       }
     } catch {
       /* FTS not available, fall through */

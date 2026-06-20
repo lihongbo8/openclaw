@@ -77,9 +77,6 @@ export type SessionsProps = {
   onDeleteSession: (key: string) => void;
   isProtectedSession?: (key: string) => boolean;
   onNavigateToChat?: (sessionKey: string) => void;
-  workboardSessionKeys?: Set<string>;
-  workboardBusySessionKey?: string | null;
-  onAddToWorkboard?: (session: GatewaySessionRow) => void | Promise<void>;
   onToggleCheckpointDetails: (sessionKey: string) => void;
   onBranchFromCheckpoint: (sessionKey: string, checkpointId: string) => void | Promise<void>;
   onRestoreCheckpoint: (sessionKey: string, checkpointId: string) => void | Promise<void>;
@@ -842,8 +839,6 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
       : null;
   const keyCellTitle = friendlyKeyLabel ?? row.key;
   const canLink = row.kind !== "global";
-  const captured = props.workboardSessionKeys?.has(row.key) === true;
-  const captureBusy = props.workboardBusySessionKey === row.key;
   const protectedSession = props.isProtectedSession?.(row.key) === true;
   const chatUrl = canLink
     ? `${pathForTab("chat", props.basePath)}?session=${encodeURIComponent(row.key)}`
@@ -1054,23 +1049,6 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
       </td>
       <td>
         <div class="session-row-actions">
-          ${props.onAddToWorkboard && canLink
-            ? html`
-                <button
-                  class="icon-btn"
-                  title=${captured
-                    ? t("sessionsView.openWorkboardCard")
-                    : t("sessionsView.addToWorkboard")}
-                  ?disabled=${props.loading || captureBusy}
-                  @click=${(event: MouseEvent) => {
-                    event.stopPropagation();
-                    void props.onAddToWorkboard?.(row);
-                  }}
-                >
-                  ${captured ? icons.check : icons.plus}
-                </button>
-              `
-            : nothing}
           ${protectedSession
             ? html`
                 <button

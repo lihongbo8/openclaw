@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { ErrorCodes } from "../../../packages/gateway-protocol/src/index.js";
+import { materializeApiConnectionToConfig } from "../../api-connections/materializer.js";
+import { normalizeApiConnectionEntry } from "../../api-connections/model.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { expectGatewayErrorResponse } from "./gateway-response.test-helpers.js";
 import { modelsHandlers } from "./models.js";
@@ -98,6 +100,51 @@ describe("models.list", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("shows a manually configured API management model such as codex-bengalfox in configured models", async () => {
+    const entry = normalizeApiConnectionEntry({
+      name: "OpenAI",
+      kind: "model",
+      provider: "openai",
+      authMode: "oauth",
+      baseUrl: "https://api.openai.com/v1",
+      consumers: ["model", "local_dialog", "role_execution"],
+      metadata: {
+        defaultModel: "codex-bengalfox",
+        availableModels: ["gpt-5.5", "codex-bengalfox"],
+        modelValidation: {
+          status: "manual_confirmed",
+          source: "manual_model_id",
+        },
+      },
+    });
+    const materialized = materializeApiConnectionToConfig({
+      apiConnections: { entries: { [entry.id]: entry } },
+    });
+    const loadGatewayModelCatalog = vi.fn(() => Promise.resolve([]));
+
+    const { request, respond } = requestModelsList({
+      view: "configured",
+      runtimeConfig: materialized.config,
+      loadGatewayModelCatalog,
+      reqId: "req-models-list-api-management-manual-model",
+    });
+    await request;
+
+    expect(respond).toHaveBeenCalledWith(
+      true,
+      {
+        models: expect.arrayContaining([
+          expect.objectContaining({
+            id: "codex-bengalfox",
+            name: "codex-bengalfox",
+            provider: "openai",
+          }),
+        ]),
+      },
+      undefined,
+    );
   });
 
   it("keeps the all view exact instead of timing out to a partial catalog", async () => {

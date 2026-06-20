@@ -15,6 +15,9 @@ import {
   createDispatchProposal,
   confirmDispatch,
   materializeTaskPackage,
+  confirmRoleExecution,
+  confirmRoleExecutionCost,
+  runApprovedTask,
   createWorkBlocks,
 } from "./store.js";
 
@@ -40,7 +43,7 @@ describe("AICS 端到端", () => {
             id: signalId,
             title: "授权转化",
             summary: "首批岗位授权和执行数据待补齐",
-            evidenceRefs: [],
+            evidenceRefs: [`evidence:role-marketplace:conversion:${suffix}`],
           },
         ],
       }),
@@ -55,10 +58,10 @@ describe("AICS 端到端", () => {
         findings: [
           {
             id: `finding_conversion_${suffix}`,
-            title: "详情页转化不足",
-            summary: "",
+            title: "岗位商品信息表达不足",
+            summary: "岗位能力说明、授权说明和输出样例不足，影响买家授权判断。",
             confidence: "high",
-            observationSignalIds: [],
+            observationSignalIds: [signalId],
           },
         ],
       }),
@@ -86,10 +89,10 @@ describe("AICS 端到端", () => {
         summary: "",
         rolePlanItems: [
           {
-            title: "岗位详情页转化优化",
-            roleCapabilityRef: "ecommerce-visual",
-            taskIntent: "优化岗位商品详情页",
-            expectedOutput: "展示优化方案",
+            title: "岗位商品信息架构优化",
+            roleCapabilityRef: "marketplace-listing-ops",
+            taskIntent: "优化岗位商品能力说明、授权说明和输出样例",
+            expectedOutput: "岗位商品信息架构方案",
           },
         ],
       }),
@@ -99,7 +102,7 @@ describe("AICS 端到端", () => {
 
     const proposal = store.update((s) =>
       createDispatchProposal(s, {
-        title: "岗位详情页优化调度",
+        title: "岗位商品信息架构优化调度",
         riskSummary: "低风险",
         confirmationSummary: "确认执行",
       }),
@@ -108,8 +111,16 @@ describe("AICS 端到端", () => {
 
     const result = store.update((s) =>
       materializeTaskPackage(s, {
-        title: "任务：岗位详情页优化",
-        taskText: "输出岗位商品展示优化方案",
+        title: "任务：岗位商品信息架构优化",
+        taskText: "输出岗位商品信息架构方案",
+        capabilityResolution: {
+          categoryCapabilityId: "cloud:marketplace-ops",
+          category: "岗位商城",
+          allowedTools: ["tool:web_search"],
+          allowedSkills: ["skill:image-edit"],
+          dispatchReady: true,
+          blockedReasons: [],
+        },
       }),
     );
     expect(result.taskPackage.status).toBe("materialized");
@@ -122,12 +133,184 @@ describe("AICS 端到端", () => {
     expect(rm.counts.taskPackages).toBe((before.taskPackages ?? 0) + 1);
   });
 
+  it("商城运营诊断官：观察 → 规划 → 调度 → 授权执行 → 审计费用摘要", () => {
+    const store = new AicsMainFlowStore();
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+    const obs = store.update((s) =>
+      prepareObservation(s, {
+        title: "商城运营诊断观察",
+        summary: "需要分析岗位供给、授权转化、执行成功率、能力路由和费用审计状态。",
+        signals: [
+          {
+            id: `signal_marketplace_ops_${suffix}`,
+            title: "商城运营状态",
+            summary: "岗位商城存在授权转化、执行成功率和能力路由阻塞待诊断。",
+            evidenceRefs: [`evidence_marketplace_ops_${suffix}`],
+          },
+        ],
+      }),
+    );
+    store.update((s) => confirmObservation(s, obs.id));
+
+    const attr = store.update((s) =>
+      prepareAttribution(s, {
+        title: "商城运营诊断归因",
+        summary: "首批岗位授权和执行不稳定主要来自岗位供给表达、能力路由阻塞和费用确认路径不清晰。",
+        findings: [
+          {
+            id: `finding_marketplace_ops_${suffix}`,
+            title: "能力路由和授权链路影响执行转化",
+            summary: "可调用岗位、授权状态、Tool/Skill 依赖和费用确认需要统一诊断。",
+            confidence: "high",
+            observationSignalIds: [`signal_marketplace_ops_${suffix}`],
+          },
+        ],
+      }),
+    );
+    store.update((s) => confirmAttribution(s, attr.id));
+
+    const goal = store.update((s) =>
+      createGoalCandidate(s, {
+        title: "提升岗位商城运营闭环稳定性",
+        owner: "OpenClaw",
+        metric: "首批岗位授权转化与执行成功率",
+        target: "诊断报告可生成、可调度、可执行、可回写审计费用摘要",
+        rationale: "基于商城运营观察和归因结果创建可执行目标。",
+      }),
+    );
+    store.update((s) => confirmGoal(s, goal.id));
+
+    const plan = store.update((s) =>
+      preparePlanning(s, {
+        title: "商城运营诊断规划",
+        summary: "由商城运营诊断官读取云端商城和本地 Gateway 投影并输出诊断报告。",
+        rolePlanItems: [
+          {
+            title: "生成商城运营诊断报告",
+            category: "商城运营诊断",
+            roleCapabilityRef: "marketplace-ops-diagnosis",
+            taskIntent: "分析岗位供给、授权、能力路由、调度执行、费用摘要和审计记录。",
+            expectedOutput: "商城运营诊断报告",
+            humanConfirmationRequired: true,
+          },
+        ],
+      }),
+    );
+    store.update((s) => confirmPlanning(s, plan.id));
+
+    const proposal = store.update((s) =>
+      createDispatchProposal(s, {
+        title: "调度商城运营诊断官",
+        riskSummary: "中风险：读取聚合投影并生成诊断报告，不读取原始账本或数据库。",
+        confirmationSummary: "确认后生成 TaskPackage 和 DispatchToRoleRequest。",
+      }),
+    );
+    store.update((s) => confirmDispatch(s, proposal.id));
+
+    const materialized = store.update((s) =>
+      materializeTaskPackage(s, {
+        title: "任务：商城运营诊断",
+        taskText: "输出岗位商城运营诊断报告，包含观察、归因、目标、调度建议、费用和审计摘要。",
+        capabilityResolution: {
+          categoryCapabilityId: "category:marketplace_ops_diagnosis@1",
+          category: "商城运营诊断",
+          allowedTools: [
+            "adapter.platform.marketplace_read_model",
+            "adapter.platform.gateway_role_read_model",
+            "adapter.platform.ledger_summary_read",
+            "tool.platform.audit-record",
+            "tool.platform.template_renderer",
+          ],
+          allowedSkills: ["skill.platform.marketplace_ops_diagnosis"],
+          dispatchReady: true,
+          blockedReasons: [],
+        },
+        request: {
+          roleListingId: "djrole_marketplace_ops_diagnosis",
+          roleTitle: "商城运营诊断官",
+        },
+      }),
+    );
+    store.update((s) =>
+      confirmRoleExecution(s, {
+        dispatchToRoleRequestId: materialized.dispatchToRoleRequest.id,
+        roleListingId: "djrole_marketplace_ops_diagnosis",
+        roleTitle: "商城运营诊断官",
+        entitlementId: "djent_marketplace_ops_diagnosis",
+      }),
+    );
+    store.update((s) =>
+      confirmRoleExecutionCost(s, {
+        dispatchToRoleRequestId: materialized.dispatchToRoleRequest.id,
+        entitlementId: "djent_marketplace_ops_diagnosis",
+        ledgerRef: `ledger:role_execution:djent_marketplace_ops_diagnosis:${suffix}`,
+      }),
+    );
+
+    const run = store.update((s) =>
+      runApprovedTask(s, {
+        taskPackageId: materialized.taskPackage.id,
+        dispatchToRoleRequestId: materialized.dispatchToRoleRequest.id,
+        roleListingId: "djrole_marketplace_ops_diagnosis",
+        roleTitle: "商城运营诊断官",
+        entitlementId: "djent_marketplace_ops_diagnosis",
+        confirmExecution: true,
+        costConfirmed: true,
+        ledgerRef: `ledger:role_execution:djent_marketplace_ops_diagnosis:${suffix}`,
+        result: {
+          outcome: "succeeded",
+          summary: "已生成商城运营诊断报告，覆盖授权、能力路由、调度执行、费用和审计摘要。",
+          artifactRefs: [
+            `artifact:marketplace_ops_report_${suffix}`,
+            `audit:audit_marketplace_ops_${suffix}`,
+          ],
+          executionEvidence: {
+            executionId: `exec_marketplace_ops_${suffix}`,
+            roleListingId: "djrole_marketplace_ops_diagnosis",
+            entitlementId: "djent_marketplace_ops_diagnosis",
+            ledgerRef: `ledger:role_execution:djent_marketplace_ops_diagnosis:${suffix}`,
+            humanConfirmationRef: `human:confirm:${materialized.dispatchToRoleRequest.id}:exec_marketplace_ops_${suffix}`,
+            costSummary: {
+              authorizationFeeCents: 0,
+              executionFeeCents: 0,
+              modelUsageCostCents: 3,
+              totalCostCents: 3,
+              currency: "CNY",
+              source: "local_ledger",
+              ledgerRef: `ledger:role_execution:djent_marketplace_ops_diagnosis:${suffix}`,
+            },
+            toolUsage: {
+              totalToolCalls: 2,
+              successfulCalls: 2,
+              failedCalls: 0,
+            },
+            modelUsage: {
+              inputTokens: 1200,
+              outputTokens: 600,
+              totalTokens: 1800,
+              costCents: 3,
+            },
+          },
+        },
+      }),
+    );
+
+    expect(run.dispatchToRoleRequest.status).toBe("completed");
+    expect(run.roleResult?.outcome).toBe("succeeded");
+    expect(run.roleResult?.artifactRefs).toContain(`artifact:marketplace_ops_report_${suffix}`);
+    expect(run.roleResult?.artifactRefs).toContain(
+      `ledger:role_execution:djent_marketplace_ops_diagnosis:${suffix}`,
+    );
+    expect(run.roleResult?.executionEvidence?.modelUsage?.costCents).toBe(3);
+  });
+
   it("执行链路：RoleInstance → Run → Steps → Artifacts → Memory", () => {
     const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const executionId = `ex_${suffix}`;
     const inst = RoleInstanceStore.ensureInstance({
       roleListingId: `rl_test_${suffix}`,
-      roleTitle: "电商美工",
+      roleTitle: "岗位商城运营",
       workspaceDir: `/tmp/e2e-${suffix}`,
     });
     const run = RoleInstanceStore.recordRun({
@@ -197,7 +380,14 @@ describe("AICS 端到端", () => {
       const obs = prepareObservation(s, {
         title: "obs",
         summary: "",
-        signals: [{ id: signalId, title: "经营意图", summary: "测试观察信号", evidenceRefs: [] }],
+        signals: [
+          {
+            id: signalId,
+            title: "经营意图",
+            summary: "测试观察信号",
+            evidenceRefs: [`evidence:management:${signalId}`],
+          },
+        ],
       });
       confirmObservation(s, obs.id);
       const attr = prepareAttribution(s, {
@@ -227,18 +417,20 @@ describe("AICS 端到端", () => {
     store.update((s) =>
       createWorkBlocks(s, goal.id, [
         {
-          name: "详情页转化",
+          name: "岗位商品信息架构",
           purpose: "提升岗位授权转化",
-          progressGauge: "授权转化率",
-          roles: [{ roleListingId: "rl_1", roleTitle: "电商美工" }],
-          tasks: [{ title: "岗位商品详情页优化", targetDeliverable: "展示优化方案" }],
+          progressGauge: "岗位商品可判断、可授权、可调用",
+          roles: [{ roleListingId: "rl_1", roleTitle: "岗位商城运营" }],
+          tasks: [{ title: "岗位商品信息架构优化", targetDeliverable: "信息架构方案" }],
         },
       ]),
     );
 
     const rm = store.readModel() as Record<string, unknown>;
     const wb = rm.workBlocks as Array<Record<string, unknown>>;
-    expect(wb.some((item) => item.goalId === goal.id && item.name === "详情页转化")).toBe(true);
+    expect(wb.some((item) => item.goalId === goal.id && item.name === "岗位商品信息架构")).toBe(
+      true,
+    );
   });
 
   it("错误恢复：RoleRun retry", () => {

@@ -256,12 +256,22 @@ const ApiConnectionKindSchema = z.union([
 
 const ApiConnectionConsumerSchema = z.union([
   z.literal("marketplace"),
+  z.literal("marketplace_dialog"),
+  z.literal("local_dialog"),
   z.literal("dispatch"),
   z.literal("main_chat"),
+  z.literal("operations_backend"),
+  z.literal("build_session"),
+  z.literal("buyer_storefront"),
+  z.literal("user_center"),
+  z.literal("developer_center"),
+  z.literal("ai_review"),
+  z.literal("role_execution"),
   z.literal("tool"),
   z.literal("skill"),
   z.literal("voice"),
   z.literal("image"),
+  z.literal("media_model"),
   z.literal("model"),
 ]);
 
@@ -341,12 +351,49 @@ const ToolSupplyUniqueCapabilityRequestSchema = z
   })
   .strict();
 
+const ToolSupplyCategorySchema = z
+  .object({
+    id: z.string().trim().min(1),
+    name: z.string().trim().min(1),
+    source: z.literal("cloud"),
+    status: z.union([z.literal("active"), z.literal("disabled"), z.literal("pending")]),
+    listingCount: z.number().int().nonnegative().optional(),
+    createdAt: z.string().optional(),
+    updatedAt: z.string().optional(),
+  })
+  .strict();
+
+const ToolSupplyBindingSchema = z
+  .object({
+    id: z.string().trim().min(1),
+    sourceItemId: z.string().trim().min(1),
+    sourceKind: z.union([z.literal("tool"), z.literal("skill")]),
+    targetKind: z.union([z.literal("category_capability"), z.literal("role_dispatch")]),
+    targetId: z.string().trim().min(1),
+    targetTitle: z.string().trim().min(1).optional(),
+    status: z.union([z.literal("active"), z.literal("paused")]),
+    syncStatus: z
+      .union([
+        z.literal("local"),
+        z.literal("syncing"),
+        z.literal("synced"),
+        z.literal("sync_failed"),
+      ])
+      .optional(),
+    note: z.string().optional(),
+    createdAt: z.string().optional(),
+    updatedAt: z.string().optional(),
+  })
+  .strict();
+
 const ToolSupplySchema = z
   .object({
+    categories: z.record(z.string(), ToolSupplyCategorySchema).optional(),
     grants: z.record(z.string(), ToolSupplyGrantSchema).optional(),
     uniqueCapabilityRequests: z
       .record(z.string(), ToolSupplyUniqueCapabilityRequestSchema)
       .optional(),
+    bindings: z.record(z.string(), ToolSupplyBindingSchema).optional(),
   })
   .strict()
   .optional();

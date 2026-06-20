@@ -4,6 +4,7 @@
 // 输出前端直接可渲染的"我的岗位"read model
 
 import { existsSync } from "node:fs";
+import { createRoleInstanceTables, getRoleInstancesDb } from "./db.js";
 import { RoleInstanceStore } from "./role-instance-store.js";
 import type {
   RoleInstanceRecord,
@@ -30,11 +31,15 @@ export type MyRolesSummary = {
   failedRuns: number;
   totalArtifacts: number;
   openQualityIssues: number;
+  instanceStoreError?: string;
 };
 
 export type MyRoleCard = {
   roleKey: string;
   roleListingId?: string;
+  entitlementId?: string;
+  authorizationFeeCents?: number;
+  priceLabel?: string;
   instanceId?: string;
   title: string;
   source: "marketplace" | "local_instance" | "merged";
@@ -120,6 +125,8 @@ export type MyRolesReadModelParams = {
     capabilities?: string[];
     entitlementId?: string;
     entitlementStatus?: string;
+    authorizationFeeCents?: number;
+    priceLabel?: string;
   }>;
   includeArchived?: boolean;
   includeRecentRuns?: boolean;
@@ -139,10 +146,12 @@ export function buildMyRolesReadModel(params: MyRolesReadModelParams = {}): MyRo
   const allInstances: RoleInstanceRecord[] = [];
   const runsByInstance = new Map<string, RoleRunRecord[]>();
   const artifactsByInstance = new Map<string, RoleArtifactRecord[]>();
+  let instanceStoreError: string | undefined;
 
   // 扫描所有已知实例（简单全表扫描，数据量小）
-  const db = require("./db.js").getRoleInstancesDb();
-  if (db) {
+  try {
+    createRoleInstanceTables();
+    const db = getRoleInstancesDb();
     const rows = db
       .prepare("SELECT instance_id FROM role_instances ORDER BY created_at DESC")
       .all() as Array<{ instance_id: string }>;
@@ -160,6 +169,9 @@ export function buildMyRolesReadModel(params: MyRolesReadModelParams = {}): MyRo
         artifactsByInstance.set(instance_id, allArtifacts.slice(0, maxArtifacts));
       }
     }
+  } catch (error) {
+    instanceStoreError =
+      error instanceof Error ? error.message : "岗位实例库暂时不可读，已仅展示授权岗位资产。";
   }
 
   // 从 marketplace roles 收集
@@ -231,6 +243,7 @@ export function buildMyRolesReadModel(params: MyRolesReadModelParams = {}): MyRo
     failedRuns: roles.reduce((s, r) => s + r.runSummary.failed, 0),
     totalArtifacts: roles.reduce((s, r) => s + r.artifactSummary.total, 0),
     openQualityIssues: roles.reduce((s, r) => s + r.qualitySummary.openIssues, 0),
+    ...(instanceStoreError ? { instanceStoreError } : {}),
   };
 
   return { updatedAt: now, summary, roles };
@@ -247,6 +260,8 @@ function buildRoleCard(params: {
     capabilities?: string[];
     entitlementId?: string;
     entitlementStatus?: string;
+    authorizationFeeCents?: number;
+    priceLabel?: string;
   };
   runs: RoleRunRecord[];
   artifacts: RoleArtifactRecord[];
@@ -294,6 +309,11 @@ function buildRoleCard(params: {
   return {
     roleKey: key,
     roleListingId: mktRole?.roleListingId || inst?.roleListingId,
+    ...(mktRole?.entitlementId ? { entitlementId: mktRole.entitlementId } : {}),
+    ...(typeof mktRole?.authorizationFeeCents === "number"
+      ? { authorizationFeeCents: mktRole.authorizationFeeCents }
+      : {}),
+    ...(mktRole?.priceLabel ? { priceLabel: mktRole.priceLabel } : {}),
     instanceId: inst?.instanceId,
     title,
     source: mktRole && inst ? "merged" : mktRole ? "marketplace" : "local_instance",
@@ -358,7 +378,22 @@ function buildCapabilities(declared: string[]): MyRoleCapability[] {
     "workspace.read": { label: "工作区读取", group: "workspace" },
     "workspace.write": { label: "工作区写入", group: "workspace" },
     "human.confirm": { label: "人工确认", group: "human" },
+    "marketplace.read": { label: "岗位商城读取", group: "marketplace" },
+    "gateway.role_read_model": { label: "岗位网关读模型", group: "marketplace" },
+    "ledger.summary.read": { label: "账本摘要读取", group: "ledger" },
+    "audit.record": { label: "审计记录", group: "audit" },
+    "document.write": { label: "文档输出", group: "document" },
+    "model.chat.analysis": { label: "模型分析", group: "model" },
   };
+  const platformProvided = new Set([
+    "marketplace.read",
+    "gateway.role_read_model",
+    "ledger.summary.read",
+    "audit.record",
+    "document.write",
+    "human.confirm",
+    "model.chat.analysis",
+  ]);
 
   for (const cap of declared) {
     const info = groups[cap] || { label: cap, group: "other" };
@@ -366,7 +401,7 @@ function buildCapabilities(declared: string[]): MyRoleCapability[] {
     let status: MyRoleCapability["status"] = "ready";
     let missingReason: string | undefined;
 
-    if (resolved.summary.missing > 0) {
+    if (!platformProvided.has(cap) && resolved.summary.missing > 0) {
       status = "missing_tool";
       missingReason = `缺少工具: ${cap}`;
     } else if (!process.env.DEEPSEEK_API_KEY && !process.env.DASHSCOPE_API_KEY) {

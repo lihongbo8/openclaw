@@ -58,7 +58,6 @@ import {
 } from "./controllers/skill-workshop.ts";
 import { loadSkills, type SkillsState } from "./controllers/skills.ts";
 import { loadUsage, type UsageState } from "./controllers/usage.ts";
-import { loadWorkboard } from "./controllers/workboard.ts";
 import { resolveCronJobLastRunStatus } from "./cron-status.ts";
 import { syncCustomThemeStyleTag } from "./custom-theme.ts";
 import { isMonitoredAuthProvider } from "./model-auth-helpers.ts";
@@ -119,8 +118,10 @@ type SettingsHost = {
   controlUiCronRefreshSeq?: number;
   sessionsChangedReloadTimer?: number | ReturnType<typeof globalThis.setTimeout> | null;
   refreshAicsMainFlowReadModel?: () => Promise<void>;
+  refreshApiConnectionsReadModel?: () => Promise<void>;
   refreshMyRolesReadModel?: () => Promise<void>;
   refreshToolSupplyControlReadModel?: () => Promise<void>;
+  refreshReviewCenter?: () => Promise<void>;
   dreamingStatusLoading: boolean;
   dreamingStatusError: string | null;
   dreamingStatus: import("./controllers/dreaming.js").DreamingStatus | null;
@@ -447,12 +448,7 @@ export async function refreshActiveTab(host: SettingsHost, opts?: { chatStartup?
           loadConfig(app),
           loadSessions(app),
           loadAgents(app),
-          loadWorkboard({
-            host,
-            client: app.client,
-            force: true,
-            requestUpdate: host.requestUpdate,
-          }),
+          host.refreshAicsMainFlowReadModel?.(),
         ]);
         break;
       case "aics":
@@ -474,6 +470,17 @@ export async function refreshActiveTab(host: SettingsHost, opts?: { chatStartup?
         break;
       case "usage":
         await loadUsage(app);
+        break;
+      case "apiManagement":
+        await Promise.all([
+          host.refreshApiConnectionsReadModel?.(),
+          host.refreshToolSupplyControlReadModel?.(),
+          host.refreshMyRolesReadModel?.(),
+          loadUsage(app),
+        ]);
+        break;
+      case "reviewCenter":
+        await host.refreshReviewCenter?.();
         break;
       case "sessions":
         await Promise.all([loadConfig(app), loadSessions(app)]);

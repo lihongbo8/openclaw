@@ -96,7 +96,7 @@ function sessionsTableHtml() {
                 <td><select><option>on</option></select></td>
                 <td><select><option>full</option></select></td>
                 <td><select><option>stream</option></select></td>
-                <td><button class="icon-btn" title="Add to Workboard"></button></td>
+                <td><button class="icon-btn" title="Open chat"></button></td>
               </tr>
               <tr class="session-checkpoint-details-row">
                 <td colspan="14">

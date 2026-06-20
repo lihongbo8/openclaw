@@ -195,8 +195,6 @@ export const ja_JP: TranslationMap = {
     verbose: "詳細",
     reasoning: "推論",
     actions: "アクション",
-    addToWorkboard: "Workboardに追加",
-    openWorkboardCard: "Workboardカードを開く",
     noSessions: "セッションが見つかりません。",
     noSessionsMatchFilters: "フィルターに一致するセッションはありません。",
     showAll: "すべて表示",

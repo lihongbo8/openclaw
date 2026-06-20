@@ -283,10 +283,87 @@ function installControlUiMockGateway(input: {
     summary: string;
     title: string;
   };
+  type MainFlowGoal = MainFlowEntity & {
+    kind: "CompanyGoal";
+    attributionReportId: string;
+    observationPackageId?: string;
+    owner: string;
+    metric: string;
+    target: string;
+    rationale: string;
+    title: string;
+  };
+  type MainFlowPlanning = MainFlowEntity & {
+    kind: "PlanningPackage";
+    goalId: string;
+    title: string;
+    summary: string;
+    rolePlanItemIds: string[];
+    revision: number;
+  };
+  type MainFlowRolePlanItem = MainFlowEntity & {
+    kind: "RolePlanItem";
+    planningPackageId: string;
+    title: string;
+    category?: string;
+    roleCapabilityRef: string;
+    taskIntent: string;
+    expectedOutput: string;
+    humanConfirmationRequired: boolean;
+    dispatchStatus?: string;
+    acceptanceCriteria?: string[];
+    capabilityMatchSummary?: string;
+  };
+  type MainFlowDispatchProposal = MainFlowEntity & {
+    kind: "DispatchProposalReview";
+    planningPackageId: string;
+    rolePlanItemId: string;
+    title: string;
+    riskSummary: string;
+    confirmationSummary: string;
+  };
+  type MainFlowTaskPackage = MainFlowEntity & {
+    kind: "TaskPackage";
+    goalId: string;
+    planningPackageId: string;
+    rolePlanItemId: string;
+    dispatchProposalReviewId: string;
+    title: string;
+    taskText: string;
+  };
+  type MainFlowDispatchToRoleRequest = MainFlowEntity & {
+    kind: "DispatchToRoleRequest";
+    taskPackageId: string;
+    rolePlanItemId: string;
+    roleTitle?: string;
+    roleListingId?: string;
+    entitlementId?: string;
+    confirmExecution?: boolean;
+    costConfirmed?: boolean;
+    ledgerRef?: string;
+    toolSkillReady?: boolean;
+    apiBindingReady?: boolean;
+  };
+  type MainFlowRoleResult = MainFlowEntity & {
+    kind: "RoleResult";
+    taskPackageId: string;
+    dispatchToRoleRequestId: string;
+    outcome: "succeeded" | "failed" | "blocked";
+    summary: string;
+    artifactRefs: string[];
+    executionEvidence: Record<string, unknown>;
+  };
   type MainFlowMockState = {
     attributions: MainFlowAttribution[];
+    dispatchProposalReviews: MainFlowDispatchProposal[];
+    dispatchToRoleRequests: MainFlowDispatchToRoleRequest[];
+    goals: MainFlowGoal[];
     interactions: MainFlowInteraction[];
     observations: MainFlowObservation[];
+    planningPackages: MainFlowPlanning[];
+    rolePlanItems: MainFlowRolePlanItem[];
+    roleResults: MainFlowRoleResult[];
+    taskPackages: MainFlowTaskPackage[];
   };
   type ExposedGateway = {
     closeLatest: (code?: number, reason?: string) => void;
@@ -314,8 +391,15 @@ function installControlUiMockGateway(input: {
   const sockets: unknown[] = [];
   const mainFlowState: MainFlowMockState = {
     attributions: [],
+    dispatchProposalReviews: [],
+    dispatchToRoleRequests: [],
+    goals: [],
     interactions: [],
     observations: [],
+    planningPackages: [],
+    rolePlanItems: [],
+    roleResults: [],
+    taskPackages: [],
   };
   let seq = 0;
 
@@ -432,6 +516,16 @@ function installControlUiMockGateway(input: {
     );
   }
 
+  function latestConfirmedGoal(): MainFlowGoal | null {
+    return latestByCreatedAt(mainFlowState.goals.filter((goal) => goal.status === "confirmed"));
+  }
+
+  function latestConfirmedPlanning(): MainFlowPlanning | null {
+    return latestByCreatedAt(
+      mainFlowState.planningPackages.filter((planning) => planning.status === "confirmed"),
+    );
+  }
+
   function buildMainFlowReadModel() {
     const observationReady = latestObservationReady();
     const attributionReady = latestAttributionReady();
@@ -454,17 +548,25 @@ function installControlUiMockGateway(input: {
               message: "AttributionReport is required before creating goal rationale.",
             },
           ]),
-      {
-        stage: "goal",
-        code: "missing_confirmed_company_goal",
-        message: "A user-confirmed CompanyGoal is required before planning.",
-      },
-      {
-        stage: "planning",
-        code: "missing_confirmed_planning_package",
-        message:
-          "A confirmed PlanningPackage with RolePlanItem entries is required before dispatch.",
-      },
+      ...(latestConfirmedGoal()
+        ? []
+        : [
+            {
+              stage: "goal",
+              code: "missing_confirmed_company_goal",
+              message: "A user-confirmed CompanyGoal is required before planning.",
+            },
+          ]),
+      ...(latestConfirmedPlanning()
+        ? []
+        : [
+            {
+              stage: "planning",
+              code: "missing_confirmed_planning_package",
+              message:
+                "A confirmed PlanningPackage with RolePlanItem entries is required before dispatch.",
+            },
+          ]),
       {
         stage: "dispatch",
         code: "missing_confirmed_dispatch_proposal",
@@ -489,14 +591,20 @@ function installControlUiMockGateway(input: {
       readiness: {
         canPrepareAttribution: observationReady,
         canCreateGoalCandidate: attributionReady,
-        canPreparePlanning: false,
-        canCreateDispatchProposal: false,
-        canMaterializeTaskPackage: false,
-        canEnterRoleExecution: false,
-        canRunApprovedTask: false,
+        canPreparePlanning: Boolean(latestConfirmedGoal()),
+        canCreateDispatchProposal: Boolean(latestConfirmedPlanning()),
+        canMaterializeTaskPackage: mainFlowState.dispatchProposalReviews.some(
+          (proposal) => proposal.status === "confirmed",
+        ),
+        canEnterRoleExecution: mainFlowState.dispatchToRoleRequests.length > 0,
+        canRunApprovedTask: mainFlowState.dispatchToRoleRequests.some(
+          (request) => request.confirmExecution === true && request.costConfirmed === true,
+        ),
       },
       executionPreflight: {
-        canRun: false,
+        canRun: mainFlowState.dispatchToRoleRequests.some(
+          (request) => request.confirmExecution === true && request.costConfirmed === true,
+        ),
         blockedReasons: [],
       },
       blockedReasons,
@@ -504,37 +612,37 @@ function installControlUiMockGateway(input: {
         interaction: latestByCreatedAt(mainFlowState.interactions),
         observationPackage: latestByCreatedAt(mainFlowState.observations),
         attributionReport: latestByCreatedAt(mainFlowState.attributions),
-        companyGoal: null,
-        planningPackage: null,
-        rolePlanItem: null,
-        dispatchProposalReview: null,
-        taskPackage: null,
-        dispatchToRoleRequest: null,
-        roleResult: null,
+        companyGoal: latestByCreatedAt(mainFlowState.goals),
+        planningPackage: latestByCreatedAt(mainFlowState.planningPackages),
+        rolePlanItem: latestByCreatedAt(mainFlowState.rolePlanItems),
+        dispatchProposalReview: latestByCreatedAt(mainFlowState.dispatchProposalReviews),
+        taskPackage: latestByCreatedAt(mainFlowState.taskPackages),
+        dispatchToRoleRequest: latestByCreatedAt(mainFlowState.dispatchToRoleRequests),
+        roleResult: latestByCreatedAt(mainFlowState.roleResults),
       },
       counts: {
         interactions: mainFlowState.interactions.length,
         observations: mainFlowState.observations.length,
         attributions: mainFlowState.attributions.length,
-        goals: 0,
-        planningPackages: 0,
-        rolePlanItems: 0,
-        dispatchProposalReviews: 0,
-        taskPackages: 0,
-        dispatchToRoleRequests: 0,
-        roleResults: 0,
+        goals: mainFlowState.goals.length,
+        planningPackages: mainFlowState.planningPackages.length,
+        rolePlanItems: mainFlowState.rolePlanItems.length,
+        dispatchProposalReviews: mainFlowState.dispatchProposalReviews.length,
+        taskPackages: mainFlowState.taskPackages.length,
+        dispatchToRoleRequests: mainFlowState.dispatchToRoleRequests.length,
+        roleResults: mainFlowState.roleResults.length,
       },
       objects: {
         interactions: mainFlowState.interactions,
         observations: mainFlowState.observations,
         attributions: mainFlowState.attributions,
-        goals: [],
-        planningPackages: [],
-        rolePlanItems: [],
-        dispatchProposalReviews: [],
-        taskPackages: [],
-        dispatchToRoleRequests: [],
-        roleResults: [],
+        goals: mainFlowState.goals,
+        planningPackages: mainFlowState.planningPackages,
+        rolePlanItems: mainFlowState.rolePlanItems,
+        dispatchProposalReviews: mainFlowState.dispatchProposalReviews,
+        taskPackages: mainFlowState.taskPackages,
+        dispatchToRoleRequests: mainFlowState.dispatchToRoleRequests,
+        roleResults: mainFlowState.roleResults,
       },
       workBlocks: [],
       workBlockRoles: [],
@@ -581,6 +689,25 @@ function installControlUiMockGateway(input: {
     return observation;
   }
 
+  function collectMainFlowObservation(params: unknown): {
+    observationPackage: MainFlowObservation;
+  } {
+    const record = isRecord(params) ? params : {};
+    const observation = prepareMainFlowObservation({
+      title: typeof record.title === "string" ? record.title : "当前账号真实数据分析包",
+      summary: "从本地主流程 read model 采集到的真实观察事实。",
+      signals: [
+        {
+          id: "local-main-flow-stage",
+          title: "当前主流程阶段",
+          summary: "本地主流程 read model 已返回当前阶段、阻塞项和下一步动作。",
+          evidenceRefs: ["aics-local-read-model"],
+        },
+      ],
+    });
+    return { observationPackage: observation };
+  }
+
   function prepareMainFlowAttribution(params: unknown): MainFlowAttribution {
     const record = isRecord(params) ? params : {};
     const findings = Array.isArray(record.findings)
@@ -601,6 +728,270 @@ function installControlUiMockGateway(input: {
     };
     mainFlowState.attributions.push(attribution);
     return attribution;
+  }
+
+  function generateMainFlowAttributionFromLatest(): { attribution: MainFlowAttribution } {
+    const observation = latestByCreatedAt(mainFlowState.observations);
+    const signals =
+      observation?.signals?.filter(
+        (signal) => Array.isArray(signal.evidenceRefs) && signal.evidenceRefs.length > 0,
+      ) ?? [];
+    const attribution = prepareMainFlowAttribution({
+      observationPackageId: observation?.id,
+      title: "归因报告",
+      summary: signals.length
+        ? `基于 ${signals.length} 条已确认观察证据生成归因候选。`
+        : "观察证据不足，需要补充真实经营数据。",
+      findings: signals.slice(0, 3).map((signal, index) => ({
+        id: `finding-${index + 1}`,
+        title: signal.title,
+        summary: signal.summary,
+        confidence: "medium",
+        observationSignalIds: [signal.id],
+      })),
+    });
+    return { attribution };
+  }
+
+  function createMainFlowGoal(params: unknown = {}): MainFlowGoal {
+    const record = isRecord(params) ? params : {};
+    const attribution = latestByCreatedAt(mainFlowState.attributions);
+    const observation = latestByCreatedAt(mainFlowState.observations);
+    const base = makeEntityBase("CompanyGoal", "goal", "candidate");
+    const goal: MainFlowGoal = {
+      ...base,
+      kind: "CompanyGoal",
+      attributionReportId:
+        typeof record.attributionReportId === "string"
+          ? record.attributionReportId
+          : (attribution?.id ?? "attr_latest"),
+      ...(observation?.id ? { observationPackageId: observation.id } : {}),
+      owner: typeof record.owner === "string" ? record.owner : "迭界AI",
+      metric: typeof record.metric === "string" ? record.metric : "首批岗位授权转化与执行成功率",
+      target: typeof record.target === "string" ? record.target : "首批岗位可授权、可执行、可回写",
+      rationale:
+        typeof record.rationale === "string"
+          ? record.rationale
+          : `基于归因报告 ${attribution?.title ?? "归因报告"} 生成的目标候选。`,
+      title:
+        typeof record.title === "string"
+          ? record.title
+          : "提升岗位商城首批岗位授权转化与执行成功率",
+    };
+    mainFlowState.goals.push(goal);
+    return goal;
+  }
+
+  function updateMainFlowGoal(params: unknown, status: "confirmed"): MainFlowGoal {
+    const record = isRecord(params) ? params : {};
+    const goalId = typeof record.goalId === "string" ? record.goalId : undefined;
+    const goal =
+      mainFlowState.goals.find((item) => item.id === goalId) ??
+      latestByCreatedAt(mainFlowState.goals);
+    if (!goal) return createMainFlowGoal({ status });
+    goal.status = status;
+    goal.updatedAt = Date.now();
+    return goal;
+  }
+
+  function generateMainFlowPlanning(params: unknown = {}): { planning: MainFlowPlanning } {
+    const record = isRecord(params) ? params : {};
+    const goal =
+      latestConfirmedGoal() ?? latestByCreatedAt(mainFlowState.goals) ?? createMainFlowGoal();
+    const revision =
+      mainFlowState.planningPackages.filter((planning) => planning.goalId === goal.id).length + 1;
+    const base = makeEntityBase("PlanningPackage", "planning_pkg", "prepared");
+    const planning: MainFlowPlanning = {
+      ...base,
+      kind: "PlanningPackage",
+      goalId: goal.id,
+      title: `规划方案：${goal.title}`,
+      summary: `基于目标 "${goal.metric} = ${goal.target}" 生成岗位工作项。`,
+      rolePlanItemIds: [],
+      revision,
+    };
+    const items: MainFlowRolePlanItem[] = [
+      {
+        ...makeEntityBase("RolePlanItem", "role_plan_item", "prepared"),
+        kind: "RolePlanItem",
+        planningPackageId: planning.id,
+        title: "岗位供给与审核优化",
+        category: "岗位商城",
+        roleCapabilityRef: "marketplace-operations",
+        taskIntent: "梳理岗位商品供给、审核状态、能力标签和上架阻塞。",
+        expectedOutput: "岗位供给清单、审核阻塞和补齐建议。",
+        humanConfirmationRequired: false,
+        dispatchStatus: "not_dispatched",
+        acceptanceCriteria: ["输入来源可追溯", "输出可进入调度层"],
+        capabilityMatchSummary: "商城运营与审核能力。",
+      },
+      {
+        ...makeEntityBase("RolePlanItem", "role_plan_item", "prepared"),
+        kind: "RolePlanItem",
+        planningPackageId: planning.id,
+        title: "API 与模型连接治理",
+        category: "岗位商城",
+        roleCapabilityRef: "api-connection-ops",
+        taskIntent: "核对模型 Provider、工具 API、Skill 依赖和 SecretRef。",
+        expectedOutput: "系统使用连通性检查表和修复顺序。",
+        humanConfirmationRequired: true,
+        dispatchStatus: "not_dispatched",
+        acceptanceCriteria: ["缺 SecretRef 能定位", "不在规划层执行岗位"],
+        capabilityMatchSummary: "API 管理与能力路由能力。",
+      },
+    ];
+    planning.rolePlanItemIds = items.map((item) => item.id);
+    if (record.mode === "regenerate") {
+      for (const previous of mainFlowState.planningPackages.filter(
+        (item) => item.goalId === goal.id,
+      )) {
+        previous.status = "cancelled";
+      }
+    }
+    mainFlowState.planningPackages.push(planning);
+    mainFlowState.rolePlanItems.push(...items);
+    return { planning };
+  }
+
+  function updateMainFlowPlanning(params: unknown, status: "confirmed"): MainFlowPlanning {
+    const record = isRecord(params) ? params : {};
+    const planningId =
+      typeof record.planningPackageId === "string" ? record.planningPackageId : undefined;
+    const planning =
+      mainFlowState.planningPackages.find((item) => item.id === planningId) ??
+      latestByCreatedAt(mainFlowState.planningPackages);
+    if (!planning) return generateMainFlowPlanning().planning;
+    planning.status = status;
+    planning.updatedAt = Date.now();
+    for (const item of mainFlowState.rolePlanItems.filter(
+      (entry) => entry.planningPackageId === planning.id,
+    )) {
+      item.status = status;
+      item.updatedAt = planning.updatedAt;
+    }
+    return planning;
+  }
+
+  function checkAndCreateMainFlowDispatchQueue(params: unknown = {}) {
+    const record = isRecord(params) ? params : {};
+    const planning =
+      (typeof record.planningPackageId === "string"
+        ? mainFlowState.planningPackages.find((item) => item.id === record.planningPackageId)
+        : latestConfirmedPlanning()) ?? latestByCreatedAt(mainFlowState.planningPackages);
+    if (!planning) return { materialized: [] };
+    const rolePlanItems = mainFlowState.rolePlanItems.filter(
+      (item) =>
+        item.planningPackageId === planning.id &&
+        item.status === "confirmed" &&
+        item.dispatchStatus !== "dispatched" &&
+        (typeof record.rolePlanItemId !== "string" || item.id === record.rolePlanItemId),
+    );
+    const materialized: Array<{
+      taskPackage: MainFlowTaskPackage;
+      dispatchToRoleRequest: MainFlowDispatchToRoleRequest;
+    }> = [];
+    for (const item of rolePlanItems) {
+      const proposalBase = makeEntityBase("DispatchProposalReview", "dispatch_review", "confirmed");
+      const proposal: MainFlowDispatchProposal = {
+        ...proposalBase,
+        kind: "DispatchProposalReview",
+        planningPackageId: planning.id,
+        rolePlanItemId: item.id,
+        title: `调度建议：${item.title}`,
+        riskSummary: "LOW: 可进入岗位执行前确认。",
+        confirmationSummary: "确认后生成派发单和执行队列。",
+      };
+      const taskBase = makeEntityBase("TaskPackage", "task_pkg", "materialized");
+      const taskPackage: MainFlowTaskPackage = {
+        ...taskBase,
+        kind: "TaskPackage",
+        goalId: planning.goalId,
+        planningPackageId: planning.id,
+        rolePlanItemId: item.id,
+        dispatchProposalReviewId: proposal.id,
+        title: `任务：${item.title}`,
+        taskText: `${item.taskIntent}；输出：${item.expectedOutput}`,
+      };
+      const requestBase = makeEntityBase("DispatchToRoleRequest", "dispatch_role_req", "ready");
+      const dispatchToRoleRequest: MainFlowDispatchToRoleRequest = {
+        ...requestBase,
+        kind: "DispatchToRoleRequest",
+        taskPackageId: taskPackage.id,
+        rolePlanItemId: item.id,
+        roleTitle: item.title,
+        toolSkillReady: true,
+        apiBindingReady: true,
+      };
+      item.dispatchStatus = "dispatched";
+      mainFlowState.dispatchProposalReviews.push(proposal);
+      mainFlowState.taskPackages.push(taskPackage);
+      mainFlowState.dispatchToRoleRequests.push(dispatchToRoleRequest);
+      materialized.push({ taskPackage, dispatchToRoleRequest });
+    }
+    return { materialized };
+  }
+
+  function confirmAndRunMainFlowExecution(params: unknown) {
+    const record = isRecord(params) ? params : {};
+    const requestId =
+      typeof record.dispatchToRoleRequestId === "string" ? record.dispatchToRoleRequestId : "";
+    const request =
+      mainFlowState.dispatchToRoleRequests.find((item) => item.id === requestId) ??
+      latestByCreatedAt(mainFlowState.dispatchToRoleRequests);
+    if (!request) throw new Error("No mock DispatchToRoleRequest exists.");
+    const task = mainFlowState.taskPackages.find((item) => item.id === request.taskPackageId);
+    if (!task) throw new Error("No mock TaskPackage exists.");
+    request.roleListingId =
+      typeof record.roleListingId === "string" ? record.roleListingId : "marketplace-ops-role";
+    request.entitlementId =
+      typeof record.entitlementId === "string" ? record.entitlementId : "entitlement-local";
+    request.ledgerRef =
+      typeof record.ledgerRef === "string"
+        ? record.ledgerRef
+        : `ledger:role_execution:${request.entitlementId}`;
+    request.confirmExecution = true;
+    request.costConfirmed = true;
+    request.status = "completed";
+    request.updatedAt = Date.now();
+    task.status = "completed";
+    task.updatedAt = Date.now();
+    const executionId = `execution_${seq++}`;
+    const auditRecordId = `audit_${executionId}`;
+    const roleResult: MainFlowRoleResult = {
+      ...makeEntityBase("RoleResult", "role_result", "completed"),
+      kind: "RoleResult",
+      taskPackageId: task.id,
+      dispatchToRoleRequestId: request.id,
+      outcome: "succeeded",
+      summary: "岗位已完成商城运营任务，业务结果、审计记录和账本记录均已读回。",
+      artifactRefs: ["商城运营诊断报告.md", `audit:${auditRecordId}`, request.ledgerRef],
+      executionEvidence: {
+        executionId,
+        ledgerRef: request.ledgerRef,
+        modelUsageNotApplicable: true,
+        modelUsageNotApplicableReason: "UI 测试模拟未调用真实模型。",
+        auditReadback: {
+          auditRecordId,
+          executionId,
+          status: "completed",
+          summary: "审计记录已读回。",
+        },
+        ledgerReadback: {
+          ledgerRef: request.ledgerRef,
+          executionId,
+          status: "posted",
+          authorizationFeeCents: 0,
+          executionFeeCents: 0,
+        },
+      },
+    };
+    mainFlowState.roleResults.push(roleResult);
+    return {
+      ok: true,
+      status: "completed",
+      roleResult,
+      readModel: buildMainFlowReadModel(),
+    };
   }
 
   function updateMainFlowObservation(
@@ -647,6 +1038,171 @@ function installControlUiMockGateway(input: {
     return attribution;
   }
 
+  function buildToolSupplyReadModel() {
+    const skillItem = {
+      id: "skill:browser-automation",
+      label: "Browser Automation",
+      description: "浏览器自动化 Skill",
+      kind: "skill",
+      source: "skill",
+      status: "available",
+      risk: "unknown",
+      blockedReasons: [],
+      skillKey: "browser-automation",
+      configBindings: ["skills.entries.browser-automation.apiKey"],
+    };
+    const cloudItem = {
+      id: "cloud:marketplace-ops",
+      label: "岗位商城运营通用能力",
+      description: "岗位商城",
+      kind: "cloud_capability",
+      source: "cloud_marketplace",
+      status: "blocked",
+      risk: "medium",
+      blockedReasons: ["cloud_capability_not_authorized"],
+    };
+    const uniqueItem = {
+      id: "unique:visual-audit",
+      label: "商品图视觉审核独特能力",
+      description: "岗位商城",
+      kind: "cloud_capability",
+      source: "cloud_marketplace",
+      status: "pending_review",
+      risk: "high",
+      blockedReasons: ["unique_capability_pending"],
+    };
+    return {
+      version: 1,
+      updatedAt: Date.now(),
+      authority: "openclaw_local",
+      metrics: {
+        total: 2,
+        localTools: 0,
+        pluginTools: 0,
+        skills: 1,
+        apiConnections: 0,
+        cloudCapabilities: 2,
+        available: 1,
+        blocked: 1,
+        disabled: 0,
+        pendingReview: 1,
+        risks: 2,
+      },
+      localTools: [],
+      skills: [skillItem],
+      apiBindings: [],
+      cloudCapabilities: [cloudItem, uniqueItem],
+      risks: [
+        {
+          id: "cloud:marketplace-ops:cloud_capability_not_authorized",
+          label: "岗位商城运营通用能力",
+          targetKind: "cloud_capability",
+          severity: "blocking",
+          reason: "cloud_capability_not_authorized",
+          message: "云端商城能力未授权，不能本地伪造通过。",
+        },
+        {
+          id: "unique:visual-audit:unique_capability_pending",
+          label: "商品图视觉审核独特能力",
+          targetKind: "cloud_capability",
+          severity: "blocking",
+          reason: "unique_capability_pending",
+          message: "独特能力仍在申请或审核中。",
+        },
+      ],
+      grants: [],
+      uniqueCapabilityRequests: [],
+      capabilityLifecycle: [
+        {
+          id: "capability:cloud:marketplace-ops",
+          title: "岗位商城运营通用能力",
+          kind: "category_common",
+          status: "blocked",
+          sourceItemIds: ["cloud:marketplace-ops"],
+          dispatchReady: false,
+          nextAction: {
+            label: "处理云端授权",
+            routeTab: "apiManagement",
+            reason: "云端商城仍是品类能力授权来源，本地不能伪造通过。",
+          },
+          formation:
+            "品类通用能力 = 云端商城品类授权 + 本地 OpenClaw 工具权限 + Skill + API 绑定。",
+          acquisition: "需要云端商城授权该品类通用能力，本地不能伪造通过。",
+          usage: "当前只能展示和申请，不能进入岗位执行。",
+          management: "云端负责审核、授权、计费；本地负责展示、grant overlay、风险和阻塞说明。",
+          optimization:
+            "根据调度失败、岗位执行结果和风险报告，补充工具/Skill/API 或调整品类能力说明。",
+          blockedReasons: ["cloud_capability_not_authorized"],
+        },
+        {
+          id: "capability:unique:visual-audit",
+          title: "商品图视觉审核独特能力",
+          kind: "unique_capability",
+          status: "pending_review",
+          sourceItemIds: ["unique:visual-audit"],
+          dispatchReady: false,
+          nextAction: {
+            label: "准备独特能力申请",
+            routeTab: "skills",
+            reason: "独特能力仍在申请或审核中，不能直接调度。",
+          },
+          formation: "独特能力 = 业务缺口 + 能力申请 + 人工审核 + 所需工具/Skill/API。",
+          acquisition: "先寻找开源社区或 OpenClaw Skill 包；没有合适方案，再准备自研和审核材料。",
+          usage: "当前只能展示和申请，不能进入岗位执行。",
+          management: "云端负责审核、授权、计费；本地负责展示、grant overlay、风险和阻塞说明。",
+          optimization: "补齐缺失工具、Skill、API、示例输入输出和审核材料后再提交/复审。",
+          blockedReasons: ["unique_capability_pending"],
+        },
+        {
+          id: "capability:skill:browser-automation",
+          title: "Browser Automation",
+          kind: "skill",
+          status: "available",
+          sourceItemIds: ["skill:browser-automation"],
+          dispatchReady: true,
+          nextAction: {
+            label: "进入任务调度使用",
+            routeTab: "workboard",
+            reason: "能力已可用，可被调度层匹配 RolePlanItem。",
+          },
+          formation: "Skill 能力 = Skill 包 + 依赖检查 + API/配置绑定 + 启用状态。",
+          acquisition: "通过 OpenClaw Skill 仓库或本地 Skill 包获得，之后绑定 API 和依赖。",
+          usage: "可被主对话、工具调用和岗位执行作为可调用能力。",
+          management: "在本页启用/禁用 Skill，在 API 管理绑定 SecretRef 或 Provider。",
+          optimization: "把反复出现的独特能力沉淀成 Skill，补齐 README、依赖和验收样例。",
+          blockedReasons: [],
+        },
+      ],
+    };
+  }
+
+  function buildSkillsStatusReport() {
+    return {
+      workspaceDir: "/tmp/workspace",
+      managedSkillsDir: "/tmp/skills",
+      skills: [
+        {
+          name: "Browser Automation",
+          description: "浏览器自动化 Skill",
+          source: "openclaw-managed",
+          filePath: "/tmp/skills/browser-automation/SKILL.md",
+          baseDir: "/tmp/skills/browser-automation",
+          skillKey: "browser-automation",
+          bundled: false,
+          primaryEnv: "BROWSER_API_KEY",
+          always: false,
+          disabled: false,
+          blockedByAllowlist: false,
+          eligible: true,
+          requirements: { bins: [], env: [], config: [], os: [] },
+          missing: { bins: [], env: [], config: [], os: [] },
+          configChecks: [],
+          install: [],
+        },
+      ],
+    };
+  }
+
   function buildResponse(method: string, params: unknown): unknown {
     const configured = configuredResponse(method, params);
     if (configured.found) {
@@ -659,6 +1215,8 @@ function installControlUiMockGateway(input: {
         return createMainFlowInteraction(params);
       case "aics.mainFlow.observation.prepare":
         return prepareMainFlowObservation(params);
+      case "aics.mainFlow.observation.collect":
+        return collectMainFlowObservation(params);
       case "aics.mainFlow.observation.confirm":
         return updateMainFlowObservation(params, "confirmed");
       case "aics.mainFlow.observation.reject":
@@ -667,12 +1225,34 @@ function installControlUiMockGateway(input: {
         return updateMainFlowObservation(params, "prepared", "待补真实经营数据");
       case "aics.mainFlow.attribution.prepare":
         return prepareMainFlowAttribution(params);
+      case "aics.mainFlow.attribution.generateFromLatest":
+        return generateMainFlowAttributionFromLatest();
       case "aics.mainFlow.attribution.confirm":
         return updateMainFlowAttribution(params, "confirmed");
       case "aics.mainFlow.attribution.reject":
         return updateMainFlowAttribution(params, "rejected");
       case "aics.mainFlow.attribution.requestMoreData":
         return updateMainFlowAttribution(params, "prepared", "待补真实经营数据");
+      case "aics.mainFlow.goal.candidate.create":
+        return createMainFlowGoal(params);
+      case "aics.mainFlow.goal.generateFromLatest":
+        return { goal: createMainFlowGoal() };
+      case "aics.mainFlow.goal.confirm":
+        return updateMainFlowGoal(params, "confirmed");
+      case "aics.mainFlow.planning.prepare":
+      case "aics.mainFlow.planning.generateFromLatest":
+      case "aics.mainFlow.planning.regenerate":
+        return generateMainFlowPlanning(params);
+      case "aics.mainFlow.planning.confirm":
+        return updateMainFlowPlanning(params, "confirmed");
+      case "aics.mainFlow.dispatch.checkAndCreateQueue":
+        return checkAndCreateMainFlowDispatchQueue(params);
+      case "aics.mainFlow.execution.confirmAndRun":
+        return confirmAndRunMainFlowExecution(params);
+      case "aics.toolSupply.readModel.get":
+        return buildToolSupplyReadModel();
+      case "skills.status":
+        return buildSkillsStatusReport();
       case "connect":
         return {
           auth: {

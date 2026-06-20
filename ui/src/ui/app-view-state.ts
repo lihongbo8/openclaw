@@ -19,11 +19,19 @@ import type { DevicePairingList } from "./controllers/devices.ts";
 import type { ExecApprovalRequest } from "./controllers/exec-approval.ts";
 import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exec-approvals.ts";
 import type {
+  CategoryCapabilityQueueFilter,
+  CategoryCapabilityQueueSort,
+  ReviewCenterState,
+  ReviewQueueFilter,
+  ReviewQueueSort,
+} from "./controllers/review-center.ts";
+import type {
   ClawHubSearchResult,
   ClawHubSkillSecurityVerdict,
   ClawHubSkillDetail,
   SkillMessage,
 } from "./controllers/skills.ts";
+import type { SupportContactState } from "./controllers/support-contact.ts";
 import type { EmbedSandboxMode } from "./embed-sandbox.ts";
 import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
@@ -99,8 +107,11 @@ export type AppViewState = {
     loading: boolean;
     error: string | null;
     readModel: Record<string, unknown> | null;
+    lastObservationRun?: Record<string, unknown> | null;
+    lastObservationPackage?: Record<string, unknown> | null;
   };
   refreshAicsMainFlowReadModel: () => Promise<void>;
+  observationExternalUrlDraft?: string;
   apiConnections: ApiConnectionsPageState;
   refreshApiConnectionsReadModel: () => Promise<void>;
   createApiConnectionEntry: () => Promise<void>;
@@ -109,6 +120,7 @@ export type AppViewState = {
   resetApiConnectionForm: () => void;
   testApiConnectionEntry: (id: string) => void;
   materializeApiConnectionEntry: (id?: string) => Promise<void>;
+  syncApiConnectionCloudVariables: (id: string) => Promise<void>;
   checkClosedLoopReadiness: () => Promise<void>;
   updateApiConnectionFormField: (
     field: keyof ApiConnectionFormState,
@@ -116,21 +128,57 @@ export type AppViewState = {
   ) => void;
   toolSupplyControl: import("./controllers/tool-supply-control.ts").ToolSupplyControlPageState;
   refreshToolSupplyControlReadModel: () => Promise<void>;
-  setToolSupplyGrant: (
-    item: import("./controllers/tool-supply-control.ts").ToolSupplyControlItem,
-    status: "approved" | "blocked" | "pending_review",
-  ) => Promise<void>;
-  setToolSupplySkillEnabled: (skillKey: string, enabled: boolean) => Promise<void>;
-  setToolSupplyPluginEnabled: (pluginId: string, enabled: boolean) => Promise<void>;
-  prepareToolSupplyUniqueCapabilityRequest: (params: {
-    title: string;
-    capabilityRef: string;
-    category?: string;
-    reason?: string;
-  }) => Promise<void>;
   buildSession: import("./controllers/build-session.ts").BuildSessionPageState;
+  refreshBuildSessionBindableCategories: (reviewId?: string) => Promise<void>;
+  submitCategoryCapabilityRequest: () => Promise<void>;
+  reduceRoleDevelopmentScopeToBasic: () => Promise<void>;
+  submitDeveloperRoleForListing: (reviewId: string) => Promise<void>;
   myRoles: import("./controllers/my-roles.ts").MyRolesPageState;
   refreshMyRolesReadModel: () => Promise<void>;
+  repairRoleInstanceStore: () => Promise<void>;
+  reviewCenter: ReviewCenterState;
+  refreshReviewCenter: () => Promise<void>;
+  supportContact: SupportContactState;
+  refreshSupportContact: () => Promise<void>;
+  selectReviewCenterRoleReview: (reviewId: string) => void;
+  selectReviewCenterCategoryCapabilityReview: (reviewId: string | null) => void;
+  setReviewCenterRoleFilter: (filter: ReviewQueueFilter) => void;
+  setReviewCenterRoleSearch: (search: string) => void;
+  setReviewCenterRoleSort: (sort: ReviewQueueSort) => void;
+  setReviewCenterRolePage: (page: number) => void;
+  setReviewCenterRolePageSize: (pageSize: number) => void;
+  setReviewCenterCategoryFilter: (filter: CategoryCapabilityQueueFilter) => void;
+  setReviewCenterCategorySearch: (search: string) => void;
+  setReviewCenterCategorySort: (sort: CategoryCapabilityQueueSort) => void;
+  setReviewCenterCategoryPage: (page: number) => void;
+  setReviewCenterCategoryPageSize: (pageSize: number) => void;
+  runRoleReviewValidation: (reviewId: string) => Promise<void>;
+  bindRoleReviewCategory: (reviewId: string, categoryCapabilityReviewId: string) => Promise<void>;
+  approveRoleReview: (reviewId: string) => Promise<void>;
+  requestRoleReviewChanges: (reviewId: string) => Promise<void>;
+  rejectRoleReview: (reviewId: string) => Promise<void>;
+  runToolSkillReviewValidation: (reviewId: string) => Promise<void>;
+  runToolSkillDevelopmentValidation: (
+    todo: import("./controllers/tool-supply-control.ts").ToolSupplyControlSystemDevelopmentTodo,
+  ) => Promise<void>;
+  planToolSkillDevelopmentSource: (
+    todo: import("./controllers/tool-supply-control.ts").ToolSupplyControlSystemDevelopmentTodo,
+  ) => Promise<void>;
+  selectToolSkillDevelopmentSource: (
+    todo: import("./controllers/tool-supply-control.ts").ToolSupplyControlSystemDevelopmentTodo,
+    selectedSource: string,
+  ) => Promise<void>;
+  markToolSkillDevelopmentRuntimeReady: (
+    todo: import("./controllers/tool-supply-control.ts").ToolSupplyControlSystemDevelopmentTodo,
+  ) => Promise<void>;
+  approveToolSkillReview: (reviewId: string) => Promise<void>;
+  activateToolSupplyCategoryCapabilityPackage: (
+    categoryCapabilityReviewId: string,
+  ) => Promise<void>;
+  approveCategoryCapabilityReview: (reviewId: string) => Promise<void>;
+  requestCategoryCapabilityChanges: (reviewId: string) => Promise<void>;
+  rejectCategoryCapabilityReview: (reviewId: string) => Promise<void>;
+  syncCategoryCapabilityReviewToCloud: (reviewId: string) => Promise<void>;
   goalsState: import("./controllers/goals.ts").GoalsPageState;
   theme: ThemeName;
   themeMode: ThemeMode;
@@ -471,6 +519,10 @@ export type AppViewState = {
     skillsLoading: boolean;
     skillsReport: SkillStatusReport | null;
     skillsError: string | null;
+    toolSupplyActiveSubpage: "skill" | "tool" | "category";
+    toolSupplySelectedCategoryId: string | null;
+    toolSupplyCategoryDraftName: string;
+    toolSupplySelectionDrafts: Record<string, string[]>;
     skillsFilter: string;
     skillsStatusFilter: "all" | "ready" | "needs-setup" | "disabled";
     skillEdits: Record<string, string>;

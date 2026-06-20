@@ -167,6 +167,29 @@ export const RoleInstanceStore = {
     return rec;
   },
 
+  getRunByExecutionId(executionId: string): RoleRunRecord | undefined {
+    const run = get<RoleRunRecord>(
+      "SELECT run_id as runId, instance_id as instanceId, task_package_id as taskPackageId, execution_id as executionId, status, summary, error, started_at as startedAt, completed_at as completedAt, duration_ms as durationMs, rework_count as reworkCount FROM role_runs WHERE execution_id = ? ORDER BY started_at DESC LIMIT 1",
+      executionId,
+    );
+    return run ? { ...run, artifactRefs: [] } : undefined;
+  },
+
+  markRunBlockedByExecutionId(executionId: string, reason: string): RoleRunRecord | undefined {
+    const existing = this.getRunByExecutionId(executionId);
+    if (!existing) return undefined;
+    const now = Date.now();
+    ex(
+      "UPDATE role_runs SET status = 'blocked', summary = ?, error = ?, completed_at = ?, duration_ms = ? WHERE run_id = ?",
+      reason.slice(0, 500),
+      reason,
+      now,
+      Math.max(0, now - existing.startedAt),
+      existing.runId,
+    );
+    return this.getRunByExecutionId(executionId);
+  },
+
   recordSteps(instanceId: string, executionId: string, steps: RoleExecutionStepRecord[]): void {
     const runRow = get<{ run_id: string }>(
       "SELECT run_id FROM role_runs WHERE instance_id = ? AND execution_id = ?",

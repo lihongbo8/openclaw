@@ -86,6 +86,10 @@
       "cloudBaseUrl": {
         "type": "string"
       },
+      "cloudHealthPath": {
+        "type": "string",
+        "default": "/dijie/gateway/health"
+      },
       "cloudExecutionTokenUrl": {
         "type": "string"
       },
@@ -120,8 +124,56 @@
       "cloudAuditPath": {
         "type": "string"
       },
-      "cloudAccessToken": {
+      "cloudApiVariablesSyncPath": {
         "type": "string",
+        "default": "/dijie/api-variables/sync"
+      },
+      "cloudApiVariablesSyncBearer": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source", "provider", "id"],
+            "properties": {
+              "source": {
+                "enum": ["env", "file"]
+              },
+              "provider": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "description": "Backend-only internal Dijie bridge bearer for cloud API variable sync. This is not the customer cloudAccessToken."
+      },
+      "cloudAccessToken": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source", "provider", "id"],
+            "properties": {
+              "source": {
+                "enum": ["env", "file"]
+              },
+              "provider": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              }
+            }
+          }
+        ],
         "description": "Backend-only Dijie cloud customer bearer token for resolving installed roles and requesting execution tokens. Never paste this into chat."
       },
       "defaultDeviceId": {
@@ -133,6 +185,12 @@
       "defaultLocalGatewayId": {
         "type": "string"
       },
+      "defaultRoleListingId": {
+        "type": "string"
+      },
+      "defaultEntitlementId": {
+        "type": "string"
+      },
       "cloudAuditUploadEnabled": {
         "type": "boolean",
         "default": false
@@ -140,6 +198,33 @@
       "cloudAuditUploadRequired": {
         "type": "boolean",
         "default": false
+      },
+      "supportContact": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "wechatId": {
+            "type": "string"
+          },
+          "audience": {
+            "type": "string",
+            "enum": ["developer", "user", "system_developer", "all"],
+            "default": "all"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "serviceHours": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "description": "Public operator contact shown on AICS role development, review, and execution pages when a human needs help."
       }
     }
   }

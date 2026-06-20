@@ -529,6 +529,39 @@ const TOOLING_SOURCE_TEST_TARGETS = new Map([
     ["test/scripts/mantis-build-telegram-desktop-proof-evidence.test.ts"],
   ],
   ["scripts/mantis/publish-pr-evidence.mjs", ["test/scripts/mantis-publish-pr-evidence.test.ts"]],
+  [
+    "scripts/aics-production-plus-persona.mjs",
+    ["test/scripts/aics-production-plus-persona.test.ts"],
+  ],
+  [
+    "scripts/persona/aics-persona-runner.mjs",
+    ["test/scripts/aics-production-plus-persona.test.ts"],
+  ],
+  [
+    "scripts/persona/aics-build-playwright-config.mjs",
+    ["test/scripts/aics-production-plus-persona.test.ts"],
+  ],
+  [
+    "scripts/persona/aics-playwright-persona.mjs",
+    ["test/scripts/aics-production-plus-persona.test.ts"],
+  ],
+  [
+    "scripts/persona/aics-production-plus-gate-regression.mjs",
+    ["test/scripts/aics-production-plus-persona.test.ts"],
+  ],
+  [
+    "scripts/persona/aics-production-plus-readiness.mjs",
+    ["test/scripts/aics-production-plus-persona.test.ts"],
+  ],
+  [
+    "scripts/persona/aics-production-plus-orchestrator.mjs",
+    ["test/scripts/aics-production-plus-persona.test.ts"],
+  ],
+  [
+    "scripts/persona/aics-final-manifest.mjs",
+    ["test/scripts/aics-production-plus-persona.test.ts"],
+  ],
+  ["scripts/persona/evidence-schema.json", ["test/scripts/aics-production-plus-persona.test.ts"]],
   ["scripts/qa-lab-up.ts", ["test/scripts/qa-lab-up.test.ts"]],
   [
     "scripts/run-vitest.mjs",

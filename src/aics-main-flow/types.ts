@@ -1,3 +1,5 @@
+import type { ObservationWorkspaceReadModel } from "./generic-observation-engine.js";
+
 export const AICS_MAIN_FLOW_VERSION = 1;
 
 export const AICS_MAIN_FLOW_STAGES = [
@@ -22,7 +24,8 @@ export type AicsMainFlowObjectStatus =
   | "running"
   | "completed"
   | "failed"
-  | "blocked";
+  | "blocked"
+  | "cancelled";
 
 export type AicsAuditRef = {
   id: string;
@@ -78,8 +81,22 @@ export type CompanyGoal = AicsMainFlowEntityBase & {
   title: string;
   owner: string;
   metric: string;
+  /** 当前值：来自观察层的真实事实或“待确认”，用于真人判断目标差距。 */
+  currentValue?: string;
   target: string;
+  /** 目标周期，例如 Q3 / 2026-07-01~2026-09-30。 */
+  cycle?: string;
   rationale: string;
+  /** 用人话说明为什么现在必须做这个目标。 */
+  whyNow?: string;
+  /** 来源观察信号，必须能追溯到 ObservationPackage。 */
+  sourceObservationSignalIds?: string[];
+  /** 来源归因发现，必须能追溯到 AttributionReport。 */
+  sourceAttributionFindingIds?: string[];
+  /** 进入规划前仍需处理的阻塞。 */
+  blockedReasons?: string[];
+  /** 目标是否满足进入规划的条件。 */
+  readyForPlanning?: boolean;
 };
 
 export type RolePlanItem = AicsMainFlowEntityBase & {
@@ -92,6 +109,18 @@ export type RolePlanItem = AicsMainFlowEntityBase & {
   taskIntent: string;
   expectedOutput: string;
   humanConfirmationRequired: boolean;
+  sourceSignalIds?: string[];
+  sourceFindingIds?: string[];
+  dispatchStatus?:
+    | "not_dispatched"
+    | "ready_for_dispatch"
+    | "partially_dispatched"
+    | "dispatched"
+    | "blocked";
+  dispatchProposalIds?: string[];
+  capabilityMatchSummary?: string;
+  blockedReasons?: string[];
+  acceptanceCriteria?: string[];
 };
 
 export type PlanningPackage = AicsMainFlowEntityBase & {
@@ -100,6 +129,11 @@ export type PlanningPackage = AicsMainFlowEntityBase & {
   title: string;
   summary: string;
   rolePlanItemIds: string[];
+  revision: number;
+  sourceObservationPackageId?: string;
+  sourceAttributionReportId?: string;
+  statusReason?: string;
+  supersededByPlanningPackageId?: string;
 };
 
 export type DispatchProposalReview = AicsMainFlowEntityBase & {
@@ -131,16 +165,189 @@ export type DispatchToRoleRequest = AicsMainFlowEntityBase & {
   roleTitle?: string;
   entitlementId?: string;
   workspaceDir?: string;
+  categoryCapabilityId?: string;
   category?: string;
   requiredCapabilityRefs?: string[];
   allowedTools?: string[];
   allowedSkills?: string[];
+  capabilityBlockedReasons?: AicsMainFlowBlockedReason["code"][];
   capabilityRequestId?: string;
   confirmExecution?: boolean;
   costConfirmed?: boolean;
   ledgerRef?: string;
   toolSkillReady?: boolean;
   apiBindingReady?: boolean;
+};
+
+export type AicsToolSupplyResolution = {
+  categoryCapabilityId: string;
+  category: string;
+  allowedTools: string[];
+  allowedSkills: string[];
+  dispatchReady: boolean;
+  blockedReasons: string[];
+};
+
+export type RoleResultExecutionEvidence = {
+  executionId?: string;
+  roleListingId?: string;
+  entitlementId?: string;
+  ledgerRef?: string;
+  workPatterns?: Array<"generate" | "analyze" | "transform" | "operate" | "composite">;
+  outputContracts?: Array<
+    "image" | "html" | "document" | "spreadsheet" | "json" | "external_record" | "package"
+  >;
+  inferredWorkPattern?: boolean;
+  inferredOutputContract?: boolean;
+  categoryCapabilityId?: string;
+  businessCategory?: string;
+  businessContext?: {
+    businessCategory?: string;
+    domainKnowledge?: string[];
+    vocabulary?: string[];
+    inputHints?: string[];
+    qualityStandards?: string[];
+    styleRules?: string[];
+    metricRules?: string[];
+    forbiddenActions?: string[];
+  };
+  executionPlan?: {
+    executionId: string;
+    workPatterns: Array<"generate" | "analyze" | "transform" | "operate" | "composite">;
+    outputContracts: Array<
+      "image" | "html" | "document" | "spreadsheet" | "json" | "external_record" | "package"
+    >;
+    categoryCapabilityId?: string;
+    businessCategory?: string;
+    currentState: string;
+    targetState: string;
+    gap: string;
+    executionChoice: string;
+    steps: Array<{
+      stepIndex: number;
+      stepName: string;
+      workPattern: "generate" | "analyze" | "transform" | "operate" | "composite";
+      expectedOutput: string;
+      requiredSkills?: string[];
+      requiredTools?: string[];
+      validationRules?: string[];
+      requiresHumanConfirm?: boolean;
+    }>;
+    validationRules: string[];
+    riskCheckpoints: string[];
+    inferredWorkPattern?: boolean;
+    inferredOutputContract?: boolean;
+  };
+  validation?: {
+    passed: boolean;
+    checkedContracts: string[];
+    failures: string[];
+    warnings?: string[];
+  };
+  preflightSnapshot?: {
+    checkedAt: number;
+    taskDispatched: boolean;
+    roleAuthorized: boolean;
+    humanConfirmed: boolean;
+    costConfirmed: boolean;
+    toolSkillReady: boolean;
+    apiBindingReady: boolean;
+    ledgerRefPresent: boolean;
+    allowedTools: string[];
+    allowedSkills: string[];
+    taskPackageId?: string;
+    dispatchToRoleRequestId?: string;
+    roleListingId?: string;
+    entitlementId?: string;
+  };
+  memoryContext?: {
+    query: string;
+    generatedAt: number;
+    formal: Array<{
+      memoryId: string;
+      type: string;
+      title: string;
+      content: string;
+      source: {
+        layer: string;
+        entityId: string;
+        entityType: string;
+      };
+      confidence: string;
+      tags: string[];
+      scope: string;
+      scopeRef?: string;
+      version: number;
+    }>;
+    recallError?: string;
+  };
+  memoryCandidates?: Array<{
+    candidateId?: string;
+    type: "role_experience" | "tool_experience" | "quality_feedback";
+    title: string;
+    content: string;
+    source: {
+      layer: "role" | "tool" | "planning" | "dispatch";
+      entityId: string;
+      entityType: string;
+    };
+    confidence: "low" | "medium" | "high";
+    tags: string[];
+    requiresHumanConfirm?: boolean;
+    proposedBy?: string;
+    proposedAt?: number;
+    status?: "pending" | "confirmed" | "rejected";
+  }>;
+  steps?: Array<{
+    stepIndex: number;
+    stepName: string;
+    status: string;
+    inputSummary: string;
+    outputSummary?: string;
+    toolCalls: Array<{
+      toolName: string;
+      toolCallId: string;
+      inputSummary: string;
+      outputSummary?: string;
+      durationMs: number;
+      status: string;
+      error?: string;
+    }>;
+  }>;
+  toolUsage?: {
+    totalToolCalls: number;
+    successfulCalls: number;
+    failedCalls: number;
+  };
+  modelUsage?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    costCents: number;
+  };
+  costSummary?: {
+    authorizationFeeCents?: number;
+    executionFeeCents?: number;
+    modelUsageCostCents?: number;
+    totalCostCents?: number;
+    currency?: string;
+    source?: string;
+    ledgerRef?: string;
+  };
+  humanConfirmationRef?: string;
+  modelUsageNotApplicable?: boolean;
+  modelUsageNotApplicableReason?: string;
+  businessDeliverables?: Array<{
+    label: string;
+    summary: string;
+    ref?: string;
+    status?: string;
+  }>;
+  /** 外部系统回读记录引用，例如 external_record:crm:case-123；属于业务产物证据，不是文件路径。 */
+  externalRecordRefs?: string[];
+  auditReadback?: Record<string, unknown>;
+  ledgerReadback?: Record<string, unknown>;
+  recoverySuggestion?: string;
 };
 
 export type RoleResult = AicsMainFlowEntityBase & {
@@ -150,6 +357,7 @@ export type RoleResult = AicsMainFlowEntityBase & {
   outcome: "succeeded" | "failed" | "blocked";
   summary: string;
   artifactRefs: string[];
+  executionEvidence?: RoleResultExecutionEvidence;
 };
 
 export type AicsMainFlowInteraction = AicsMainFlowEntityBase & {
@@ -159,11 +367,26 @@ export type AicsMainFlowInteraction = AicsMainFlowEntityBase & {
   proposedNextAction?: string;
 };
 
+export type ObservationEvidenceRun = {
+  id: string;
+  planId: string;
+  status: "completed" | "blocked" | "failed";
+  observationPackageId?: string;
+  acceptedCount: number;
+  needsReviewCount: number;
+  rejectedCount: number;
+  missingCount: number;
+  blockedReasons: string[];
+  runResultJson: string;
+  createdAt: number;
+};
+
 export type AicsMainFlowState = {
   version: typeof AICS_MAIN_FLOW_VERSION;
   updatedAt: number;
   interactions: AicsMainFlowInteraction[];
   observations: ObservationPackage[];
+  observationEvidenceRuns?: ObservationEvidenceRun[];
   attributions: AttributionReport[];
   goals: CompanyGoal[];
   planningPackages: PlanningPackage[];
@@ -292,8 +515,21 @@ export type AicsMainFlowBlockedReason = {
     | "authorization_required"
     | "execution_confirmation_required"
     | "cost_not_confirmed"
+    | "duplicate_successful_execution"
+    | "missing_category_binding"
+    | "missing_tool_binding"
+    | "missing_skill_binding"
     | "tool_skill_not_ready"
-    | "api_binding_required";
+    | "missing_api_binding"
+    | "skill_disabled"
+    | "skill_missing_dependency"
+    | "plugin_tool_disabled"
+    | "missing_tool_permission"
+    | "unique_capability_pending"
+    | "cloud_capability_not_authorized"
+    | "high_risk_needs_human_approval"
+    | "unsupported_capability_route"
+    | "actor_context_missing";
   message: string;
 };
 
@@ -334,6 +570,192 @@ export type AicsOperationCheck = {
   nextAction: string;
 };
 
+export type AicsMainFlowRouteTab = AicsOperationCheck["routeTab"];
+
+export type AicsStageGuidance = {
+  stage: AicsMainFlowStage;
+  title: string;
+  description: string;
+  primaryActionLabel: string;
+  primaryActionTarget: AicsMainFlowRouteTab;
+  nextStepLabel: string;
+};
+
+export type AicsStageProgress = {
+  stage: AicsMainFlowStage;
+  label: string;
+  routeTab: AicsMainFlowRouteTab;
+  status: "completed" | "current" | "available" | "blocked" | "locked";
+  statusLabel: string;
+  summary: string;
+  nextAction: string;
+  actionLabel: string;
+  actionTab: AicsMainFlowRouteTab;
+  evidenceCount: number;
+  blockerCount: number;
+};
+
+export type AicsPrecondition = {
+  id: string;
+  label: string;
+  status: "met" | "missing" | "blocked";
+  message: string;
+  fixTab?: AicsMainFlowRouteTab;
+  fixActionLabel?: string;
+};
+
+export type AicsBlockerResolution = {
+  code: AicsMainFlowBlockedReason["code"];
+  humanMessage: string;
+  impact: string;
+  fixTab: AicsMainFlowRouteTab;
+  fixActionLabel: string;
+};
+
+export type AicsHandoffPreview = {
+  fromStage: AicsMainFlowStage;
+  toStage: AicsMainFlowStage;
+  outputLabel: string;
+  outputCount: number;
+  summary: string;
+};
+
+export type AicsOperatorRecommendation = {
+  title: string;
+  summary: string;
+  severity: "info" | "warning" | "success";
+  actionLabel: string;
+  actionTab: AicsMainFlowRouteTab;
+};
+
+export type AicsAccountGoalMode = {
+  accountLabel: string;
+  status:
+    | "needs_setup"
+    | "ready_to_plan"
+    | "ready_to_dispatch"
+    | "ready_to_run"
+    | "running"
+    | "completed"
+    | "blocked";
+  headline: string;
+  plainSummary: string;
+  currentGoal?: {
+    title: string;
+    metric: string;
+    target: string;
+    owner: string;
+    status: AicsMainFlowObjectStatus;
+  };
+  currentBlocker?: {
+    title: string;
+    reason: string;
+    actionLabel: string;
+    actionTab: AicsMainFlowRouteTab;
+  };
+  nextStep: {
+    label: string;
+    tab: AicsMainFlowRouteTab;
+    reason: string;
+  };
+  chatCapabilities: {
+    canReadAccountData: boolean;
+    canCreateCandidates: boolean;
+    cannotBypassMainFlow: boolean;
+    humanLabel: string;
+  };
+  stageCards: Array<{
+    label: string;
+    statusLabel: string;
+    nextAction: string;
+    routeTab: AicsMainFlowRouteTab;
+  }>;
+};
+
+export type AicsStageBoundary = {
+  allowed: string[];
+  prohibited: string[];
+  evidenceRequired: string[];
+};
+
+export type AicsExecutionClosure = {
+  status: "not_ready" | "ready_to_run" | "running" | "completed" | "blocked" | "failed";
+  canRun: boolean;
+  readinessChecks: Array<{
+    label: string;
+    status: "passed" | "missing";
+    detail: string;
+    targetTab?: "apiManagement" | "usage" | "skills" | "workboard" | "aics";
+  }>;
+  taskPackageId?: string;
+  dispatchToRoleRequestId?: string;
+  executionId?: string;
+  roleListingId?: string;
+  entitlementId?: string;
+  businessResult?: {
+    summary: string;
+    artifactRefs: string[];
+  };
+  nextObservationCandidate?: {
+    title: string;
+    summary: string;
+    artifactTitles: string[];
+    auditComplete: boolean;
+    ledgerComplete: boolean;
+    modelUsageEvidence: "recorded" | "not_applicable" | "missing";
+    failureReason?: string;
+    recoveryActions: Array<{
+      label: string;
+      targetTab: "apiManagement" | "usage" | "skills" | "workboard" | "aics";
+      reason: string;
+    }>;
+    boundary: string;
+  };
+  evidenceReadback: {
+    hasRoleResult: boolean;
+    hasBusinessArtifact: boolean;
+    hasAudit: boolean;
+    hasLedger: boolean;
+    hasModelUsage: boolean;
+    hasCostSummary: boolean;
+    hasHumanConfirmation: boolean;
+    modelUsageStatus?: "recorded" | "not_applicable" | "missing";
+    modelUsageMessage?: string;
+  };
+  evidenceSummary: Array<{
+    label: string;
+    value: string;
+    status: "available" | "missing";
+  }>;
+  missingEvidence: string[];
+  productionFinalGate: {
+    status: "not_evaluated";
+    requiredVerdict: "production_plus_passed";
+    reason: string;
+    nextAction: string;
+    operatorChecklist: Array<{
+      label: string;
+      detail: string;
+      requiredInput?: string;
+    }>;
+    operatorSteps: Array<{
+      step: string;
+      status: "blocked" | "pending" | "ready";
+      action: string;
+      requiredInputs?: string[];
+    }>;
+    requiredInputs: string[];
+    readinessCommand: string;
+    finalCommand: string;
+    secretHandling: string;
+  };
+  recoveryActions: Array<{
+    label: string;
+    targetTab: "apiManagement" | "usage" | "skills" | "workboard" | "aics";
+    reason: string;
+  }>;
+};
+
 export type AicsMainFlowReadModel = {
   version: typeof AICS_MAIN_FLOW_VERSION;
   updatedAt: number;
@@ -341,9 +763,144 @@ export type AicsMainFlowReadModel = {
   readiness: AicsMainFlowReadiness;
   executionPreflight: AicsMainFlowExecutionPreflight;
   blockedReasons: AicsMainFlowBlockedReason[];
+  stageGuidance: AicsStageGuidance;
+  stageProgress: AicsStageProgress[];
+  preconditions: AicsPrecondition[];
+  blockerResolutions: AicsBlockerResolution[];
+  handoffPreview: AicsHandoffPreview;
+  operatorRecommendation: AicsOperatorRecommendation;
+  accountGoalMode: AicsAccountGoalMode;
+  stageBoundary: AicsStageBoundary;
+  executionClosure: AicsExecutionClosure;
+  observationWorkspace: ObservationWorkspaceReadModel;
+  attributionSummary: {
+    dimensions: string[];
+    matchedDimensions: string[];
+    topFindings: Array<{
+      id: string;
+      title: string;
+      summary: string;
+      confidence: AttributionFinding["confidence"];
+      evidenceCount: number;
+      dimension: string;
+    }>;
+    evidenceCount: number;
+    missingEvidenceCount: number;
+    lowConfidenceCount: number;
+    canCreateGoalCandidate: boolean;
+    userMessage: string;
+    missingData: string[];
+  };
+  goalSummary: {
+    hasGoal: boolean;
+    goalId?: string;
+    title?: string;
+    statusLabel: string;
+    metric?: string;
+    currentValue?: string;
+    target?: string;
+    cycle?: string;
+    owner?: string;
+    observationSourceCount: number;
+    attributionSourceCount: number;
+    blockedReasons: string[];
+    readyForPlanning: boolean;
+    canConfirm: boolean;
+    userMessage: string;
+    nextAction: string;
+  };
+  planningSummary: {
+    hasPlanning: boolean;
+    planningPackageId?: string;
+    title?: string;
+    statusLabel: string;
+    revision?: number;
+    workBlockCount: number;
+    dispatchableCount: number;
+    blockedCount: number;
+    missingAcceptanceCount: number;
+    readyForDispatch: boolean;
+    userMessage: string;
+    nextAction: string;
+    workBlocks: Array<{
+      id: string;
+      title: string;
+      roleLabel: string;
+      taskIntent: string;
+      expectedOutput: string;
+      acceptanceCount: number;
+      dispatchable: boolean;
+      blockedReason?: string;
+    }>;
+  };
+  dispatchSummary: {
+    hasConfirmedGoal: boolean;
+    hasConfirmedPlanning: boolean;
+    hasDispatchProposal: boolean;
+    hasTaskPackage: boolean;
+    hasDispatchQueue: boolean;
+    authorized: boolean;
+    apiReady: boolean;
+    toolSkillReady: boolean;
+    costReady: boolean;
+    actorContextReady: boolean;
+    dispatchableWorkBlockCount: number;
+    canCreateDispatch: boolean;
+    canEnterRoleExecution: boolean;
+    userMessage: string;
+    nextAction: string;
+    boundary: string;
+    checks: Array<{
+      label: string;
+      ok: boolean;
+      detail: string;
+      targetTab: AicsMainFlowRouteTab;
+    }>;
+  };
+  roleExecutionSummary: {
+    statusLabel: string;
+    canRun: boolean;
+    canMarkCompleted: boolean;
+    hasBusinessResult: boolean;
+    hasBusinessArtifact: boolean;
+    hasAudit: boolean;
+    hasLedger: boolean;
+    hasModelUsage: boolean;
+    missingEvidence: string[];
+    businessResultSummary?: string;
+    nextObservationReady: boolean;
+    userMessage: string;
+    nextAction: string;
+    boundary: string;
+    recoveryActions: Array<{
+      label: string;
+      targetTab: "apiManagement" | "usage" | "skills" | "workboard" | "aics";
+      reason: string;
+    }>;
+  };
+  nextObservationSummary: {
+    hasCandidate: boolean;
+    readyForReview: boolean;
+    title: string;
+    summary: string;
+    artifactTitles: string[];
+    auditComplete: boolean;
+    ledgerComplete: boolean;
+    modelUsageEvidence: "recorded" | "not_applicable" | "missing";
+    failureReason?: string;
+    recoveryActions: Array<{
+      label: string;
+      targetTab: "apiManagement" | "usage" | "skills" | "workboard" | "aics";
+      reason: string;
+    }>;
+    userMessage: string;
+    nextAction: string;
+    boundary: string;
+  };
   latest: {
     interaction: AicsMainFlowInteraction | null;
     observationPackage: ObservationPackage | null;
+    observationEvidenceRun: ObservationEvidenceRun | null;
     attributionReport: AttributionReport | null;
     companyGoal: CompanyGoal | null;
     planningPackage: PlanningPackage | null;
@@ -356,6 +913,7 @@ export type AicsMainFlowReadModel = {
   counts: {
     interactions: number;
     observations: number;
+    observationEvidenceRuns: number;
     attributions: number;
     goals: number;
     planningPackages: number;
@@ -368,6 +926,7 @@ export type AicsMainFlowReadModel = {
   objects: {
     interactions: AicsMainFlowInteraction[];
     observations: ObservationPackage[];
+    observationEvidenceRuns: ObservationEvidenceRun[];
     attributions: AttributionReport[];
     goals: CompanyGoal[];
     planningPackages: PlanningPackage[];

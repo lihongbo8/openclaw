@@ -194,8 +194,6 @@ export const nl: TranslationMap = {
     verbose: "Uitgebreid",
     reasoning: "Redenering",
     actions: "Acties",
-    addToWorkboard: "Toevoegen aan Workboard",
-    openWorkboardCard: "Workboard-kaart openen",
     noSessions: "Geen sessies gevonden.",
     noSessionsMatchFilters: "Geen sessies komen overeen met je filters.",
     showAll: "Alles weergeven",

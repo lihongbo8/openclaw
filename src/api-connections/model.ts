@@ -1,5 +1,6 @@
 import type {
   ApiConnectionConfigBinding,
+  ApiConnectionConsumer,
   ApiConnectionEntry,
   ApiConnectionKind,
 } from "../config/types.api-connections.js";
@@ -20,6 +21,8 @@ export type ApiConnectionRiskCode =
   | "missing_consumer_scope"
   | "missing_marketplace_api"
   | "missing_dispatch_api"
+  | "missing_model_provider"
+  | "oauth_cloud_scope_not_exportable"
   | "non_https_base_url"
   | "unbound_config_path"
   | "duplicate_provider";
@@ -34,7 +37,7 @@ export type ApiConnectionRiskItem = {
 
 export type ApiConnectionReadModelEntry = Omit<ApiConnectionEntry, "secret"> & {
   secret: {
-    mode: "none" | "secret_ref" | "plaintext";
+    mode: "none" | "secret_ref" | "plaintext" | "oauth";
     source?: string;
     provider?: string;
     id?: string;
@@ -60,6 +63,52 @@ export type ApiConnectionsReadModel = {
     counts: Record<ApiConnectionRiskSeverity, number>;
   };
 };
+
+const MODEL_TOKEN_CONSUMERS = [
+  "model",
+  "local_dialog",
+  "operations_backend",
+  "build_session",
+  "buyer_storefront",
+  "user_center",
+  "developer_center",
+  "ai_review",
+  "role_execution",
+  "image",
+  "media_model",
+] as const satisfies readonly ApiConnectionConsumer[];
+
+const MODEL_TOKEN_CONSUMER_SET = new Set<ApiConnectionConsumer>(MODEL_TOKEN_CONSUMERS);
+const CLOUD_MODEL_CONSUMER_SET = new Set<ApiConnectionConsumer>([
+  "buyer_storefront",
+  "user_center",
+  "developer_center",
+]);
+const MARKETPLACE_CONNECTION_CONSUMER_SET = new Set<ApiConnectionConsumer>([
+  "marketplace",
+  "operations_backend",
+  "buyer_storefront",
+  "user_center",
+  "developer_center",
+  "role_execution",
+]);
+
+function normalizeConsumersForKind(
+  kind: ApiConnectionKind,
+  consumers: readonly ApiConnectionConsumer[] | undefined,
+): ApiConnectionConsumer[] {
+  const normalized = normalizeList(consumers);
+  if (kind === "model") {
+    return normalized.filter((consumer) => MODEL_TOKEN_CONSUMER_SET.has(consumer));
+  }
+  if (kind === "marketplace") {
+    return normalized.filter((consumer) => MARKETPLACE_CONNECTION_CONSUMER_SET.has(consumer));
+  }
+  if (kind === "tool_skill") {
+    return normalized.filter((consumer) => consumer === "tool" || consumer === "skill");
+  }
+  return normalized;
+}
 
 export function normalizeApiConnectionId(value: string): string {
   return value
@@ -95,13 +144,13 @@ export function normalizeApiConnectionEntry(
   const now = new Date().toISOString();
   const provider = input.provider.trim();
   const id = normalizeApiConnectionId(input.id ?? previous?.id ?? `${input.kind}-${provider}`);
+  const requestedAuthMode = input.authMode ?? previous?.authMode;
   const secret =
-    input.authMode === "none"
+    requestedAuthMode === "none" || requestedAuthMode === "oauth"
       ? undefined
       : (input.secret ?? previous?.secret ?? defaultSecretRefForProvider(provider));
   const authMode =
-    input.authMode ??
-    previous?.authMode ??
+    requestedAuthMode ??
     (typeof secret === "string" ? "plaintext" : secret ? "secret_ref" : "none");
 
   return {
@@ -136,7 +185,15 @@ export function dedupeBindings(
   return next;
 }
 
-function secretSummary(secret: SecretInput | undefined, env: NodeJS.ProcessEnv) {
+function secretSummary(
+  secret: SecretInput | undefined,
+  env: NodeJS.ProcessEnv,
+  authMode?: ApiConnectionEntry["authMode"],
+  config?: Pick<OpenClawConfig, "secrets">,
+) {
+  if (authMode === "oauth") {
+    return { mode: "oauth" as const, status: "configured" as const };
+  }
   if (!secret) {
     return { mode: "none" as const, status: "missing" as const };
   }
@@ -147,7 +204,9 @@ function secretSummary(secret: SecretInput | undefined, env: NodeJS.ProcessEnv) 
     };
   }
   if (isSecretRef(secret)) {
-    const unresolved = secret.source === "env" && !env[secret.id];
+    const unresolved =
+      (secret.source === "env" && !env[secret.id]) ||
+      (secret.source === "file" && !config?.secrets?.providers?.[secret.provider]);
     return {
       mode: "secret_ref" as const,
       source: secret.source,
@@ -163,25 +222,30 @@ function risk(
   entry: ApiConnectionEntry,
   env: NodeJS.ProcessEnv,
   duplicates: Set<string>,
+  config?: Pick<OpenClawConfig, "secrets">,
 ): ApiConnectionRiskItem[] {
   const risks: ApiConnectionRiskItem[] = [];
-  const secret = secretSummary(entry.secret, env);
-  const consumers = normalizeList(entry.consumers);
+  const secret = secretSummary(entry.secret, env, entry.authMode, config);
+  const consumers = normalizeConsumersForKind(entry.kind, entry.consumers);
   const consumerScope = consumers;
   const authRequiresSecret =
     (entry.authMode ?? "secret_ref") !== "none" && (entry.authMode ?? "secret_ref") !== "oauth";
-  const marketplaceOrDispatch = consumers.includes("marketplace") || consumers.includes("dispatch");
+  const marketplaceOrDispatch =
+    entry.kind === "marketplace" || entry.kind === "tool_skill" || consumers.includes("dispatch");
 
   if (authRequiresSecret && secret.mode === "none") {
     risks.push({
       entryId: entry.id,
       code: "missing_secret_ref",
       severity: "blocking",
-      message: "缺少 SecretRef，不能供给运行时消费者。",
+      message:
+        entry.kind === "model"
+          ? "缺少 API Key，不能供给模型 Token 使用场景。"
+          : "缺少 SecretRef，不能供给运行时消费者。",
       consumerScope,
     });
   }
-  if (secret.status === "unresolved") {
+  if (authRequiresSecret && secret.status === "unresolved") {
     risks.push({
       entryId: entry.id,
       code: "unresolved_secret_ref",
@@ -190,15 +254,26 @@ function risk(
       consumerScope,
     });
   }
-  if (secret.mode === "plaintext") {
+  if (secret.mode === "plaintext" && (marketplaceOrDispatch || entry.kind !== "model")) {
     risks.push({
       entryId: entry.id,
       code: marketplaceOrDispatch ? "high_risk_plaintext_secret" : "plaintext_secret",
       severity: marketplaceOrDispatch ? "blocking" : "warning",
       message: marketplaceOrDispatch
-        ? "商城/调度能力绑定了明文密钥，必须改为 SecretRef。"
-        : "API 使用本地明文密钥，建议迁移为 SecretRef。",
+        ? "迭界AI云端、调度能力或工具服务 Token 请改用本地安全保存，由本页统一管理并同步到目标端。"
+        : "API Key 已保存为本地 SecretRef。",
       consumerScope,
+    });
+  }
+  const cloudConsumers = consumers.filter((consumer) => CLOUD_MODEL_CONSUMER_SET.has(consumer));
+  if (entry.kind === "model" && entry.authMode === "oauth" && cloudConsumers.length > 0) {
+    risks.push({
+      entryId: entry.id,
+      code: "oauth_cloud_scope_not_exportable",
+      severity: "warning",
+      message:
+        "OAuth 模型授权只能在本地端使用；云端商城/使用者中心/开发者中心需要迭界AI云端自己的 OAuth 或服务授权。",
+      consumerScope: cloudConsumers,
     });
   }
   if (consumers.length === 0) {
@@ -243,34 +318,52 @@ function risk(
 function globalRisk(entries: ApiConnectionEntry[]): ApiConnectionRiskItem[] {
   const risks: ApiConnectionRiskItem[] = [];
   const hasMarketplace = entries.some(
-    (entry) => entry.enabled !== false && entry.consumers?.includes("marketplace"),
+    (entry) =>
+      entry.enabled !== false &&
+      entry.kind === "marketplace" &&
+      normalizeConsumersForKind(entry.kind, entry.consumers).includes("marketplace"),
   );
-  const hasDispatch = entries.some(
-    (entry) => entry.enabled !== false && entry.consumers?.includes("dispatch"),
+  const modelProviderScopes = new Set(
+    entries
+      .filter((entry) => entry.enabled !== false && entry.kind === "model")
+      .flatMap((entry) => normalizeConsumersForKind(entry.kind, entry.consumers)),
+  );
+  const missingModelScopes = MODEL_TOKEN_CONSUMERS.filter(
+    (consumer) => !modelProviderScopes.has(consumer),
   );
   if (!hasMarketplace) {
     risks.push({
       entryId: "__marketplace__",
       code: "missing_marketplace_api",
       severity: "blocking",
-      message: "商城供给 API 未配置，商城审核/授权消费者会被阻塞。",
+      message:
+        "迭界AI云端未配置，授权读取、已购岗位、execution-token、审计上传和 ledger 回写会被阻塞。",
       consumerScope: ["marketplace"],
     });
   }
-  if (!hasDispatch) {
+  if (missingModelScopes.length === MODEL_TOKEN_CONSUMERS.length) {
     risks.push({
-      entryId: "__dispatch__",
-      code: "missing_dispatch_api",
+      entryId: "__model_token__",
+      code: "missing_model_provider",
       severity: "blocking",
-      message: "调度供给 API 未配置，任务调度/岗位执行消费者会被阻塞。",
-      consumerScope: ["dispatch"],
+      message:
+        "模型 Provider 未配置，本地主对话、经营后台、BuildSession、云端商城对话和岗位执行无法消耗模型 Token。",
+      consumerScope: [...MODEL_TOKEN_CONSUMERS],
+    });
+  } else if (missingModelScopes.length > 0) {
+    risks.push({
+      entryId: "__model_token_scope__",
+      code: "missing_model_provider",
+      severity: "warning",
+      message: `部分模型 Token 场景未绑定 Provider：${missingModelScopes.join(", ")}。`,
+      consumerScope: missingModelScopes,
     });
   }
   return risks;
 }
 
 export function createApiConnectionsReadModel(
-  config: Pick<OpenClawConfig, "apiConnections">,
+  config: Pick<OpenClawConfig, "apiConnections" | "secrets">,
   env: NodeJS.ProcessEnv = process.env,
 ): ApiConnectionsReadModel {
   const entries = Object.values(config.apiConnections?.entries ?? {});
@@ -285,14 +378,14 @@ export function createApiConnectionsReadModel(
 
   const readEntries = entries
     .map((entry): ApiConnectionReadModelEntry => {
-      const risks = risk(entry, env, duplicates);
+      const risks = risk(entry, env, duplicates, config);
       const blocked = risks.some((item) => item.severity === "blocking");
       const warning = risks.some((item) => item.severity === "warning");
       const bound = (entry.configBindings ?? []).length > 0;
       return {
         ...entry,
-        secret: secretSummary(entry.secret, env),
-        consumers: normalizeList(entry.consumers),
+        secret: secretSummary(entry.secret, env, entry.authMode, config),
+        consumers: normalizeConsumersForKind(entry.kind, entry.consumers),
         requestedScope: normalizeList(entry.requestedScope),
         configBindings: dedupeBindings(entry.configBindings),
         status:

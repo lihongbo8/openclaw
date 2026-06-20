@@ -1,8 +1,13 @@
 /* @vitest-environment jsdom */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { render } from "lit";
 import { describe, expect, it, vi } from "vitest";
 import { renderQuickSettings, type QuickSettingsProps } from "./config-quick.ts";
+
+const configQuickCss = readFileSync(join(process.cwd(), "ui/src/styles/config-quick.css"), "utf8");
+const layoutCss = readFileSync(join(process.cwd(), "ui/src/styles/layout.css"), "utf8");
 
 function expectButtonByText(container: Element, text: string): HTMLButtonElement {
   const button = Array.from(container.querySelectorAll("button")).find(
@@ -100,6 +105,14 @@ function collectQuickSettingsCardKinds(container: Element): string[] {
 }
 
 describe("renderQuickSettings", () => {
+  it("keeps Settings containers shrink-safe inside the shell content grid", () => {
+    expect(layoutCss).toMatch(/\.content\s*\{[^}]*min-width:\s*0;/su);
+    expect(configQuickCss).toMatch(/\.settings-workspace\s*\{[^}]*min-width:\s*0;/su);
+    expect(configQuickCss).toMatch(/\.settings-workspace__body\s*\{[^}]*min-width:\s*0;/su);
+    expect(configQuickCss).toMatch(/\.qs-container\s*\{[^}]*box-sizing:\s*border-box;/su);
+    expect(configQuickCss).toMatch(/\.qs-grid\s*\{[^}]*min-width:\s*0;/su);
+  });
+
   it("shows only Context Profile, Appearance, and Gateway in Settings", () => {
     const container = document.createElement("div");
 

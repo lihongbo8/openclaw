@@ -14,7 +14,7 @@ export type ChatQueueItem = {
   text: string;
   apiText?: string;
   aicsContext?: {
-    mode: "developer";
+    mode: "developer" | "openclaw_main";
     stage?: AicsConversationStage;
   };
   createdAt: number;

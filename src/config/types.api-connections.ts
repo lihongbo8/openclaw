@@ -6,12 +6,22 @@ export type ApiConnectionAuthMode = "secret_ref" | "plaintext" | "none" | "oauth
 
 export type ApiConnectionConsumer =
   | "marketplace"
+  | "marketplace_dialog"
+  | "local_dialog"
   | "dispatch"
   | "main_chat"
+  | "operations_backend"
+  | "build_session"
+  | "buyer_storefront"
+  | "user_center"
+  | "developer_center"
+  | "ai_review"
+  | "role_execution"
   | "tool"
   | "skill"
   | "voice"
   | "image"
+  | "media_model"
   | "model";
 
 export type ApiConnectionConfigBinding = {

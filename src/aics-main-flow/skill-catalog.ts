@@ -148,6 +148,17 @@ export const SKILL_CATALOG: Record<string, SkillEntry> = {
     qualityHints: ["检查所有文件都在工作区内", "检查包大小", "检查包完整性"],
   },
 
+  // ---- quality.* ----
+  "quality:check": {
+    skillId: "quality:check",
+    label: "产物质量检查",
+    description: "检查岗位执行产物是否真实存在、可打开、数量和格式符合交付要求",
+    capability: "quality.check",
+    inputContract: "artifactRefs（产物路径列表），requirements（验收要求）",
+    outputContract: "{ passed, checkedArtifacts, missingArtifacts, notes }",
+    qualityHints: ["检查产物文件是否存在", "检查产物不是空文件", "检查至少包含核心交付物"],
+  },
+
   // ---- web.* ----
   "web:search": {
     skillId: "web:search",

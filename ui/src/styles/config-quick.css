@@ -2,10 +2,14 @@
 
 .settings-workspace {
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .settings-workspace__body {
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 /* Logs opt into a fill-height chain so the log stream, not the page, owns
@@ -113,6 +117,7 @@
   max-width: 1520px;
   margin: 0 auto;
   padding: 32px 16px 56px;
+  box-sizing: border-box;
 }
 
 .qs-header {
@@ -155,6 +160,7 @@
   grid-template-columns: repeat(12, minmax(0, 1fr));
   align-items: stretch;
   gap: 14px;
+  min-width: 0;
 }
 
 .qs-side-stack {

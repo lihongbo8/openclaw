@@ -218,6 +218,7 @@ export async function commitGatewayConfigWrite(params: {
   nextConfig: OpenClawConfig;
   context?: GatewayRequestContext;
   disconnectSharedAuthClients?: boolean;
+  afterWrite?: ConfigWriteOptions["afterWrite"];
 }): Promise<{ path: string; config: OpenClawConfig; queueFollowUp: () => void }> {
   const result = await replaceConfigFile({
     nextConfig: params.nextConfig,
@@ -228,7 +229,7 @@ export async function commitGatewayConfigWrite(params: {
         includeAuthStoreRefs: false,
       },
     },
-    afterWrite: { mode: "auto" },
+    afterWrite: params.afterWrite ?? { mode: "auto" },
   });
   return {
     path: resolveGatewayConfigPath(params.snapshot),

@@ -272,7 +272,13 @@ export function renderLoginGate(state: AppViewState) {
           <div class="login-gate__title">迭界AI</div>
           <div class="login-gate__sub">${t("login.subtitle")}</div>
         </div>
-        <div class="login-gate__form">
+        <form
+          class="login-gate__form"
+          @submit=${(event: SubmitEvent) => {
+            event.preventDefault();
+            state.connect();
+          }}
+        >
           <label class="field">
             <span>${t("overview.access.wsUrl")}</span>
             <input
@@ -352,10 +358,10 @@ export function renderLoginGate(state: AppViewState) {
               </button>
             </div>
           </label>
-          <button class="btn primary login-gate__connect" @click=${() => state.connect()}>
+          <button class="btn primary login-gate__connect" type="submit">
             ${t("common.connect")}
           </button>
-        </div>
+        </form>
         ${failure ? renderLoginFailure(failure) : ""}
       </div>
     </div>

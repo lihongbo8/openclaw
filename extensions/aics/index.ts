@@ -50,6 +50,12 @@ type AicsConfig = {
   cloudAuditUploadRequired: boolean;
 };
 
+type EnvSecretRef = {
+  source: "env";
+  provider: string;
+  id: string;
+};
+
 type CommandResult = {
   command: string[];
   cwd: string;
@@ -674,9 +680,8 @@ function readPluginConfig(raw: unknown): AicsConfig {
     record.cloudAuditUploadEnabled === true ||
     record.auditUploadEnabled === true;
   const cloudAccessToken =
-    typeof record.cloudAccessToken === "string" && record.cloudAccessToken.trim()
-      ? record.cloudAccessToken.trim()
-      : readEnv(["DIJIE_CLOUD_ACCESS_TOKEN", "OPENCLAW_DIJIE_CLOUD_ACCESS_TOKEN"]);
+    resolveStringOrEnvSecretRef(record.cloudAccessToken) ??
+    readEnv(["DIJIE_CLOUD_ACCESS_TOKEN", "OPENCLAW_DIJIE_CLOUD_ACCESS_TOKEN"]);
   const defaultDeviceId =
     typeof record.defaultDeviceId === "string" && record.defaultDeviceId.trim()
       ? record.defaultDeviceId.trim()
@@ -734,6 +739,27 @@ function readEnv(names: string[]): string | undefined {
     if (value) {
       return value;
     }
+  }
+  return undefined;
+}
+
+function isEnvSecretRef(value: unknown): value is EnvSecretRef {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    (value as Record<string, unknown>).source === "env" &&
+    typeof (value as Record<string, unknown>).id === "string" &&
+    Boolean(String((value as Record<string, unknown>).id).trim())
+  );
+}
+
+function resolveStringOrEnvSecretRef(value: unknown): string | undefined {
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+  if (isEnvSecretRef(value)) {
+    return readEnv([value.id]);
   }
   return undefined;
 }

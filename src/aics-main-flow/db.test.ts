@@ -56,6 +56,7 @@ describe("aics-pipeline.db", () => {
     expect(columns("dispatch_to_role_requests")).toEqual(
       expect.arrayContaining([
         "category",
+        "category_capability_id",
         "required_capability_refs",
         "allowed_tools",
         "allowed_skills",

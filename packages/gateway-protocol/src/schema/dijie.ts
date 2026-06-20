@@ -69,6 +69,100 @@ export const DijieModelProxyUsageSchema = Type.Object(
   { additionalProperties: false },
 );
 
+const DijieExecutionEvidenceSchema = Type.Object(
+  {
+    memoryContext: Type.Optional(
+      Type.Object(
+        {
+          query: Type.String(),
+          generatedAt: Type.Integer({ minimum: 0 }),
+          formal: Type.Array(
+            Type.Object(
+              {
+                memoryId: NonEmptyString,
+                type: NonEmptyString,
+                title: NonEmptyString,
+                content: Type.String(),
+                source: Type.Object(
+                  {
+                    layer: NonEmptyString,
+                    entityId: NonEmptyString,
+                    entityType: NonEmptyString,
+                  },
+                  { additionalProperties: false },
+                ),
+                confidence: Type.Union([
+                  Type.Literal("low"),
+                  Type.Literal("medium"),
+                  Type.Literal("high"),
+                ]),
+                tags: Type.Array(NonEmptyString),
+                scope: NonEmptyString,
+                scopeRef: Type.Optional(NonEmptyString),
+                version: Type.Integer({ minimum: 0 }),
+              },
+              { additionalProperties: false },
+            ),
+          ),
+          recallError: Type.Optional(Type.String()),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+    steps: Type.Optional(
+      Type.Array(
+        Type.Object(
+          {
+            stepIndex: Type.Integer({ minimum: 0 }),
+            stepName: NonEmptyString,
+            status: NonEmptyString,
+            inputSummary: Type.String(),
+            outputSummary: Type.Optional(Type.String()),
+            toolCalls: Type.Array(
+              Type.Object(
+                {
+                  toolName: NonEmptyString,
+                  toolCallId: NonEmptyString,
+                  inputSummary: Type.String(),
+                  outputSummary: Type.Optional(Type.String()),
+                  durationMs: Type.Integer({ minimum: 0 }),
+                  status: NonEmptyString,
+                  error: Type.Optional(Type.String()),
+                },
+                { additionalProperties: false },
+              ),
+            ),
+          },
+          { additionalProperties: false },
+        ),
+      ),
+    ),
+    toolUsage: Type.Optional(
+      Type.Object(
+        {
+          totalToolCalls: Type.Integer({ minimum: 0 }),
+          successfulCalls: Type.Integer({ minimum: 0 }),
+          failedCalls: Type.Integer({ minimum: 0 }),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+    modelUsage: Type.Optional(
+      Type.Object(
+        {
+          inputTokens: Type.Integer({ minimum: 0 }),
+          outputTokens: Type.Integer({ minimum: 0 }),
+          totalTokens: Type.Integer({ minimum: 0 }),
+          costCents: Type.Number({ minimum: 0 }),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+    recoverySuggestion: Type.Optional(Type.String()),
+  },
+  { additionalProperties: false },
+);
+
 export const DijieDeviceBindRequestSchema = Type.Object(
   {
     deviceId: NonEmptyString,
@@ -189,6 +283,7 @@ export const DijieRoleResultSchema = Type.Object(
     summary: Type.Optional(Type.String()),
     changedFiles: Type.Array(NonEmptyString),
     artifacts: Type.Array(DijieRoleArtifactSchema),
+    executionEvidence: Type.Optional(DijieExecutionEvidenceSchema),
     error: Type.Optional(Type.String()),
   },
   { additionalProperties: false },
@@ -228,6 +323,7 @@ export const DijieRoleFeedbackPacketSchema = Type.Object(
     artifacts: Type.Array(DijieRoleArtifactSchema),
     toolUsage: DijieToolUsageSchema,
     modelProxyUsage: Type.Optional(DijieModelProxyUsageSchema),
+    executionEvidence: Type.Optional(DijieExecutionEvidenceSchema),
     costUsage: Type.Optional(
       Type.Object(
         {

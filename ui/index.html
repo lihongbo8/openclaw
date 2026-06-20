@@ -89,6 +89,11 @@
         place-items: center;
       }
 
+      .mount-fallback[hidden],
+      body:not(.openclaw-mount-fallback-active) .mount-fallback {
+        display: none !important;
+      }
+
       .mount-fallback:not([hidden]) {
         display: grid;
       }
@@ -268,12 +273,16 @@
           }
         }
 
-        function hideFallback() {
+        function hideFallback(remove) {
           fallback.hidden = true;
           document.body.classList.remove("openclaw-mount-fallback-active");
+          if (remove && fallback.parentNode) {
+            fallback.parentNode.removeChild(fallback);
+          }
         }
 
         function showFallback() {
+          if (!fallback.isConnected) return;
           if (appMounted()) return;
           fallback.hidden = false;
           document.body.classList.add("openclaw-mount-fallback-active");
@@ -297,7 +306,7 @@
           window.customElements.whenDefined(tagName).then(
             function () {
               window.clearTimeout(timer);
-              hideFallback();
+              hideFallback(true);
             },
             function () {},
           );
@@ -310,7 +319,7 @@
         }
         if (wait) {
           wait.addEventListener("click", function () {
-            hideFallback();
+            hideFallback(false);
             armFallbackTimer();
           });
         }

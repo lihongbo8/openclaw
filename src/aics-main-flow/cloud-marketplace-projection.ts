@@ -30,7 +30,7 @@ export type CloudMarketplaceProjection = {
   updatedAt: number;
   authority: "cloud_marketplace";
   apiHealth: {
-    status: "mocked" | "connected" | "blocked";
+    status: "connected" | "blocked";
     gateway: "openclaw";
     actorContextRequired: true;
     blockedReasons: CloudMarketplaceBlockedReason[];
@@ -163,7 +163,7 @@ export function createCloudMarketplaceProjection(
     updatedAt: Date.now(),
     authority: "cloud_marketplace",
     apiHealth: {
-      status: "mocked",
+      status: "blocked",
       gateway: "openclaw",
       actorContextRequired: true,
       blockedReasons: ["missing_actor_context", "api_boundary_required"],

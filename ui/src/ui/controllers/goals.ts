@@ -12,8 +12,11 @@ export type GoalsPageState = {
     title: string;
     owner: string;
     metric: string;
+    currentValue: string;
     target: string;
+    cycle: string;
     rationale: string;
+    whyNow: string;
   };
 };
 
@@ -27,8 +30,11 @@ export function createDefaultGoalsPageState(): GoalsPageState {
       title: "",
       owner: "迭界AI",
       metric: "",
+      currentValue: "",
       target: "",
+      cycle: "当前经营周期",
       rationale: "",
+      whyNow: "",
     },
   };
 }
@@ -67,8 +73,11 @@ export function openGoalForm(state: GoalsPageState): void {
     title: "",
     owner: "迭界AI",
     metric: "",
+    currentValue: "",
     target: "",
+    cycle: "当前经营周期",
     rationale: "",
+    whyNow: "",
   };
 }
 
@@ -88,7 +97,7 @@ export async function createGoalCandidate(
   appState: AppViewState,
   pageState: GoalsPageState,
 ): Promise<boolean> {
-  const { title, owner, metric, target, rationale } = pageState.form;
+  const { title, owner, metric, currentValue, target, cycle, rationale, whyNow } = pageState.form;
   if (!title.trim()) return false;
 
   const ok = await aicsMainFlow.createGoalCandidate(
@@ -98,6 +107,11 @@ export async function createGoalCandidate(
     metric.trim(),
     target.trim(),
     rationale.trim() || "由归因报告支撑的公司目标候选。",
+    {
+      currentValue: currentValue.trim(),
+      cycle: cycle.trim(),
+      whyNow: whyNow.trim(),
+    },
   );
 
   if (ok) {

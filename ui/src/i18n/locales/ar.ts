@@ -191,8 +191,6 @@ export const ar: TranslationMap = {
     verbose: "مطوّل",
     reasoning: "الاستدلال",
     actions: "الإجراءات",
-    addToWorkboard: "إضافة إلى Workboard",
-    openWorkboardCard: "فتح بطاقة Workboard",
     noSessions: "لم يتم العثور على جلسات.",
     noSessionsMatchFilters: "لا توجد جلسات تطابق عوامل التصفية لديك.",
     showAll: "عرض الكل",
