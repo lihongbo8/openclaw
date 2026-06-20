@@ -192,7 +192,10 @@ describe("renderMyRolesPage", () => {
     const host = renderView(state);
 
     expect(host.textContent).toContain("缺少：缺少 API 绑定");
-    expect(host.textContent).toContain("添加模型 API Key");
+    expect(host.textContent).toContain("添加模型 API 密钥");
+    expect(host.textContent).toContain("API 管理未给岗位执行绑定可用模型服务。");
+    expect(host.textContent).not.toContain("Provider");
+    expect(host.textContent).not.toContain("API Key");
     expect(host.textContent).toContain("岗位执行");
   });
 
@@ -251,7 +254,7 @@ describe("renderMyRolesPage", () => {
     const text = (host.textContent ?? "").replace(/\s+/g, " ");
 
     expect(text).toContain("deepseek API 401: Unauthorized");
-    expect(text).toContain("下一步：到 API 管理检查 OpenAI/API Key、余额和限流状态");
+    expect(text).toContain("下一步：到 API 管理检查模型服务、API 密钥、余额和限流状态");
     const button = [...host.querySelectorAll("button")].find((candidate) =>
       candidate.textContent?.includes("去处理"),
     ) as HTMLButtonElement | undefined;
@@ -338,6 +341,57 @@ describe("renderMyRolesPage", () => {
               },
             ],
           },
+          engineReadiness: {
+            overallStatus: "blocked",
+            userMessage: "能力/执行引擎有 1 个卡点：工具与 Skill 执行引擎 - 未声明 allowedTools",
+            nextAction: "去能力配置或任务调度修复工具/Skill 门禁",
+            supply: {
+              roleDevelopment: {
+                id: "engine.role_development",
+                status: "ready",
+                summary: "岗位包已生成，等待上架前审核。",
+                blockedReasons: [],
+                targetTab: "company",
+              },
+              toolSkillDevelopment: {
+                id: "engine.tool_skill_development",
+                status: "ready",
+                summary: "Tool/Skill 供给未发现阻塞。",
+                blockedReasons: [],
+                targetTab: "skills",
+              },
+              categoryCapability: {
+                id: "engine.category_capability",
+                status: "waiting",
+                summary: "等待调度层生成执行队列。",
+                blockedReasons: [],
+                targetTab: "workboard",
+              },
+            },
+            runtime: {
+              roleExecution: {
+                id: "engine.role_execution",
+                status: "blocked",
+                summary: "岗位执行等待派发单、授权、费用、API 或能力条件。",
+                blockedReasons: ["账本记录未读回"],
+                targetTab: "aics",
+              },
+              toolSkillExecution: {
+                id: "engine.tool_skill_execution",
+                status: "blocked",
+                summary: "允许工具 0 个，允许 Skill 0 个，已读到执行调用 0 次。",
+                blockedReasons: ["未声明 allowedTools"],
+                targetTab: "skills",
+              },
+            },
+            blockers: [
+              {
+                label: "工具与 Skill 执行引擎",
+                reason: "未声明 allowedTools",
+                targetTab: "skills",
+              },
+            ],
+          },
         },
         error: null,
       },
@@ -350,7 +404,12 @@ describe("renderMyRolesPage", () => {
     const text = (host.textContent ?? "").replace(/\s+/g, " ");
 
     expect(host.querySelector('[data-testid="execution-closure-card"]')).toBeTruthy();
+    expect(host.querySelector('[data-testid="my-roles-engine-readiness"]')).toBeTruthy();
     expect(text).toContain("岗位执行闭环 · 阻塞");
+    expect(text).toContain("能力与运行状态");
+    expect(text).toContain("工具 / Skill 运行");
+    expect(text).toContain("未声明允许调用的工具");
+    expect(text).not.toContain("allowedTools");
     expect(text).toContain("业务结果：已生成业务摘要，但账本读回失败。");
     expect(text).toContain("证据缺口：账本记录未读回");
     const button = [...host.querySelectorAll("button")].find((candidate) =>
@@ -700,9 +759,21 @@ describe("renderMyRolesPage", () => {
     const text = (host.textContent ?? "").replace(/\s+/g, " ");
 
     expect(text).toContain("执行前核对");
+    expect(text).toContain("运行前确认");
+    expect(text).toContain("执行岗位：商城运营诊断官");
+    expect(text).toContain("执行任务：商城运营诊断");
+    expect(text).toContain("目标产物：完成后回写业务产物");
+    expect(text).toContain("授权是否有效：已授权");
+    expect(text).toContain("使用模型：已满足");
+    expect(text).toContain("是否会产生费用：费用已确认，执行会写入账本记录");
+    expect(text).toContain("费用影响：费用已确认，会写入账本记录");
+    expect(text).toContain("能力条件：工具 / Skill 已满足");
     expect(text).toContain("授权凭证 已授权");
+    expect(text).toContain("模型服务 已满足");
+    expect(text).toContain("工具 / Skill 已满足");
     expect(text).toContain("人工确认 已确认");
     expect(text).toContain("费用凭证 已确认");
+    expect(text).not.toContain("model /");
     expect(text).not.toContain("local_entitlement_marketplace_ops");
     expect(text).not.toContain("ledger:pending:local_entitlement_marketplace_ops");
     expect(text).toContain("点击执行可能调用真实模型、工具或 Skill 并产生费用");
@@ -726,7 +797,8 @@ describe("renderMyRolesPage", () => {
           progress: 100,
           result: {
             outcome: "succeeded",
-            summary: "已完成商城运营诊断。",
+            summary:
+              "已完成商城运营诊断。 ledger:role_execution:entitlement-1:exec-1 audit:audit-1 artifact:role-result:exec-1:summary",
             executionEvidence: {
               ledgerRef: "ledger:role_execution:entitlement-1:exec-1",
               humanConfirmationRef: "human:confirm:exec-1",
@@ -753,6 +825,8 @@ describe("renderMyRolesPage", () => {
                 auditRecordId: "audit-1",
                 executionId: "exec-1",
                 status: "completed",
+                summary:
+                  "审计已读回 audit:audit-1，关联 ledger:role_execution:entitlement-1:exec-1。",
               },
               ledgerReadback: {
                 ledgerRef: "ledger:role_execution:entitlement-1:exec-1",
@@ -793,27 +867,29 @@ describe("renderMyRolesPage", () => {
     expect(text).toContain("deepseek / deepseek-v4-flash API 绑定");
     expect(text).toContain("执行后证据");
     expect(text).toContain("闭环证据完整");
-    expect(text).toContain("成果：已完成商城运营诊断。");
+    expect(text).toContain("成果：已完成商城运营诊断。 账本记录 审计记录 业务产物");
     expect(text).toContain("结果位置：执行摘要。打开“详情”可查看、打开或下载。");
     expect(text).toContain("业务产物 1 个");
     expect(text).toContain("审计记录 已读回");
     expect(text).toContain("账本记录 已读回");
     expect(text).toContain(
-      "费用摘要 授权 ¥0.00 · 执行 ¥0.03 · 模型 ¥0.0300 · 合计 ¥0.0300 · local_ledger",
+      "费用摘要 授权 ¥0.00 · 执行 ¥0.03 · 模型 ¥0.0300 · 合计 ¥0.0300 · 本地账本",
     );
     expect(text).toContain("人工确认 已确认");
-    expect(text).toContain("费用证据 ¥0.0300 · 200 Token");
+    expect(text).toContain("费用证据 ¥0.0300 · 模型用量 200");
     expect(text).toContain("业务产物：执行摘要");
     expect(text).toContain("审计：审计记录 1");
     expect(text).toContain("账本：账本记录");
     expect(text).toContain(
-      "费用摘要：授权 ¥0.00 · 执行 ¥0.03 · 模型 ¥0.0300 · 合计 ¥0.0300 · local_ledger",
+      "费用摘要：授权 ¥0.00 · 执行 ¥0.03 · 模型 ¥0.0300 · 合计 ¥0.0300 · 本地账本",
     );
     expect(text).toContain("人工确认：已确认");
+    expect(text).not.toContain("local_ledger");
     expect(text).not.toContain("human:confirm:exec-1");
     expect(text).not.toContain("audit:audit-1");
     expect(text).not.toContain("ledger:role_execution:entitlement-1:exec-1");
     expect(text).not.toContain("artifact:role-result:exec-1:summary");
+    expect(text).toContain("审计已读回 审计记录，关联 账本记录");
     expect(text).toContain("业务明细");
     expect(text).toContain("商城运营诊断报告：已生成本轮岗位商城运营诊断。");
     expect(text).toContain("岗位供给分析：已汇总岗位商品供给与品类覆盖。");
@@ -911,9 +987,20 @@ describe("renderMyRolesPage", () => {
     const text = (host.textContent ?? "").replace(/\s+/g, " ");
 
     expect(text).toContain("执行前核对");
+    expect(text).toContain("运行前确认");
+    expect(text).toContain("执行岗位：商城运营诊断官");
+    expect(text).toContain("执行任务：商城运营诊断");
+    expect(text).toContain("授权是否有效：已授权");
+    expect(text).toContain("使用模型：待 API 管理绑定模型服务");
+    expect(text).toContain("是否会产生费用：待费用与授权确认");
+    expect(text).toContain("费用影响：待费用与授权确认");
+    expect(text).toContain("能力条件：工具 / Skill 待处理");
     expect(text).toContain("授权凭证 已授权");
+    expect(text).toContain("模型服务 待绑定");
+    expect(text).toContain("工具 / Skill 待处理");
     expect(text).toContain("人工确认 已确认");
     expect(text).toContain("费用凭证 待确认");
+    expect(text).not.toContain("model /");
     expect(text).toContain("阻塞：岗位执行需要先完成本次费用确认并生成费用凭证。");
     expect(text).not.toContain("local_entitlement_marketplace_ops");
     expect(text).not.toContain("ledgerRef");
@@ -994,12 +1081,14 @@ describe("renderMyRolesPage", () => {
     expect(text).toContain("已完成商城运营诊断。");
     expect(text).toContain("模型用量证据");
     expect(text).toContain("deepseek / deepseek-v4-flash");
-    expect(text).toContain("Token：输入 120 / 输出 80 / 合计 200");
+    expect(text).toContain("模型用量：输入 120 / 输出 80 / 合计 200");
+    expect(text).not.toContain("Token：输入");
     expect(text).toContain("费用证据：¥0.0300");
     expect(text).toContain("账本记录");
     expect(text).toContain("账本读回");
-    expect(text).toContain("状态：posted · 授权费用 ¥0.00");
+    expect(text).toContain("状态：已入账 · 授权费用 ¥0.00");
     expect(text).toContain("执行费用 ¥0.00");
+    expect(text).not.toContain("状态：posted");
     expect(text).toContain("审计：审计记录 1");
     expect(text).toContain("审计读回");
     expect(text).toContain("审计已记录商城运营诊断结果。");
@@ -1440,7 +1529,8 @@ describe("renderMyRolesPage", () => {
     expect(text).toContain("账本：已读回");
     expect(text).toContain("审计：已读回");
     expect(text).toContain("业务产物：1 个");
-    expect(text).toContain("费用摘要：授权 ¥0.00 · 执行 ¥0.00 · 合计 ¥0.0000 · local_ledger");
+    expect(text).toContain("费用摘要：授权 ¥0.00 · 执行 ¥0.00 · 合计 ¥0.0000 · 本地账本");
+    expect(text).not.toContain("local_ledger");
   });
 
   it("marks the overview evidence summary incomplete when any required readback is missing", () => {
@@ -1846,7 +1936,8 @@ describe("renderMyRolesPage", () => {
 
     expect(text).toContain("智能水杯详情页");
     expect(text).toContain("执行后证据");
-    expect(text).toContain("下一步：请到 API 管理检查 OpenAI 账户限流、余额和 API Key 后重试。");
+    expect(text).toContain("下一步：请到 API 管理检查 OpenAI 账户限流、余额和 API 密钥后重试。");
+    expect(text).not.toContain("API Key");
   });
 
   it("guides OpenAI image API rate-limit failures to API management from execution details", () => {
@@ -1892,7 +1983,7 @@ describe("renderMyRolesPage", () => {
     const text = (host.textContent ?? "").replace(/\s+/g, " ");
 
     expect(text).toContain("OpenAI 图片 API 429: Rate limit reached");
-    expect(text).toContain("下一步：到 API 管理检查 OpenAI/API Key、余额和限流状态");
+    expect(text).toContain("下一步：到 API 管理检查模型服务、API 密钥、余额和限流状态");
     const button = [...host.querySelectorAll("button")].find((candidate) =>
       candidate.textContent?.includes("去 API 管理"),
     ) as HTMLButtonElement | undefined;

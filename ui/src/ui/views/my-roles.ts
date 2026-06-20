@@ -50,8 +50,29 @@ function text(value: unknown, fallback = "-"): string {
 
 function userFacingText(value: unknown, fallback = "-"): string {
   return text(value, fallback)
+    .replace(/\bactor_context\b/giu, "账号上下文")
+    .replace(/\ballowedTools\b/giu, "允许调用的工具")
+    .replace(/\ballowedSkills\b/giu, "允许调用的 Skill")
+    .replace(/\bcategoryCapabilityId\b/giu, "品类能力包")
+    .replace(/\bdispatch_request\b/giu, "执行队列")
+    .replace(/\broleListingId\b/giu, "岗位商品")
+    .replace(/\bentitlementId\b/giu, "授权凭证")
     .replace(/生成\s+ledgerRef/gu, "生成费用凭证")
-    .replace(/\bledgerRef\b/gu, "费用凭证");
+    .replace(/\bledgerRef\b/gu, "费用凭证")
+    .replace(/\bauditRef\b/gu, "审计记录")
+    .replace(/\bartifactRefs\b/gu, "业务产物")
+    .replace(/\bTaskPackage\b/g, "派发任务")
+    .replace(/\bRoleResult\b/g, "岗位执行结果")
+    .replace(/\bmissing_api_binding\b/giu, "缺少 API 连接")
+    .replace(/API Key/giu, "API 密钥")
+    .replace(/API 密钥\s+后/gu, "API 密钥后")
+    .replace(/模型\s+Provider/giu, "模型服务")
+    .replace(/\bProvider\b/giu, "模型服务")
+    .replace(/artifact:[^\s；,，。)）]+/gu, "业务产物")
+    .replace(/ledger:[^\s；,，。)）]+/gu, "账本记录")
+    .replace(/audit:[^\s；,，。)）]+/gu, "审计记录")
+    .replace(/未声明\s+允许调用的工具/gu, "未声明允许调用的工具")
+    .replace(/未声明\s+允许调用的 Skill/gu, "未声明允许调用的 Skill");
 }
 
 function numberValue(value: unknown): number {
@@ -177,6 +198,27 @@ function yuanLabelFromCents(value: unknown, decimals = 2): string {
   return hasFiniteNumber(value) ? `¥${(value / 100).toFixed(decimals)}` : "未记录";
 }
 
+function costSourceLabel(source: string): string {
+  const labels: Record<string, string> = {
+    local_ledger: "本地账本",
+    local_zero_price: "本地零价账本",
+    cloud_ledger: "云端账本",
+  };
+  return labels[source] ?? source.replace(/_/gu, " ");
+}
+
+function ledgerStatusLabel(status: unknown): string {
+  const normalized = text(status, "");
+  const labels: Record<string, string> = {
+    posted: "已入账",
+    pending: "待入账",
+    failed: "入账失败",
+    reversed: "已冲正",
+    cancelled: "已取消",
+  };
+  return labels[normalized] ?? userFacingText(normalized, "已读回");
+}
+
 function costSummaryLabel(costSummary: Record<string, unknown> | null | undefined): string {
   if (!costSummary) return "";
   const parts = [
@@ -190,7 +232,7 @@ function costSummaryLabel(costSummary: Record<string, unknown> | null | undefine
     parts.push(`合计 ${yuanLabelFromCents(costSummary.totalCostCents, 4)}`);
   }
   const source = text(costSummary.source, "");
-  return source ? `${parts.join(" · ")} · ${source}` : parts.join(" · ");
+  return source ? `${parts.join(" · ")} · ${costSourceLabel(source)}` : parts.join(" · ");
 }
 
 function feeEvidenceLabel(
@@ -264,7 +306,7 @@ function blockerHelp(code: string): { missing: string; action: string; target: B
     },
     missing_api_binding: {
       missing: "缺少 API 绑定",
-      action: "到 API 管理添加模型 API Key，并勾选“岗位执行”或通用模型池。",
+      action: "到 API 管理添加模型 API 密钥，并勾选“岗位执行”或通用模型池。",
       target: "apiManagement",
     },
     skill_disabled: {
@@ -343,10 +385,14 @@ function renderBlockerHelp(
         ${reasons.map((reason) => {
           const code = text(reason.code, "");
           const help = blockerHelp(code);
+          const message = userFacingText(reason.message, "");
           return html`<div
             style="border:1px solid #fed7d7;background:#fff5f5;border-radius:6px;padding:9px;display:grid;gap:6px"
           >
             <div style="font-size:12px;font-weight:750;color:#c53030">缺少：${help.missing}</div>
+            ${message
+              ? html`<div style="font-size:12px;color:var(--text-secondary,#666)">${message}</div>`
+              : nothing}
             <div style="font-size:12px;color:var(--text-secondary,#666)">
               怎么办：${help.action}
             </div>
@@ -399,7 +445,7 @@ function pageErrorHelp(message: string): { action: string; target?: Tab } | null
     message.includes("Provider")
   ) {
     return {
-      action: "下一步：到 API 管理检查 OpenAI/API Key、余额和限流状态，点测试通过后再回来运行。",
+      action: "下一步：到 API 管理检查模型服务、API 密钥、余额和限流状态，点测试通过后再回来运行。",
       target: "apiManagement",
     };
   }
@@ -495,11 +541,11 @@ function renderModelUsageEvidence(
         : html`<div style="color:var(--text-secondary,#666)">无模型用量证据</div>`}
       ${provider || model
         ? html`<div style="color:var(--text-secondary,#666)">
-            模型：${provider || "model"} / ${model || "未记录"}
+            模型：${provider || "模型服务"} / ${model || "未记录"}
           </div>`
         : nothing}
       <div style="color:var(--text-secondary,#666)">
-        Token：输入 ${inputTokens || 0} / 输出 ${outputTokens || 0} / 合计
+        模型用量：输入 ${inputTokens || 0} / 输出 ${outputTokens || 0} / 合计
         ${totalTokens || inputTokens + outputTokens || 0}
       </div>
       <div style="color:var(--text-secondary,#666)">费用证据：${feeLabel}</div>
@@ -551,6 +597,115 @@ function executionClosureTarget(tab: unknown): Tab | null {
   return ["apiManagement", "usage", "skills", "workboard", "aics"].includes(target)
     ? (target as Tab)
     : null;
+}
+
+function engineStatusLabel(status: unknown) {
+  if (status === "ready") return "已就绪";
+  if (status === "completed") return "已完成";
+  if (status === "running") return "运行中";
+  if (status === "blocked") return "需处理";
+  if (status === "waiting") return "等待中";
+  return "未观察";
+}
+
+function engineStatusColor(status: unknown) {
+  if (status === "ready" || status === "completed") return "#2f855a";
+  if (status === "running") return "#805ad5";
+  if (status === "blocked") return "#c53030";
+  return "#b7791f";
+}
+
+function engineDisplayLabel(item: Record<string, unknown>) {
+  const id = text(item.id, "");
+  if (id.includes("role_development")) return "岗位供给";
+  if (id.includes("tool_skill_development")) return "工具 / Skill 供给";
+  if (id.includes("category_capability")) return "品类能力";
+  if (id.includes("role_execution")) return "岗位运行";
+  if (id.includes("tool_skill_execution")) return "工具 / Skill 运行";
+  return text(item.label, "能力状态");
+}
+
+function renderRoleExecutionEngineReadiness(
+  flow: Record<string, unknown> | null | undefined,
+  onNavigate: (tab: Tab) => void,
+) {
+  const engine = record(flow?.engineReadiness);
+  if (!engine) return nothing;
+  const supply = record(engine.supply);
+  const runtime = record(engine.runtime);
+  const items = [
+    record(supply.roleDevelopment),
+    record(supply.toolSkillDevelopment),
+    record(supply.categoryCapability),
+    record(runtime.roleExecution),
+    record(runtime.toolSkillExecution),
+  ].filter((item): item is Record<string, unknown> => Boolean(item));
+  const blockers = recordList(engine.blockers);
+  const overallStatus = text(engine.overallStatus, "unknown");
+  const color = engineStatusColor(overallStatus);
+  const target =
+    executionClosureTarget(blockers[0]?.targetTab) ?? executionClosureTarget(items[0]?.targetTab);
+
+  return html`
+    <section
+      data-testid="my-roles-engine-readiness"
+      style="border:1px solid ${overallStatus === "blocked"
+        ? "#fed7d7"
+        : "#c6f6d5"};border-radius:8px;padding:12px;background:${overallStatus === "blocked"
+        ? "#fff5f5"
+        : "#f0fff4"};margin-bottom:14px;display:grid;gap:10px"
+    >
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
+        <div>
+          <div style="font-size:12px;color:var(--text-secondary,#666)">能力与运行状态</div>
+          <strong style="font-size:14px;color:${color}">${engineStatusLabel(overallStatus)}</strong>
+          <div
+            style="font-size:12px;color:var(--text-secondary,#666);line-height:1.5;margin-top:3px"
+          >
+            ${userFacingText(engine.userMessage, "等待读取岗位供给、能力供给和执行运行状态。")}
+          </div>
+        </div>
+        ${target
+          ? html`<button
+              type="button"
+              style="padding:5px 10px;border:1px solid var(--border-color,#ccc);border-radius:4px;background:var(--bg-elevated,#fff);font-size:12px;cursor:pointer"
+              @click=${() => onNavigate(target)}
+            >
+              ${userFacingText(engine.nextAction, "去处理")}
+            </button>`
+          : nothing}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px">
+        ${items.map((item) => {
+          const blockedReasons = list(item.blockedReasons);
+          const itemStatus = text(item.status, "unknown");
+          return html`
+            <div
+              style="border:1px solid var(--border-color,#e0e0e0);border-radius:7px;background:var(--bg-elevated,#fff);padding:9px;font-size:12px;display:grid;gap:4px"
+            >
+              <div style="display:flex;justify-content:space-between;gap:8px">
+                <strong>${engineDisplayLabel(item)}</strong>
+                <span style="color:${engineStatusColor(itemStatus)}">
+                  ${engineStatusLabel(itemStatus)}
+                </span>
+              </div>
+              <div style="color:var(--text-secondary,#666);line-height:1.45">
+                ${userFacingText(item.summary, "等待读取状态。")}
+              </div>
+              ${blockedReasons.length
+                ? html`<div style="color:#c53030;line-height:1.45">
+                    卡点：${blockedReasons
+                      .slice(0, 2)
+                      .map((reason) => userFacingText(reason, "需要处理"))
+                      .join("；")}
+                  </div>`
+                : nothing}
+            </div>
+          `;
+        })}
+      </div>
+    </section>
+  `;
 }
 
 function businessArtifactLabel(ref: string, index: number): string {
@@ -1047,11 +1202,35 @@ function renderExecutionClosureCard(state: AppViewState, onNavigate: (tab: Tab) 
   `;
 }
 
-function renderExecutionPreRunChecklist(execution: ExecutionRecord, canRun: boolean) {
+function renderExecutionPreRunChecklist(params: {
+  execution: ExecutionRecord;
+  canRun: boolean;
+  modelLabel: string;
+  toolSkillReady: boolean;
+}) {
+  const { execution, canRun, modelLabel, toolSkillReady } = params;
   const entitlementId = text(execution.entitlementId, "");
   const ledgerRef = text(execution.ledgerRef, "");
   const hasExecutionConfirmation = execution.confirmExecution === true;
   const hasCostConfirmation = execution.costConfirmed === true && Boolean(ledgerRef);
+  const modelReady = Boolean(modelLabel) || canRun;
+  const capabilityReady = toolSkillReady || canRun;
+  const roleLabel = text(execution.roleTitle, "未绑定执行岗位");
+  const taskLabel = text(execution.taskText, text(execution.title, "未命名任务"));
+  const outputLabel = text(execution.expectedOutput, "完成后回写业务产物");
+  const costLabel = hasCostConfirmation
+    ? "费用已确认，会写入账本记录"
+    : canRun
+      ? "可能产生费用，运行前会再次确认"
+      : "待费用与授权确认";
+  const modelDisplayLabel = modelLabel || (canRun ? "已满足" : "待 API 管理绑定模型服务");
+  const capabilityDisplayLabel = capabilityReady ? "工具 / Skill 已满足" : "工具 / Skill 待处理";
+  const authorizationDisplayLabel = entitlementId ? "已授权" : "待费用与授权确认";
+  const costRiskLabel = hasCostConfirmation
+    ? "费用已确认，执行会写入账本记录"
+    : canRun
+      ? "可能产生费用，运行前会再次确认"
+      : "待费用与授权确认";
   return html`
     <div
       style="border:1px solid ${canRun
@@ -1061,7 +1240,24 @@ function renderExecutionPreRunChecklist(execution: ExecutionRecord, canRun: bool
         : "var(--bg-elevated,#fff)"}"
     >
       <div style="font-weight:700;color:var(--text-primary,#333)">执行前核对</div>
+      <div
+        style="border:1px solid ${canRun ? "#9ae6b4" : "#e2e8f0"};background:${canRun
+          ? "#f0fff4"
+          : "var(--bg-secondary,#f8fafc)"};border-radius:6px;padding:7px;line-height:1.5;color:var(--text-secondary,#666);display:grid;gap:3px"
+      >
+        <strong style="color:var(--text-primary,#333)">运行前确认</strong>
+        <span>执行岗位：${roleLabel}</span>
+        <span>执行任务：${taskLabel}</span>
+        <span>目标产物：${outputLabel}</span>
+        <span>授权是否有效：${authorizationDisplayLabel}</span>
+        <span>使用模型：${modelDisplayLabel}</span>
+        <span>是否会产生费用：${costRiskLabel}</span>
+        <span>费用影响：${costLabel}</span>
+        <span>能力条件：${capabilityDisplayLabel}</span>
+      </div>
       ${checkItem("授权凭证", Boolean(entitlementId), "已授权", "待授权")}
+      ${checkItem("模型服务", modelReady, modelLabel || "已满足", "待绑定")}
+      ${checkItem("工具 / Skill", capabilityReady, "已满足", "待处理")}
       ${checkItem("人工确认", hasExecutionConfirmation, "已确认", "待确认")}
       ${checkItem("费用凭证", hasCostConfirmation, "已确认", "待确认")}
       ${canRun
@@ -1300,7 +1496,7 @@ function renderExecutionPostRunEvidenceSummary(
       </div>
       ${text(result?.summary, "")
         ? html`<div style="color:var(--text-secondary,#666);line-height:1.45">
-            成果：${text(result?.summary)}
+            成果：${userFacingText(result?.summary)}
           </div>`
         : nothing}
       ${resultLocation
@@ -1324,7 +1520,7 @@ function renderExecutionPostRunEvidenceSummary(
           modelUsageNotApplicableReason
             ? `无需模型费用证据 · ${modelUsageNotApplicableReason}`
             : `${feeEvidenceLabel(modelUsage, ledgerReadback)}${
-                totalTokens ? ` · ${totalTokens} Token` : ""
+                totalTokens ? ` · 模型用量 ${totalTokens}` : ""
               }`,
           "缺真实费用金额",
         )}
@@ -1347,6 +1543,9 @@ function renderExecutionPostRunEvidenceSummary(
                 : nothing}
               ${costSummary ? html`<div>费用摘要：${costSummaryLabel(costSummary)}</div>` : nothing}
               ${humanConfirmationRef ? html`<div>人工确认：已确认</div>` : nothing}
+              ${text(auditReadback?.summary, "")
+                ? html`<div>${userFacingText(auditReadback?.summary)}</div>`
+                : nothing}
             </div>
           `
         : nothing}
@@ -1527,7 +1726,7 @@ function renderMainFlowRoleExecutionCard(state: AppViewState, onNavigate: (tab: 
       ? (summary.selectedModelRef as Record<string, unknown>)
       : null;
   const selectedModelLabel = selectedModelRef
-    ? `${text(selectedModelRef.provider, "model")} / ${text(selectedModelRef.model, "未选模型")}`
+    ? `${text(selectedModelRef.provider, "模型服务")} / ${text(selectedModelRef.model, "未选模型")}`
     : "";
   const resultEvidence = record(result?.executionEvidence);
   const resultModelUsage = record(resultEvidence?.modelUsage);
@@ -1555,7 +1754,29 @@ function renderMainFlowRoleExecutionCard(state: AppViewState, onNavigate: (tab: 
     Boolean(result?.id) || request?.status === "completed" || task?.status === "completed";
   const canRun = preflight.canRun === true && !executionDone;
   const authorizedRole = selectAuthorizedRoleForDispatch(state);
-  const canConfirmAndRun = Boolean(requestId && taskId && authorizedRole && !executionDone);
+  const hasRunnableApiBinding =
+    preflight.hasApiBinding !== false && request?.apiBindingReady !== false;
+  const hasRunnableToolSkill =
+    preflight.hasToolSkillReadiness !== false && request?.toolSkillReady !== false;
+  const canConfirmAndRun = Boolean(
+    requestId &&
+    taskId &&
+    authorizedRole &&
+    hasRunnableApiBinding &&
+    hasRunnableToolSkill &&
+    !executionDone,
+  );
+  const confirmAndRunTitle = executionDone
+    ? "当前任务已完成。"
+    : !requestId || !taskId
+      ? "需要先到任务调度生成派发单和执行队列。"
+      : !authorizedRole
+        ? "需要先完成岗位授权后才能运行。"
+        : !hasRunnableApiBinding
+          ? "需要先到 API 管理补齐岗位执行所需连接。"
+          : !hasRunnableToolSkill
+            ? "需要先到能力配置处理工具或 Skill。"
+            : "确认授权和费用，并运行已派发的岗位任务。";
   const hasRoleAuthorization = Boolean(request?.entitlementId || authorizedRole || executionDone);
   const toolSkillReady =
     executionDone ||
@@ -1604,6 +1825,8 @@ function renderMainFlowRoleExecutionCard(state: AppViewState, onNavigate: (tab: 
           检查执行条件
         </button>
       </div>
+
+      <div style="margin-top:12px">${renderRoleExecutionEngineReadiness(flow, onNavigate)}</div>
 
       <div
         style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-top:12px"
@@ -1675,7 +1898,7 @@ function renderMainFlowRoleExecutionCard(state: AppViewState, onNavigate: (tab: 
             <strong style="color:var(--text-primary,#333)">费用影响：</strong>${costImpactLabel}
           </div>
           <div>
-            <strong style="color:var(--text-primary,#333)">结果：</strong>${text(
+            <strong style="color:var(--text-primary,#333)">结果：</strong>${userFacingText(
               result?.summary,
               "尚未运行",
             )}
@@ -1717,11 +1940,7 @@ function renderMainFlowRoleExecutionCard(state: AppViewState, onNavigate: (tab: 
             : "#a0aec0"};color:#fff;border:none;border-radius:4px;cursor:${canConfirmAndRun
             ? "pointer"
             : "not-allowed"};font-size:12px"
-          title=${executionDone
-            ? "当前任务已完成。"
-            : canConfirmAndRun
-              ? "确认授权和费用，并运行已派发的岗位任务。"
-              : "需要派发单和岗位授权后才能运行。"}
+          title=${confirmAndRunTitle}
           ?disabled=${!canConfirmAndRun}
         >
           ${executionDone ? "已完成" : authorizedRole ? "确认并运行" : "先完成岗位授权"}
@@ -2136,7 +2355,7 @@ function renderExecutionCard(
       ? (execution.selectedModelRef as Record<string, unknown>)
       : null;
   const selectedModelLabel = selectedModelRef
-    ? `${text(selectedModelRef.provider, "model")} / ${text(selectedModelRef.model, "未选模型")}`
+    ? `${text(selectedModelRef.provider, "模型服务")} / ${text(selectedModelRef.model, "未选模型")}`
     : "";
   const canRun = execution.canRun === true && !ps.runningExecutionId;
   const { modelUsage, modelUsageNotApplicableReason } = executionEvidenceParts(execution);
@@ -2257,7 +2476,15 @@ function renderExecutionCard(
               </div>`
             : html`<div style="font-size:12px;color:#2f855a">岗位授权能力已通过调度投影校验</div>`}
           ${renderExecutionPostRunEvidenceSummary(execution, onNavigate)}
-          ${status === "completed" ? nothing : renderExecutionPreRunChecklist(execution, canRun)}
+          ${status === "completed"
+            ? nothing
+            : renderExecutionPreRunChecklist({
+                execution,
+                canRun,
+                modelLabel:
+                  selectedModelLabel || roleExecutionModelLabel || evidenceModelLabel || "",
+                toolSkillReady: allowedTools.length > 0 && allowedSkills.length > 0,
+              })}
         </div>
       </div>
     </section>
@@ -2290,7 +2517,7 @@ function renderDetailDrawer(
     ledgerRef,
     businessArtifactRefs,
   } = executionEvidenceParts(execution);
-  const recoverySuggestion = text(executionEvidence.recoverySuggestion, "");
+  const recoverySuggestion = userFacingText(executionEvidence.recoverySuggestion, "");
   const failureHelp = pageErrorHelp(
     [text(execution.blockedReason, ""), text(result?.summary, ""), recoverySuggestion]
       .filter(Boolean)
@@ -2395,7 +2622,7 @@ function renderDetailDrawer(
               ${result
                 ? html`<div>
                     <strong>执行结果：</strong>${roleOutcomeLabel(result.outcome)} /
-                    ${text(result.summary)}
+                    ${userFacingText(result.summary)}
                   </div>`
                 : nothing}
               ${hasEvidenceSummary
@@ -2497,7 +2724,7 @@ function renderDetailDrawer(
                         >
                           <div style="font-weight:700;color:var(--text-primary,#333)">账本读回</div>
                           <div style="color:var(--text-secondary,#666)">
-                            状态：${text(ledgerReadback.status)} · 授权费用
+                            状态：${ledgerStatusLabel(ledgerReadback.status)} · 授权费用
                             ¥${(numberValue(ledgerReadback.authorizationFeeCents) / 100).toFixed(2)}
                             · 执行费用
                             ¥${(numberValue(ledgerReadback.executionFeeCents) / 100).toFixed(2)}
@@ -2540,7 +2767,7 @@ function renderDetailDrawer(
                           style="border:1px solid #fed7d7;border-radius:6px;padding:8px;font-size:12px;background:#fff5f5;color:#c53030;display:grid;gap:4px"
                         >
                           <div style="font-weight:700">恢复建议</div>
-                          <div style="line-height:1.55">${recoverySuggestion}</div>
+                          <div style="line-height:1.55">${userFacingText(recoverySuggestion)}</div>
                         </div>
                       `
                     : nothing}
@@ -2575,7 +2802,7 @@ function renderDetailDrawer(
                           </div>
                           ${text(auditReadback.summary, "")
                             ? html`<div style="color:var(--text-secondary,#666);line-height:1.55">
-                                ${text(auditReadback.summary)}
+                                ${userFacingText(auditReadback.summary)}
                               </div>`
                             : nothing}
                         </div>
@@ -2625,10 +2852,10 @@ function renderDetailDrawer(
                         ? "#c53030"
                         : "var(--text-secondary,#666)"}"
                     >
-                      ${text(
+                      ${userFacingText(
                         execution.blockedReason,
                         "无阻塞；仍必须通过调度层和岗位授权能力执行。",
-                      ).replace(/\bledgerRef\b/gu, "费用凭证")}
+                      )}
                     </div>
                     ${uniqueRequest
                       ? html`<div style="margin-top:6px;color:#c05621">
