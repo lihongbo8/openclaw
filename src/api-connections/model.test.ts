@@ -183,6 +183,92 @@ describe("api connections read model", () => {
       false,
     );
   });
+
+  it("summarizes build session and role execution billing attribution separately", () => {
+    const readModel = createApiConnectionsReadModel({
+      apiConnections: {
+        entries: {
+          deepseek: normalizeApiConnectionEntry({
+            id: "model-deepseek",
+            name: "DeepSeek",
+            kind: "model",
+            provider: "deepseek",
+            authMode: "oauth",
+            consumers: ["model", "build_session", "role_execution"],
+            configBindings: [{ path: "models.providers.deepseek" }],
+            metadata: {
+              metering: {
+                byConsumer: {
+                  build_session: {
+                    calls: 2,
+                    inputTokens: 1000,
+                    outputTokens: 400,
+                    totalTokens: 1400,
+                    costCny: 0.014,
+                    lastUsageRef: "build_session:pkg-1",
+                    lastUsageAt: "2026-06-20T08:00:00.000Z",
+                  },
+                  role_execution: {
+                    calls: 1,
+                    inputTokens: 500,
+                    outputTokens: 250,
+                    totalTokens: 750,
+                    costCny: 0.01,
+                    lastUsageRef: "exec-marketplace-ops",
+                    lastUsageAt: "2026-06-20T08:05:00.000Z",
+                  },
+                },
+                cloudLedgerSync: {
+                  status: "pending",
+                  message: "待同步：迭界AI云端账本暂不可达。",
+                  pendingUsageRefs: ["exec-marketplace-ops"],
+                  lastError: "ECONNREFUSED",
+                  updatedAt: "2026-06-20T08:05:01.000Z",
+                },
+              },
+            },
+          }),
+        },
+      },
+    });
+
+    expect(readModel.billingAttribution.byConsumer.build_session).toMatchObject({
+      calls: 2,
+      totalTokens: 1400,
+      costCny: 0.014,
+      lastUsageRef: "build_session:pkg-1",
+      providerEntryIds: ["model-deepseek"],
+    });
+    expect(readModel.billingAttribution.byConsumer.role_execution).toMatchObject({
+      calls: 1,
+      totalTokens: 750,
+      costCny: 0.01,
+      lastUsageRef: "exec-marketplace-ops",
+      providerEntryIds: ["model-deepseek"],
+    });
+    expect(readModel.billingAttribution.roleExecution).toMatchObject({
+      status: "pending_sync",
+      ledgerConsumer: "role_execution",
+      calls: 1,
+      totalTokens: 750,
+      costCny: 0.01,
+      cloudLedgerSync: {
+        status: "pending",
+        pendingUsageRefs: ["exec-marketplace-ops"],
+        lastError: "ECONNREFUSED",
+      },
+      requiredEvidenceFields: [
+        "accountId",
+        "billingAccountId",
+        "roleListingId",
+        "entitlementId",
+        "executionId",
+        "apiKey/provider/model",
+        "consumer=role_execution",
+        "ledgerRef/auditRecordId",
+      ],
+    });
+  });
 });
 
 describe("api connections materializer", () => {

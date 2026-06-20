@@ -74,11 +74,41 @@ const toolsCatalogResult: ToolsCatalogResult = {
   ],
 };
 
+const emptyBillingAttribution: ApiConnectionsReadModel["billingAttribution"] = {
+  byConsumer: {},
+  roleExecution: {
+    calls: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    costCny: 0,
+    providerEntryIds: [],
+    status: "blocked",
+    ledgerConsumer: "role_execution",
+    cloudLedgerSync: {
+      status: "not_configured",
+      pendingUsageRefs: [],
+      message: "尚未产生岗位执行费用，或云端账本同步尚未配置。",
+    },
+    requiredEvidenceFields: [
+      "accountId",
+      "billingAccountId",
+      "roleListingId",
+      "entitlementId",
+      "executionId",
+      "apiKey/provider/model",
+      "consumer=role_execution",
+      "ledgerRef/auditRecordId",
+    ],
+  },
+};
+
 const apiConnections: ApiConnectionsReadModel = {
   entries: [],
   metrics: { configured: 0, available: 0, risky: 0, unbound: 0, blocked: 0 },
   groups: { model: [], tool_skill: [], marketplace: [], dialog: [], custom: [] },
   riskReport: { items: [], counts: { blocking: 0, warning: 0, info: 0 } },
+  billingAttribution: emptyBillingAttribution,
 };
 
 const blockedApiConnections: ApiConnectionsReadModel = {
@@ -115,6 +145,7 @@ const blockedApiConnections: ApiConnectionsReadModel = {
   metrics: { configured: 1, available: 0, risky: 1, unbound: 0, blocked: 1 },
   groups: { model: [], tool_skill: [], marketplace: [], dialog: [], custom: [] },
   riskReport: { items: [], counts: { blocking: 1, warning: 0, info: 0 } },
+  billingAttribution: emptyBillingAttribution,
 };
 
 function cloudProjection(): CloudMarketplaceProjection {

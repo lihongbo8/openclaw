@@ -1,3 +1,4 @@
+import { API_CONNECTION_CONSUMER_SET } from "../config/api-connection-consumers.js";
 import type {
   ApiConnectionConfigBinding,
   ApiConnectionConsumer,
@@ -62,6 +63,44 @@ export type ApiConnectionsReadModel = {
     items: ApiConnectionRiskItem[];
     counts: Record<ApiConnectionRiskSeverity, number>;
   };
+  billingAttribution: {
+    byConsumer: Partial<Record<ApiConnectionConsumer, ApiConnectionBillingConsumerSummary>>;
+    roleExecution: ApiConnectionRoleExecutionBillingSummary;
+  };
+};
+
+export type ApiConnectionBillingConsumerSummary = {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  costCny: number;
+  lastUsageRef?: string;
+  lastUsageAt?: string;
+  providerEntryIds: string[];
+};
+
+export type ApiConnectionRoleExecutionBillingSummary = ApiConnectionBillingConsumerSummary & {
+  status: "blocked" | "ready" | "pending_sync" | "synced" | "unused";
+  ledgerConsumer: "role_execution";
+  cloudLedgerSync: {
+    status: "not_configured" | "pending" | "synced";
+    pendingUsageRefs: string[];
+    message: string;
+    cloudRef?: string;
+    lastError?: string;
+    updatedAt?: string;
+  };
+  requiredEvidenceFields: [
+    "accountId",
+    "billingAccountId",
+    "roleListingId",
+    "entitlementId",
+    "executionId",
+    "apiKey/provider/model",
+    "consumer=role_execution",
+    "ledgerRef/auditRecordId",
+  ];
 };
 
 const MODEL_TOKEN_CONSUMERS = [
@@ -135,6 +174,28 @@ export function defaultSecretRefForProvider(provider: string): SecretInput {
 
 function normalizeList<T extends string>(items: readonly T[] | undefined): T[] {
   return Array.from(new Set((items ?? []).map((item) => item.trim()).filter(Boolean) as T[]));
+}
+
+function finiteNumber(value: unknown): number {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function stringField(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function readRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
+    : [];
 }
 
 export function normalizeApiConnectionEntry(
@@ -362,6 +423,144 @@ function globalRisk(entries: ApiConnectionEntry[]): ApiConnectionRiskItem[] {
   return risks;
 }
 
+function emptyConsumerBilling(
+  providerEntryIds: string[] = [],
+): ApiConnectionBillingConsumerSummary {
+  return {
+    calls: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    costCny: 0,
+    providerEntryIds,
+  };
+}
+
+function addConsumerBilling(
+  current: ApiConnectionBillingConsumerSummary | undefined,
+  entryId: string,
+  source: Record<string, unknown>,
+): ApiConnectionBillingConsumerSummary {
+  const providerEntryIds = new Set([...(current?.providerEntryIds ?? []), entryId]);
+  const lastUsageAt = stringField(source, "lastUsageAt") ?? current?.lastUsageAt;
+  const lastUsageRef = stringField(source, "lastUsageRef") ?? current?.lastUsageRef;
+  return {
+    calls: (current?.calls ?? 0) + finiteNumber(source.calls),
+    inputTokens: (current?.inputTokens ?? 0) + finiteNumber(source.inputTokens),
+    outputTokens: (current?.outputTokens ?? 0) + finiteNumber(source.outputTokens),
+    totalTokens: (current?.totalTokens ?? 0) + finiteNumber(source.totalTokens),
+    costCny: (current?.costCny ?? 0) + finiteNumber(source.costCny ?? source.cost),
+    ...(lastUsageRef ? { lastUsageRef } : {}),
+    ...(lastUsageAt ? { lastUsageAt } : {}),
+    providerEntryIds: Array.from(providerEntryIds).sort(),
+  };
+}
+
+function cloudLedgerSyncSummary(entries: ApiConnectionEntry[]) {
+  const syncRecords = entries
+    .map((entry) => readRecord(readRecord(readRecord(entry.metadata).metering).cloudLedgerSync))
+    .filter((record) => Object.keys(record).length > 0);
+  const pendingUsageRefs = Array.from(
+    new Set(syncRecords.flatMap((record) => stringArray(record.pendingUsageRefs))),
+  ).slice(-200);
+  const latest = syncRecords.at(-1);
+  const latestRecord = latest ?? {};
+  const latestStatus = stringField(latestRecord, "status");
+  if (latestStatus === "synced" && pendingUsageRefs.length === 0) {
+    return {
+      status: "synced" as const,
+      pendingUsageRefs,
+      message: stringField(latestRecord, "message") ?? "岗位执行费用已同步到云端账本。",
+      ...(stringField(latestRecord, "cloudRef")
+        ? { cloudRef: stringField(latestRecord, "cloudRef") }
+        : {}),
+      ...(stringField(latestRecord, "updatedAt")
+        ? { updatedAt: stringField(latestRecord, "updatedAt") }
+        : {}),
+    };
+  }
+  if (syncRecords.length > 0 || pendingUsageRefs.length > 0) {
+    return {
+      status: "pending" as const,
+      pendingUsageRefs,
+      message:
+        stringField(latestRecord, "message") ??
+        "岗位执行费用已在本地记录，等待同步到迭界AI云端账本。",
+      ...(stringField(latestRecord, "lastError")
+        ? { lastError: stringField(latestRecord, "lastError") }
+        : {}),
+      ...(stringField(latestRecord, "updatedAt")
+        ? { updatedAt: stringField(latestRecord, "updatedAt") }
+        : {}),
+    };
+  }
+  return {
+    status: "not_configured" as const,
+    pendingUsageRefs,
+    message: "尚未产生岗位执行费用，或云端账本同步尚未配置。",
+  };
+}
+
+function createBillingAttributionSummary(
+  entries: ApiConnectionEntry[],
+): ApiConnectionsReadModel["billingAttribution"] {
+  const byConsumer: Partial<Record<ApiConnectionConsumer, ApiConnectionBillingConsumerSummary>> =
+    {};
+  const modelEntries = entries.filter((entry) => entry.enabled !== false && entry.kind === "model");
+  for (const entry of modelEntries) {
+    const byConsumerRecord = readRecord(readRecord(readRecord(entry.metadata).metering).byConsumer);
+    for (const [consumer, value] of Object.entries(byConsumerRecord)) {
+      if (!API_CONNECTION_CONSUMER_SET.has(consumer as ApiConnectionConsumer)) continue;
+      byConsumer[consumer as ApiConnectionConsumer] = addConsumerBilling(
+        byConsumer[consumer as ApiConnectionConsumer],
+        entry.id,
+        readRecord(value),
+      );
+    }
+  }
+
+  const roleExecution =
+    byConsumer.role_execution ??
+    emptyConsumerBilling(
+      modelEntries
+        .filter((entry) =>
+          normalizeConsumersForKind(entry.kind, entry.consumers).includes("role_execution"),
+        )
+        .map((entry) => entry.id),
+    );
+  const hasRoleProvider = roleExecution.providerEntryIds.length > 0;
+  const cloudLedgerSync = cloudLedgerSyncSummary(modelEntries);
+  const status: ApiConnectionRoleExecutionBillingSummary["status"] = !hasRoleProvider
+    ? "blocked"
+    : roleExecution.calls === 0
+      ? "unused"
+      : cloudLedgerSync.status === "synced"
+        ? "synced"
+        : cloudLedgerSync.status === "pending"
+          ? "pending_sync"
+          : "ready";
+
+  return {
+    byConsumer,
+    roleExecution: {
+      ...roleExecution,
+      status,
+      ledgerConsumer: "role_execution",
+      cloudLedgerSync,
+      requiredEvidenceFields: [
+        "accountId",
+        "billingAccountId",
+        "roleListingId",
+        "entitlementId",
+        "executionId",
+        "apiKey/provider/model",
+        "consumer=role_execution",
+        "ledgerRef/auditRecordId",
+      ],
+    },
+  };
+}
+
 export function createApiConnectionsReadModel(
   config: Pick<OpenClawConfig, "apiConnections" | "secrets">,
   env: NodeJS.ProcessEnv = process.env,
@@ -431,5 +630,6 @@ export function createApiConnectionsReadModel(
         info: riskItems.filter((item) => item.severity === "info").length,
       },
     },
+    billingAttribution: createBillingAttributionSummary(entries),
   };
 }
