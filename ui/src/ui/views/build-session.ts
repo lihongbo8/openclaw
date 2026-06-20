@@ -118,8 +118,9 @@ function renderIdleStep(state: AppViewState, bs: BuildSessionPageState, update: 
           ? "#c53030"
           : "var(--text-secondary,#666)"};margin:0 0 10px 0"
       >
-        开发席位：${Math.min(activeSessions.length, 3)} /
-        3${roleLimitReached ? "。请先取消或清理已有岗位后再创建新岗位。" : ""}
+        ${`开发席位：${Math.min(activeSessions.length, 3)} / 3${
+          roleLimitReached ? "。请先取消或清理已有岗位后再创建新岗位。" : ""
+        }`}
       </div>
       <textarea
         .value=${bs.requirements}
@@ -771,10 +772,9 @@ function renderCapabilityAnalysis(
                   ${relatedToolSupplyTodos.slice(0, 3).map(
                     (todo) => html`
                       <div style="font-size:12px;color:var(--text-secondary,#666);line-height:1.5">
-                        <strong style="color:var(--text-primary,#333)" title=${todo.assetId ?? ""}
-                          >${todo.assetType === "skill" ? "Skill" : "Tool/API"} ·
-                          ${humanizeCapabilityRef(todo.assetId ?? "")}</strong
-                        >
+                        <strong style="color:var(--text-primary,#333)" title=${todo.assetId ?? ""}>
+                          ${`${todo.assetType === "skill" ? "Skill" : "Tool/API"} · ${humanizeCapabilityRef(todo.assetId ?? "")}`}
+                        </strong>
                         · ${todo.reviewStatus} · ${todo.nextAction.label}
                       </div>
                     `,
