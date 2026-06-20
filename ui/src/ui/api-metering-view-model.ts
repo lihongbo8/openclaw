@@ -41,6 +41,23 @@ export type ApiLedgerSyncRow = {
   pendingUsageRefs: string[];
 };
 
+export type ApiRoleExecutionBillingReadback = ApiMeteringTotals & {
+  status: string;
+  ledgerConsumer: "role_execution" | "";
+  lastUsageRef: string;
+  lastUsageAt: string;
+  providerEntryIds: string[];
+  cloudLedgerSync: {
+    status: string;
+    message: string;
+    pendingUsageRefs: string[];
+    cloudRef: string;
+    lastError: string;
+    updatedAt: string;
+  };
+  requiredEvidenceFields: string[];
+};
+
 export type ApiMeteringViewModel = {
   entries: Array<Record<string, unknown>>;
   modelRows: ApiModelMeteringRow[];
@@ -48,6 +65,7 @@ export type ApiMeteringViewModel = {
   consumerTotals: Array<{ consumer: string; totals: ApiMeteringTotals }>;
   budgetRows: ApiBudgetRow[];
   ledgerSyncRows: ApiLedgerSyncRow[];
+  roleExecutionBilling: ApiRoleExecutionBillingReadback | null;
   usageDays: number;
   hasModelMetering: boolean;
   meteringForEntry: (entry: Record<string, unknown>) => ApiMeteringTotals;
@@ -189,6 +207,34 @@ function getEntriesFromReadModel(readModel: unknown): Array<Record<string, unkno
         )
       : [],
   );
+}
+
+function roleExecutionBillingFromReadModel(
+  readModel: unknown,
+): ApiRoleExecutionBillingReadback | null {
+  const model = recordFromUnknown(readModel);
+  const billingAttribution = recordFromUnknown(model.billingAttribution);
+  const roleExecution = recordFromUnknown(billingAttribution.roleExecution);
+  if (!Object.keys(roleExecution).length) return null;
+  const cloudLedgerSync = recordFromUnknown(roleExecution.cloudLedgerSync);
+  return {
+    ...meteringFromRecord(roleExecution, {}),
+    status: stringFromUnknown(roleExecution.status),
+    ledgerConsumer:
+      stringFromUnknown(roleExecution.ledgerConsumer) === "role_execution" ? "role_execution" : "",
+    lastUsageRef: stringFromUnknown(roleExecution.lastUsageRef),
+    lastUsageAt: stringFromUnknown(roleExecution.lastUsageAt),
+    providerEntryIds: stringArrayFromUnknown(roleExecution.providerEntryIds),
+    cloudLedgerSync: {
+      status: stringFromUnknown(cloudLedgerSync.status),
+      message: stringFromUnknown(cloudLedgerSync.message),
+      pendingUsageRefs: stringArrayFromUnknown(cloudLedgerSync.pendingUsageRefs),
+      cloudRef: stringFromUnknown(cloudLedgerSync.cloudRef),
+      lastError: stringFromUnknown(cloudLedgerSync.lastError),
+      updatedAt: stringFromUnknown(cloudLedgerSync.updatedAt),
+    },
+    requiredEvidenceFields: stringArrayFromUnknown(roleExecution.requiredEvidenceFields),
+  };
 }
 
 function modelSetForApiConnectionEntry(entry: Record<string, unknown>): Set<string> {
@@ -336,6 +382,7 @@ export function createApiMeteringViewModel(params: {
   const entries = params.entries ?? getEntriesFromReadModel(params.readModel);
   const usageResult = params.includeSessionUsage === false ? null : params.usageResult;
   const usageDays = usageDaysFromResult(params.usageResult);
+  const roleExecutionBilling = roleExecutionBillingFromReadModel(params.readModel);
 
   const meteringForEntry = (entry: Record<string, unknown>): ApiMeteringTotals => {
     const metadata = recordFromUnknown(entry.metadata);
@@ -469,7 +516,7 @@ export function createApiMeteringViewModel(params: {
     .filter((item) => hasMetering(item.totals))
     .sort((left, right) => right.totals.costCny - left.totals.costCny);
   const budgetRows = modelRows.map((row) => budgetStatusForEntry(row.entry));
-  const ledgerSyncRows = modelRows
+  const ledgerSyncRowsFromEntries = modelRows
     .map((row) => {
       const sync = recordFromUnknown(row.metering.cloudLedgerSync);
       const status = stringFromUnknown(sync.status);
@@ -485,6 +532,21 @@ export function createApiMeteringViewModel(params: {
       } satisfies ApiLedgerSyncRow;
     })
     .filter((row): row is ApiLedgerSyncRow => Boolean(row));
+  const ledgerSyncRows = ledgerSyncRowsFromEntries.length
+    ? ledgerSyncRowsFromEntries
+    : roleExecutionBilling?.cloudLedgerSync.status
+      ? [
+          {
+            entryLabel: "岗位执行费用",
+            status: roleExecutionBilling.cloudLedgerSync.status,
+            message: roleExecutionBilling.cloudLedgerSync.message,
+            usageRef: roleExecutionBilling.lastUsageRef ?? "",
+            cloudRef: roleExecutionBilling.cloudLedgerSync.cloudRef,
+            updatedAt: roleExecutionBilling.cloudLedgerSync.updatedAt,
+            pendingUsageRefs: roleExecutionBilling.cloudLedgerSync.pendingUsageRefs,
+          },
+        ]
+      : [];
 
   return {
     entries,
@@ -493,6 +555,7 @@ export function createApiMeteringViewModel(params: {
     consumerTotals,
     budgetRows,
     ledgerSyncRows,
+    roleExecutionBilling,
     usageDays,
     hasModelMetering: modelTotals.totalTokens > 0 || modelTotals.costCny > 0,
     meteringForEntry,

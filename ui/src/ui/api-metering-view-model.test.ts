@@ -143,4 +143,72 @@ describe("api metering view model", () => {
       }),
     ]);
   });
+
+  it("uses backend billing attribution readback for role execution cost evidence", () => {
+    const view = createApiMeteringViewModel({
+      readModel: {
+        entries: [],
+        billingAttribution: {
+          roleExecution: {
+            status: "pending_sync",
+            ledgerConsumer: "role_execution",
+            calls: 1,
+            inputTokens: 500,
+            outputTokens: 250,
+            totalTokens: 750,
+            costCny: 0.01,
+            lastUsageRef: "exec-marketplace-ops",
+            lastUsageAt: "2026-06-20T08:05:00.000Z",
+            providerEntryIds: ["model-deepseek"],
+            cloudLedgerSync: {
+              status: "pending",
+              message: "待同步：迭界AI云端账本暂不可达。",
+              pendingUsageRefs: ["exec-marketplace-ops"],
+              lastError: "ECONNREFUSED",
+              updatedAt: "2026-06-20T08:05:01.000Z",
+            },
+            requiredEvidenceFields: [
+              "accountId",
+              "billingAccountId",
+              "roleListingId",
+              "entitlementId",
+              "executionId",
+              "apiKey/provider/model",
+              "consumer=role_execution",
+              "ledgerRef/auditRecordId",
+            ],
+          },
+        },
+      },
+      includeSessionUsage: false,
+    });
+
+    expect(view.roleExecutionBilling).toMatchObject({
+      status: "pending_sync",
+      ledgerConsumer: "role_execution",
+      calls: 1,
+      totalTokens: 750,
+      costCny: 0.01,
+      providerEntryIds: ["model-deepseek"],
+      cloudLedgerSync: {
+        status: "pending",
+        pendingUsageRefs: ["exec-marketplace-ops"],
+        lastError: "ECONNREFUSED",
+      },
+      requiredEvidenceFields: expect.arrayContaining([
+        "accountId",
+        "executionId",
+        "apiKey/provider/model",
+        "consumer=role_execution",
+      ]),
+    });
+    expect(view.ledgerSyncRows).toEqual([
+      expect.objectContaining({
+        entryLabel: "岗位执行费用",
+        status: "pending",
+        usageRef: "exec-marketplace-ops",
+        pendingUsageRefs: ["exec-marketplace-ops"],
+      }),
+    ]);
+  });
 });
