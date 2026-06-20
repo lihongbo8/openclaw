@@ -112,6 +112,11 @@ USER.md
 .antigravitycli/
 .serena/
 .crabbox/
+.playwright-cli/
+
+# Local AICS/OpenClaw run artifacts
+output/
+docs/aics-persona-runs/
 
 # local QA evidence mirrors; CI publishes canonical Mantis files as Actions artifacts
 mantis/
