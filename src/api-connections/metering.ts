@@ -70,6 +70,84 @@ function appendRecordedUsageRef(previous: unknown, usageRef: string): string[] {
   );
 }
 
+function trimString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function appendBillingEvent(
+  previous: unknown,
+  event: Record<string, unknown> | null,
+): Record<string, unknown>[] {
+  if (!event) {
+    return Array.isArray(previous)
+      ? previous.filter(
+          (item): item is Record<string, unknown> =>
+            Boolean(item) && typeof item === "object" && !Array.isArray(item),
+        )
+      : [];
+  }
+  const existing = Array.isArray(previous)
+    ? previous.filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item) && typeof item === "object" && !Array.isArray(item),
+      )
+    : [];
+  const usageRef = trimString(event.usageRef);
+  return [
+    ...existing.filter((item) => !usageRef || trimString(item.usageRef) !== usageRef),
+    event,
+  ].slice(-200);
+}
+
+function createBillingAttributionEvent(params: {
+  consumer: ApiConnectionConsumer;
+  usageRef: string;
+  entry: ApiConnectionEntry;
+  modelUsage: Record<string, unknown>;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    costCny: number;
+  };
+  attribution?: Record<string, unknown>;
+}): Record<string, unknown> | null {
+  if (params.consumer !== "role_execution") return null;
+  const attribution = readRecord(params.attribution);
+  const metadata = readRecord(params.entry.metadata);
+  const model =
+    trimString(params.modelUsage.model) ??
+    trimString(params.modelUsage.modelId) ??
+    trimString(metadata.defaultModel);
+  const event: Record<string, unknown> = {
+    usageRef: params.usageRef,
+    consumer: "role_execution",
+    apiConnectionEntryId: params.entry.id,
+    provider: trimString(params.modelUsage.provider) ?? params.entry.provider,
+    ...(model ? { model } : {}),
+    inputTokens: params.usage.inputTokens,
+    outputTokens: params.usage.outputTokens,
+    totalTokens: params.usage.totalTokens,
+    costCny: params.usage.costCny,
+    accountId: trimString(attribution.accountId) ?? "openclaw_local",
+    billingAccountId: trimString(attribution.billingAccountId) ?? "openclaw_local",
+    occurredAt: trimString(params.modelUsage.occurredAt) ?? new Date().toISOString(),
+  };
+  for (const key of [
+    "roleListingId",
+    "entitlementId",
+    "executionId",
+    "packageId",
+    "developerRef",
+    "ledgerRef",
+    "auditRecordId",
+  ]) {
+    const value = trimString(attribution[key]);
+    if (value) event[key] = value;
+  }
+  return event;
+}
+
 export function selectModelApiConnectionEntry(
   entries: Record<string, ApiConnectionEntry>,
   consumer: ApiConnectionConsumer,
@@ -182,6 +260,7 @@ export function applyModelUsageToApiConnectionMetering(
     consumer: ApiConnectionConsumer;
     executionId: string;
     modelUsage?: Record<string, unknown>;
+    attribution?: Record<string, unknown>;
   },
 ): ApiModelUsageMeteringResult | null {
   const modelUsage = readRecord(params.modelUsage);
@@ -220,6 +299,14 @@ export function applyModelUsageToApiConnectionMetering(
     totalTokens,
     costCny,
   };
+  const billingEvent = createBillingAttributionEvent({
+    consumer: params.consumer,
+    usageRef: params.executionId,
+    entry,
+    modelUsage,
+    usage,
+    attribution: params.attribution,
+  });
   const byConsumer = readRecord(metering.byConsumer);
   const consumerMetering = readRecord(byConsumer[params.consumer]);
   const now = new Date().toISOString();
@@ -230,6 +317,7 @@ export function applyModelUsageToApiConnectionMetering(
       metering: {
         ...addUsageTotals(metering, usage),
         recordedUsageRefs: appendRecordedUsageRef(metering.recordedUsageRefs, params.executionId),
+        billingEvents: appendBillingEvent(metering.billingEvents, billingEvent),
         byConsumer: {
           ...byConsumer,
           [params.consumer]: {

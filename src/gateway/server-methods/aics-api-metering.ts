@@ -429,6 +429,7 @@ export async function recordModelUsageToApiMetering(params: {
     consumer: params.consumer,
     executionId: params.executionId,
     modelUsage,
+    attribution: params.attribution,
   });
   if (!applied) return null;
   const validated = validateConfigObjectWithPlugins(applied.config);

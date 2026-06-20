@@ -71,6 +71,76 @@ describe("api connection model usage metering", () => {
     });
   });
 
+  it("records role execution billing attribution evidence per usage event", () => {
+    const config: OpenClawConfig = {
+      apiConnections: {
+        entries: {
+          "model-deepseek": {
+            id: "model-deepseek",
+            name: "DeepSeek",
+            kind: "model",
+            provider: "deepseek",
+            consumers: ["role_execution"],
+            metadata: {
+              defaultModel: "deepseek-chat",
+              pricing: {
+                inputCnyPerMillion: 0.02,
+                outputCnyPerMillion: 0.02,
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const result = applyModelUsageToApiConnectionMetering(config, {
+      consumer: "role_execution",
+      executionId: "role_execution:exec-marketplace-ops",
+      modelUsage: {
+        provider: "deepseek",
+        model: "deepseek-chat",
+        inputTokens: 1200,
+        outputTokens: 300,
+        totalTokens: 1500,
+      },
+      attribution: {
+        accountId: "local-admin",
+        billingAccountId: "local-admin",
+        roleListingId: "local_rolelisting_marketplace_ops",
+        entitlementId: "local_entitlement_marketplace_ops",
+        executionId: "exec-marketplace-ops",
+        packageId: "pkg-marketplace-ops-local",
+        developerRef: "local-developer",
+        ledgerRef: "ledger:role_execution:local_entitlement_marketplace_ops:exec-marketplace-ops",
+        auditRecordId: "local_audit_exec-marketplace-ops",
+      },
+    });
+
+    const metering = result?.config.apiConnections?.entries?.["model-deepseek"]?.metadata
+      ?.metering as Record<string, unknown>;
+    expect(metering.billingEvents).toEqual([
+      expect.objectContaining({
+        usageRef: "role_execution:exec-marketplace-ops",
+        consumer: "role_execution",
+        apiConnectionEntryId: "model-deepseek",
+        accountId: "local-admin",
+        billingAccountId: "local-admin",
+        roleListingId: "local_rolelisting_marketplace_ops",
+        entitlementId: "local_entitlement_marketplace_ops",
+        executionId: "exec-marketplace-ops",
+        packageId: "pkg-marketplace-ops-local",
+        developerRef: "local-developer",
+        ledgerRef: "ledger:role_execution:local_entitlement_marketplace_ops:exec-marketplace-ops",
+        auditRecordId: "local_audit_exec-marketplace-ops",
+        provider: "deepseek",
+        model: "deepseek-chat",
+        inputTokens: 1200,
+        outputTokens: 300,
+        totalTokens: 1500,
+      }),
+    ]);
+  });
+
   it("prefers actual costCents when execution evidence already has cost", () => {
     const config: OpenClawConfig = {
       apiConnections: {
