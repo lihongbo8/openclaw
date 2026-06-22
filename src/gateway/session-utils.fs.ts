@@ -1171,6 +1171,7 @@ async function readLastMessagePreviewFromOpenTranscriptAsync(params: {
 }
 
 type SessionTranscriptUsageSnapshot = {
+  messageId?: string;
   modelProvider?: string;
   model?: string;
   inputTokens?: number;
@@ -1330,7 +1331,29 @@ function extractUsageSnapshotFromTranscriptLine(
       return null;
     }
 
+    const messageMeta =
+      message.__openclaw &&
+      typeof message.__openclaw === "object" &&
+      !Array.isArray(message.__openclaw)
+        ? (message.__openclaw as Record<string, unknown>)
+        : {};
+    const parsedMeta =
+      parsed.__openclaw &&
+      typeof parsed.__openclaw === "object" &&
+      !Array.isArray(parsed.__openclaw)
+        ? (parsed.__openclaw as Record<string, unknown>)
+        : {};
+    const messageId =
+      typeof messageMeta.id === "string" && messageMeta.id.trim()
+        ? messageMeta.id.trim()
+        : typeof parsedMeta.id === "string" && parsedMeta.id.trim()
+          ? parsedMeta.id.trim()
+          : undefined;
+
     const snapshot: SessionTranscriptUsageSnapshot = {};
+    if (messageId) {
+      snapshot.messageId = messageId;
+    }
     if (!isDeliveryMirror) {
       if (modelProvider) {
         snapshot.modelProvider = modelProvider;

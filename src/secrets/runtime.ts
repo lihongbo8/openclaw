@@ -123,6 +123,7 @@ export async function prepareSecretsRuntimeSnapshot(params: {
   loadAuthStore?: (agentDir?: string) => AuthProfileStore;
   manifestRegistry?: Pick<PluginManifestRegistry, "plugins">;
   pluginMetadataSnapshot?: Pick<PluginMetadataSnapshot, "plugins" | "manifestRegistry">;
+  collectModelProviderSecrets?: boolean;
   /** Test override for discovered loadable plugins and their origins. */
   loadablePluginOrigins?: ReadonlyMap<string, PluginOrigin>;
 }): Promise<PreparedSecretsRuntimeSnapshot> {
@@ -195,6 +196,7 @@ export async function prepareSecretsRuntimeSnapshot(params: {
     config: resolvedConfig,
     context,
     loadablePluginOrigins,
+    collectModelProviderSecrets: params.collectModelProviderSecrets,
   });
 
   if (includeAuthStoreRefs) {

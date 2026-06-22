@@ -2,6 +2,36 @@ import type { Static } from "typebox";
 import { Type } from "typebox";
 import { ChatSendSessionKeyString, InputProvenanceSchema, NonEmptyString } from "./primitives.js";
 
+const AicsConversationStageSchema = Type.Union([
+  Type.Literal("ready"),
+  Type.Literal("idle"),
+  Type.Literal("intake"),
+  Type.Literal("clarifying"),
+  Type.Literal("briefGenerated"),
+  Type.Literal("awaitingBusinessConfirmation"),
+  Type.Literal("buildingPackage"),
+  Type.Literal("validatingPackage"),
+  Type.Literal("readyToUpload"),
+  Type.Literal("submittedForReview"),
+]);
+
+const AicsMainWorkflowStageSchema = Type.Union([
+  Type.Literal("ready"),
+  Type.Literal("idle"),
+  Type.Literal("goalIntake"),
+  Type.Literal("planning"),
+  Type.Literal("awaitingConfirmation"),
+  Type.Literal("dispatching"),
+  Type.Literal("running"),
+  Type.Literal("completed"),
+  Type.Literal("failed"),
+]);
+
+const AicsExecutionChannelSchema = Type.Union([
+  Type.Literal("local_openclaw"),
+  Type.Literal("cloud_user_center"),
+]);
+
 export const LogsTailParamsSchema = Type.Object(
   {
     cursor: Type.Optional(Type.Integer({ minimum: 0 })),
@@ -67,6 +97,29 @@ export const ChatSendParamsSchema = Type.Object(
     sessionId: Type.Optional(NonEmptyString),
     message: Type.String(),
     modelPrompt: Type.Optional(Type.String()),
+    aicsContext: Type.Optional(
+      Type.Union([
+        Type.Object(
+          {
+            mode: Type.Literal("developer"),
+            stage: Type.Optional(AicsConversationStageSchema),
+          },
+          { additionalProperties: false },
+        ),
+        Type.Object(
+          {
+            mode: Type.Union([Type.Literal("user"), Type.Literal("openclaw_main")]),
+            stage: Type.Optional(AicsMainWorkflowStageSchema),
+            executionChannel: Type.Optional(AicsExecutionChannelSchema),
+            roleListingId: Type.Optional(NonEmptyString),
+            roleTitle: Type.Optional(NonEmptyString),
+            roleQuery: Type.Optional(NonEmptyString),
+            workspaceDir: Type.Optional(NonEmptyString),
+          },
+          { additionalProperties: false },
+        ),
+      ]),
+    ),
     thinking: Type.Optional(Type.String()),
     fastMode: Type.Optional(Type.Boolean()),
     deliver: Type.Optional(Type.Boolean()),

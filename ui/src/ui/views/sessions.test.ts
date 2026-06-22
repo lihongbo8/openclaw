@@ -66,6 +66,7 @@ function buildProps(result: SessionsListResult): SessionsProps {
     onDeselectPage: () => undefined,
     onDeselectAll: () => undefined,
     onDeleteSelected: () => undefined,
+    onDeleteSession: () => undefined,
     onToggleCheckpointDetails: () => undefined,
     onBranchFromCheckpoint: () => undefined,
     onRestoreCheckpoint: () => undefined,
@@ -130,53 +131,6 @@ describe("sessions view", () => {
       includeUnknown: false,
       showArchived: true,
     });
-  });
-
-  it("offers workboard capture for dashboard sessions", async () => {
-    const container = document.createElement("div");
-    const onAddToWorkboard = vi.fn();
-    const session = {
-      key: "agent:main:dashboard:1",
-      kind: "direct",
-      updatedAt: Date.now(),
-    } as const;
-    render(
-      renderSessions({
-        ...buildProps(buildResult(session)),
-        onAddToWorkboard,
-      }),
-      container,
-    );
-    await Promise.resolve();
-
-    const button = container.querySelector<HTMLButtonElement>('button[title="Add to Workboard"]');
-    if (!(button instanceof HTMLButtonElement)) {
-      throw new Error("Expected Add to Workboard button");
-    }
-    button.click();
-
-    expect(onAddToWorkboard).toHaveBeenCalledWith(session);
-  });
-
-  it("marks sessions that already have workboard cards", async () => {
-    const container = document.createElement("div");
-    render(
-      renderSessions({
-        ...buildProps(
-          buildResult({
-            key: "agent:main:dashboard:1",
-            kind: "direct",
-            updatedAt: Date.now(),
-          }),
-        ),
-        workboardSessionKeys: new Set(["agent:main:dashboard:1"]),
-        onAddToWorkboard: () => undefined,
-      }),
-      container,
-    );
-    await Promise.resolve();
-
-    expect(container.querySelector('button[title="Open Workboard card"]')).not.toBeNull();
   });
 
   it("uses one short styled tooltip per session filter", async () => {
@@ -1074,5 +1028,36 @@ describe("sessions view", () => {
     const emptyCell = container.querySelector(".data-table-empty-cell");
     expect(emptyCell?.textContent?.trim()).toBe("No sessions found.");
     expect(emptyCell?.querySelector("button")).toBeNull();
+  });
+
+  it("does not render a destructive delete action for protected sessions", async () => {
+    const container = document.createElement("div");
+    const onDeleteSession = vi.fn();
+    render(
+      renderSessions({
+        ...buildProps(
+          buildMultiResult([
+            {
+              key: "agent:main:main",
+              kind: "direct",
+              updatedAt: Date.now(),
+            },
+          ]),
+        ),
+        isProtectedSession: (key) => key === "agent:main:main",
+        onDeleteSession,
+      }),
+      container,
+    );
+    await Promise.resolve();
+
+    expect(container.querySelector('[aria-label="删除对话记录：agent:main:main"]')).toBeNull();
+    const protectedAction = container.querySelector<HTMLButtonElement>(
+      '[aria-label="主/当前会话受保护：agent:main:main"]',
+    );
+    expect(protectedAction).toBeInstanceOf(HTMLButtonElement);
+    expect(protectedAction?.disabled).toBe(true);
+    protectedAction?.click();
+    expect(onDeleteSession).not.toHaveBeenCalled();
   });
 });

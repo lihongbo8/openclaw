@@ -89,6 +89,11 @@
         place-items: center;
       }
 
+      .mount-fallback[hidden],
+      body:not(.openclaw-mount-fallback-active) .mount-fallback {
+        display: none !important;
+      }
+
       .mount-fallback:not([hidden]) {
         display: grid;
       }
@@ -207,8 +212,8 @@
       hidden
     >
       <div class="mount-fallback__panel" tabindex="-1">
-        <p class="mount-fallback__eyebrow">迭界AI 控制台</p>
-        <h1 id="openclaw-mount-fallback-title">控制台没有启动</h1>
+        <p class="mount-fallback__eyebrow">OpenClaw Console</p>
+        <h1 id="openclaw-mount-fallback-title">Console did not start</h1>
         <p>
           The browser loaded the static page, but the app bundle did not register the
           <code>openclaw-app</code> web component. A browser extension or early content script may
@@ -268,12 +273,16 @@
           }
         }
 
-        function hideFallback() {
+        function hideFallback(remove) {
           fallback.hidden = true;
           document.body.classList.remove("openclaw-mount-fallback-active");
+          if (remove && fallback.parentNode) {
+            fallback.parentNode.removeChild(fallback);
+          }
         }
 
         function showFallback() {
+          if (!fallback.isConnected) return;
           if (appMounted()) return;
           fallback.hidden = false;
           document.body.classList.add("openclaw-mount-fallback-active");
@@ -297,7 +306,7 @@
           window.customElements.whenDefined(tagName).then(
             function () {
               window.clearTimeout(timer);
-              hideFallback();
+              hideFallback(true);
             },
             function () {},
           );
@@ -310,7 +319,7 @@
         }
         if (wait) {
           wait.addEventListener("click", function () {
-            hideFallback();
+            hideFallback(false);
             armFallbackTimer();
           });
         }

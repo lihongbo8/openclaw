@@ -207,6 +207,31 @@ describe("config io write", () => {
     });
   });
 
+  it("does not write config health-state when observe is disabled for sync load", async () => {
+    await withSuiteHome(async (home) => {
+      const configPath = path.join(home, ".openclaw", "openclaw.json");
+      const healthPath = path.join(home, ".openclaw", "logs", "config-health.json");
+      await fs.mkdir(path.dirname(configPath), { recursive: true });
+      await fs.writeFile(
+        configPath,
+        `${JSON.stringify({ gateway: { mode: "local" } }, null, 2)}\n`,
+        "utf-8",
+      );
+      const warn = vi.fn();
+      const io = createConfigIO({
+        configPath,
+        env: { OPENCLAW_TEST_FAST: "1" } as NodeJS.ProcessEnv,
+        fs: withHealthStateWriteFailure(healthPath),
+        homedir: () => home,
+        logger: { warn, error: vi.fn() },
+        observe: false,
+      });
+
+      expect(io.loadConfig().gateway).toEqual({ mode: "local" });
+      expect(warn).not.toHaveBeenCalled();
+    });
+  });
+
   it("refuses direct config writes in Nix mode without changing the file", async () => {
     await withSuiteHome(async (home) => {
       const configPath = path.join(home, ".openclaw", "openclaw.json");

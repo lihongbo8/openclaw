@@ -2,10 +2,14 @@
 
 .settings-workspace {
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .settings-workspace__body {
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 /* Logs opt into a fill-height chain so the log stream, not the page, owns
@@ -113,6 +117,7 @@
   max-width: 1520px;
   margin: 0 auto;
   padding: 32px 16px 56px;
+  box-sizing: border-box;
 }
 
 .qs-header {
@@ -155,6 +160,7 @@
   grid-template-columns: repeat(12, minmax(0, 1fr));
   align-items: stretch;
   gap: 14px;
+  min-width: 0;
 }
 
 .qs-side-stack {
@@ -192,6 +198,15 @@
 .qs-card--channels,
 .qs-card--security {
   grid-column: span 4;
+}
+
+.qs-card--appearance,
+.qs-card--gateway {
+  grid-column: span 6;
+}
+
+.qs-card--automations {
+  grid-column: 1 / -1;
 }
 
 .qs-card--personal {
@@ -1216,6 +1231,7 @@
   .qs-card--channels,
   .qs-card--security,
   .qs-card--appearance,
+  .qs-card--gateway,
   .qs-card--automations {
     grid-column: span 1;
   }
@@ -1241,17 +1257,21 @@
     order: 5;
   }
 
+  .qs-card--gateway {
+    order: 6;
+  }
+
   .qs-card--personal {
     order: 4;
   }
 
   .qs-card--automations {
     grid-column: 1 / -1;
-    order: 6;
+    order: 7;
   }
 
   .qs-card--span-all {
-    order: 7;
+    order: 8;
   }
 }
 

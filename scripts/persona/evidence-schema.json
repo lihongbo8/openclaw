@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openclaw.local/schemas/aics-production-plus-persona-evidence.schema.json",
+  "title": "AICS Production-plus Persona Evidence",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "source",
+    "realBrowser",
+    "realApplication",
+    "personas",
+    "positive",
+    "negative",
+    "proof",
+    "ids",
+    "finalProbes",
+    "openclawMainChat",
+    "localPageProbes",
+    "modelTokenBilling",
+    "secretScan"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "runId": { "type": "string" },
+    "source": { "enum": ["chrome", "playwright", "dry-run", "unknown"] },
+    "realBrowser": { "type": "boolean" },
+    "realApplication": { "type": "boolean" },
+    "consoleErrorCount": { "type": "number", "minimum": 0 },
+    "network5xxCount": { "type": "number", "minimum": 0 },
+    "personas": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "status"],
+        "properties": {
+          "name": { "type": "string" },
+          "status": { "enum": ["passed", "failed", "blocked"] }
+        }
+      }
+    },
+    "positive": { "type": "array" },
+    "negative": { "type": "array" },
+    "proof": {
+      "type": "object",
+      "properties": {
+        "screenshotCount": { "type": "number", "minimum": 0 },
+        "apiCheckCount": { "type": "number", "minimum": 0 },
+        "pageProbeCount": { "type": "number", "minimum": 0 },
+        "actionCount": { "type": "number", "minimum": 0 },
+        "failedActionCount": { "type": "number", "minimum": 0 },
+        "consoleEventCount": { "type": "number", "minimum": 0 },
+        "networkEventCount": { "type": "number", "minimum": 0 },
+        "actionTrace": { "type": "array" },
+        "apiChecks": { "type": "array" },
+        "artifacts": {
+          "type": "object",
+          "properties": {
+            "screenshotsDir": { "type": "string" },
+            "actions": { "type": "string" },
+            "console": { "type": "string" },
+            "networkSummary": { "type": "string" }
+          }
+        }
+      }
+    },
+    "ids": { "type": "object" },
+    "finalProbes": { "type": "object" },
+    "openclawMainChat": {
+      "type": "object",
+      "required": ["status", "source", "path"],
+      "properties": {
+        "status": { "enum": ["passed", "failed", "blocked", "provider-config-blocked"] },
+        "source": { "enum": ["playwright", "api_readback", "dry-run", "self-check", "missing"] },
+        "path": { "const": "main_chat" },
+        "assertion": {
+          "type": "object",
+          "properties": {
+            "status": { "enum": ["passed", "failed"] },
+            "selector": { "type": "string" },
+            "expectedText": { "type": "string" }
+          }
+        },
+        "blockedReason": {
+          "type": "object",
+          "properties": {
+            "code": { "type": "string" },
+            "stage": { "const": "main_chat" }
+          }
+        }
+      }
+    },
+    "localPageProbes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "path", "status", "source"],
+        "properties": {
+          "name": { "type": "string" },
+          "path": { "type": "string" },
+          "status": { "enum": ["passed", "failed", "blocked"] },
+          "source": { "enum": ["playwright", "api_readback", "missing"] },
+          "url": { "type": "string" },
+          "assertion": {
+            "type": "object",
+            "properties": {
+              "status": { "enum": ["passed", "failed"] },
+              "selector": { "type": "string" },
+              "expectedText": { "type": "string" },
+              "expectedTexts": {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "modelTokenBilling": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["source", "status"],
+          "properties": {
+            "source": { "enum": ["api_readback"] },
+            "status": { "enum": ["passed", "failed", "blocked"] },
+            "apiConnectionId": { "type": "string" },
+            "provider": { "type": "string" },
+            "model": { "type": "string" },
+            "pricing": {
+              "type": "object",
+              "properties": {
+                "currency": { "type": "string" },
+                "unit": { "type": "string" },
+                "inputCnyPerMillion": { "type": "number", "minimum": 0 },
+                "outputCnyPerMillion": { "type": "number", "minimum": 0 }
+              }
+            },
+            "inputTokens": { "type": "number", "minimum": 0 },
+            "outputTokens": { "type": "number", "minimum": 0 },
+            "totalTokens": { "type": "number", "minimum": 0 },
+            "costCny": { "type": "number", "minimum": 0 },
+            "byConsumer": { "type": "object" }
+          }
+        }
+      ]
+    },
+    "secretScan": {
+      "type": "object",
+      "properties": {
+        "leakCount": { "type": "number", "minimum": 0 },
+        "surfaces": { "type": "object" }
+      }
+    },
+    "gaps": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": true
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { GatewayBrowserClient } from "../gateway.ts";
-import { loadModels } from "./models.ts";
+import { invalidateModelCatalogCache, loadModels } from "./models.ts";
 
 describe("loadModels", () => {
   it("requests the configured model list view", async () => {
@@ -29,5 +29,28 @@ describe("loadModels", () => {
 
     expect(request).toHaveBeenCalledTimes(1);
     expect(first).toBe(second);
+  });
+
+  it("reloads configured models after the cache is invalidated", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        models: [{ id: "gpt-5.5", name: "GPT-5.5", provider: "openai" }],
+      })
+      .mockResolvedValueOnce({
+        models: [
+          { id: "gpt-5.5", name: "GPT-5.5", provider: "openai" },
+          { id: "codex-bengalfox", name: "codex-bengalfox", provider: "openai" },
+        ],
+      });
+    const client = { request } as unknown as GatewayBrowserClient;
+
+    const first = await loadModels(client);
+    invalidateModelCatalogCache(client);
+    const second = await loadModels(client);
+
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(first.map((model) => model.id)).toEqual(["gpt-5.5"]);
+    expect(second.map((model) => model.id)).toEqual(["gpt-5.5", "codex-bengalfox"]);
   });
 });

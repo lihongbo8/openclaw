@@ -2,24 +2,13 @@ import { t } from "../i18n/index.ts";
 import type { IconName } from "./icons.js";
 import { normalizeLowercaseStringOrEmpty } from "./string-coerce.ts";
 
-export const TAB_GROUPS = [
-  { label: "aics", tabs: ["aics", "workboard", "chat"] },
-  {
-    label: "control",
-    tabs: ["overview", "activity", "instances", "sessions", "usage", "cron"],
-  },
-  { label: "agent", tabs: ["agents", "skills", "skillWorkshop", "nodes", "dreams"] },
-  {
-    label: "settings",
-    tabs: ["config"],
-  },
-] as const;
-
 export type Tab =
   | "aics"
+  | "apiManagement"
   | "agents"
   | "activity"
   | "overview"
+  | "businessOverview"
   | "workboard"
   | "channels"
   | "instances"
@@ -27,6 +16,7 @@ export type Tab =
   | "usage"
   | "cron"
   | "skills"
+  | "reviewCenter"
   | "skillWorkshop"
   | "nodes"
   | "chat"
@@ -39,26 +29,100 @@ export type Tab =
   | "aiAgents"
   | "debug"
   | "logs"
-  | "dreams";
+  | "dreams"
+  | "goals"
+  | "company"
+  | "projects"
+  | "observation"
+  | "attribution";
 
-export const SETTINGS_TABS = [
+const PRIMARY_NAV_TABS = [
+  "chat",
+  "businessOverview",
+  "observation",
+  "attribution",
+  "goals",
+  "company",
+  "workboard",
+  "aics",
+  "skills",
+  "reviewCenter",
+  "apiManagement",
+  "usage",
+  "sessions",
+  "dreams",
   "config",
-  "channels",
-  "communications",
-  "appearance",
-  "automation",
-  "mcp",
-  "infrastructure",
-  "aiAgents",
-  "debug",
-  "logs",
 ] as const satisfies readonly Tab[];
+
+const SETTINGS_GENERAL_TABS = ["appearance"] as const satisfies readonly Tab[];
+
+export const TAB_GROUPS = [{ label: "main", tabs: PRIMARY_NAV_TABS }] as const;
+
+export const SETTINGS_NAV_GROUPS = [{ label: "Settings", tabs: SETTINGS_GENERAL_TABS }] as const;
+
+export const SETTINGS_TABS = [...SETTINGS_GENERAL_TABS] as const satisfies readonly Tab[];
+
+export const BUYER_STOREFRONT_URL = "http://127.0.0.1:3026/us";
+
+const DISPLAY_TAB_TITLES: Partial<Record<Tab, string>> = {
+  chat: "迭界AI",
+  businessOverview: "经营概览",
+  observation: "数据分析",
+  attribution: "归因分析",
+  goals: "公司目标",
+  company: "规划方案",
+  aics: "岗位执行",
+  workboard: "任务调度",
+  apiManagement: "API 管理",
+  dreams: "记忆与进化",
+  usage: "费用与授权",
+  skills: "工具与 Skill",
+  reviewCenter: "审核中心",
+  sessions: "对话记录",
+  config: "Settings",
+  channels: "渠道",
+  communications: "通信",
+  appearance: "Appearance",
+  automation: "自动化",
+  mcp: "MCP",
+  infrastructure: "基础设施",
+  aiAgents: "AI 与代理",
+  agents: "代理",
+  skillWorkshop: "技能工坊",
+  nodes: "节点",
+  cron: "定时任务",
+  overview: "控制概览",
+  activity: "活动",
+  instances: "实例",
+  debug: "调试",
+  logs: "Logs",
+};
+
+const DISPLAY_TAB_SUBTITLES: Partial<Record<Tab, string>> = {
+  chat: "主对话框作为管理助手：解释状态、准备建议、导航确认点。",
+  businessOverview: "发起经营意图，查看主流程状态与经营观察入口。",
+  observation: "只处理观察数据、数据缺口、异常和初步可信度。",
+  attribution: "基于观察包分析完成判断、差距、原因、置信度和影响程度。",
+  goals: "管理公司目标、目标依据、确认材料和治理检查。",
+  company: "把已确认目标拆成规划方案与岗位工作项。",
+  workboard: "任务调度只做预检、能力匹配和派发，不直接执行岗位。",
+  aics: "岗位执行只运行已授权调度任务，并展示执行结果。",
+  apiManagement: "多个模型/API Key、供给对象与调用计量。",
+  reviewCenter: "本地上架前审核岗位包、能力绑定、跑通性、合格性和风险。",
+  skillWorkshop: "在提案成为上线技能之前，进行审查、优化并应用。",
+  usage: "查看岗位授权、执行费用和计量摘要。",
+  sessions: "查看对话记录、运行状态和会话级配置。",
+  dreams: "睡眠时进行记忆巩固。",
+  config: "Context Profile、Appearance、Gateway。",
+};
 
 const TAB_PATHS: Record<Tab, string> = {
   aics: "/aics",
+  apiManagement: "/api-management",
   agents: "/agents",
   activity: "/activity",
   overview: "/overview",
+  businessOverview: "/business-overview",
   workboard: "/workboard",
   channels: "/channels",
   instances: "/instances",
@@ -66,9 +130,15 @@ const TAB_PATHS: Record<Tab, string> = {
   usage: "/usage",
   cron: "/cron",
   skills: "/skills",
+  reviewCenter: "/review-center",
   skillWorkshop: "/skills/workshop",
   nodes: "/nodes",
   chat: "/chat",
+  observation: "/observation",
+  attribution: "/attribution",
+  goals: "/goals",
+  company: "/company",
+  projects: "/projects",
   config: "/config",
   communications: "/communications",
   appearance: "/appearance",
@@ -83,15 +153,14 @@ const TAB_PATHS: Record<Tab, string> = {
 
 const PATH_ALIASES: Record<string, Tab> = {
   "/dreams": "dreams",
+  "/skills/workshop": "skillWorkshop",
 };
 
 /**
  * Maps a tab to its parent tab when it should render as an indented sub-item
  * under the parent in the sidebar. Sub-items still get their own routes.
  */
-export const TAB_PARENTS: Partial<Record<Tab, Tab>> = {
-  skillWorkshop: "skills",
-};
+export const TAB_PARENTS: Partial<Record<Tab, Tab>> = {};
 
 export function isChildTab(tab: Tab): boolean {
   return Object.hasOwn(TAB_PARENTS, tab);
@@ -145,14 +214,15 @@ export function pathForTab(tab: Tab, basePath = ""): string {
   return base ? `${base}${path}` : path;
 }
 
+export function isPrimaryNavTab(tab: Tab): boolean {
+  return (PRIMARY_NAV_TABS as readonly Tab[]).includes(tab);
+}
+
 export function isSettingsTab(tab: Tab): boolean {
   return (SETTINGS_TABS as readonly Tab[]).includes(tab);
 }
 
 export function isTabInGroup(group: (typeof TAB_GROUPS)[number], tab: Tab): boolean {
-  if (group.label === "settings") {
-    return isSettingsTab(tab);
-  }
   return (group.tabs as readonly Tab[]).includes(tab);
 }
 
@@ -171,7 +241,7 @@ export function tabFromPath(pathname: string, basePath = ""): Tab | null {
     normalized = "/";
   }
   if (normalized === "/") {
-    return "aics";
+    return "chat";
   }
   return PATH_TO_TAB.get(normalized) ?? null;
 }
@@ -202,11 +272,15 @@ export function iconForTab(tab: Tab): IconName {
   switch (tab) {
     case "aics":
       return "brain";
+    case "apiManagement":
+      return "link";
     case "agents":
       return "folder";
     case "chat":
       return "messageSquare";
     case "overview":
+      return "barChart";
+    case "businessOverview":
       return "barChart";
     case "activity":
       return "activity";
@@ -224,6 +298,8 @@ export function iconForTab(tab: Tab): IconName {
       return "loader";
     case "skills":
       return "zap";
+    case "reviewCenter":
+      return "check";
     case "skillWorkshop":
       return "wrench";
     case "nodes":
@@ -248,6 +324,14 @@ export function iconForTab(tab: Tab): IconName {
       return "scrollText";
     case "dreams":
       return "moon";
+    case "goals":
+      return "barChart";
+    case "company":
+      return "activity";
+    case "observation":
+      return "eye";
+    case "attribution":
+      return "search";
     default:
       return "folder";
   }
@@ -257,9 +341,23 @@ export function titleForTab(tab: Tab) {
   if (tab === "config") {
     return t("nav.settings");
   }
+  if (tab === "apiManagement") {
+    return "API Management";
+  }
+  if (tab === "businessOverview") {
+    return "经营概览";
+  }
   return t(`tabs.${tab}`);
 }
 
+export function displayTitleForTab(tab: Tab) {
+  return DISPLAY_TAB_TITLES[tab] ?? titleForTab(tab);
+}
+
 export function subtitleForTab(tab: Tab) {
+  if (tab === "skills") {
+    return "";
+  }
+  if (DISPLAY_TAB_SUBTITLES[tab]) return DISPLAY_TAB_SUBTITLES[tab] ?? "";
   return t(`subtitles.${tab}`);
 }

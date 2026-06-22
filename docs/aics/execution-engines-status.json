@@ -1,0 +1,100 @@
+{
+  "updatedAt": "2026-06-20",
+  "scope": "AICS two execution engines",
+  "localEngines": {
+    "status": "passed",
+    "roleExecutionEngine": "passed",
+    "toolSkillExecutionEngine": "passed",
+    "evidence": {
+      "command": "node --import tsx scripts/aics-local-demo-verify.ts --json --require-executed --timeout-ms 15000 --output /private/tmp/aics-local-acceptance-manifest-codex-require-executed.json",
+      "manifest": "/private/tmp/aics-local-acceptance-manifest-codex-require-executed.json",
+      "ok": true,
+      "executed": true,
+      "deliverables": [
+        "hero.png",
+        "detail.html",
+        "execution-summary.json",
+        "artifact-manifest.json",
+        "artifacts.zip"
+      ],
+      "readbacks": [
+        "audit",
+        "ledger",
+        "costSummary",
+        "humanConfirmation",
+        "modelUsage"
+      ]
+    }
+  },
+  "productionPlusCloud": {
+    "status": "blocked",
+    "completionVerdict": "failed",
+    "requiredVerdict": "production_plus_passed",
+    "blockedAt": "browser_persona_gate",
+    "latestRun": {
+      "runId": "aics-production-plus-codex-real-202606201105",
+      "runDir": "docs/aics-persona-runs/aics-production-plus-codex-real-202606201105",
+      "seed": "docs/aics-persona-runs/aics-production-plus-codex-real-202606201105/api-seed.json",
+      "finalManifest": "docs/aics-persona-runs/aics-production-plus-codex-real-202606201105/final-manifest.json",
+      "personaEvidence": "docs/aics-persona-runs/aics-production-plus-codex-real-202606201105/persona-evidence/persona-evidence.json",
+      "gateEvidence": "docs/aics-persona-runs/aics-production-plus-codex-real-202606201105/evidence.json"
+    },
+    "realApiSeedEvidence": {
+      "status": "passed",
+      "script": "scripts/persona/aics-cloud-api-seed.mjs",
+      "fixture": "/private/tmp/aics293-local-smoke.json",
+      "runId": "aics-production-plus-codex-real-202606201105",
+      "readbacks": {
+        "roleListingId": "djrole_01KVHFTVX8TWV6VT57WYDMM7A4",
+        "executionId": "3e8e2223-9ccc-450e-b91b-d68b741984af",
+        "ledgerEntryId": "djledger_01KVHFTWY82KMQK53HM8SDHXWB",
+        "uploadOk": true,
+        "listingCreated": true,
+        "reviewSubmitted": true,
+        "reviewFinalized": true,
+        "authorizationStatus": "authorized",
+        "executionStatus": "completed",
+        "executionReadbackStatus": "completed",
+        "artifactCount": 1
+      }
+    },
+    "finalManifestEvidence": {
+      "status": "valid",
+      "manifest": "docs/aics-persona-runs/aics-production-plus-codex-real-202606201105/final-manifest.json"
+    },
+    "browserPersonaEvidence": {
+      "status": "failed",
+      "command": "node scripts/persona/aics-production-plus-orchestrator-fixture.mjs --fixture /private/tmp/aics293-local-smoke.json --seed-file docs/aics-persona-runs/aics-production-plus-codex-real-202606201105/api-seed.json --production-plus-final --probe-endpoints --final-manifest docs/aics-persona-runs/aics-production-plus-codex-real-202606201105/final-manifest.json --base-url http://127.0.0.1:9000 --vendor-url http://127.0.0.1:9000/seller --admin-url http://127.0.0.1:9000/dashboard --storefront-url http://127.0.0.1:3036 --storefront-locale us --openclaw-url http://127.0.0.1:18789 --run-id aics-production-plus-codex-real-202606201105 --output-dir docs/aics-persona-runs/aics-production-plus-codex-real-202606201105",
+      "passedPersonas": [
+        "developer",
+        "buyer_storefront",
+        "user_center"
+      ],
+      "failedPersonas": [
+        "admin_reviewer",
+        "openclaw_local_operator",
+        "ledger_receivables_reader"
+      ],
+      "apiCrossChecks": "passed",
+      "realFrontendPagesReached": [
+        "http://127.0.0.1:9000/seller/products/create",
+        "http://127.0.0.1:3036/us/roles/djrole_01KVHFTVX8TWV6VT57WYDMM7A4",
+        "http://127.0.0.1:3036/us/user/executions/3e8e2223-9ccc-450e-b91b-d68b741984af",
+        "http://127.0.0.1:3036/us/user/orders"
+      ],
+      "remainingBlockedAreas": [
+        "admin dashboard static route redirects /dashboard/ to itself with HTTP 308, causing ERR_TOO_MANY_REDIRECTS before the review UI can load",
+        "OpenClaw /chat, /api-management, and /usage do not expose the expected stable selectors in this browser probe",
+        "model billing readback is reachable and has local_dialog usage, but role_execution token attribution is still zero",
+        "secret-scan gate is over-triggering on public page text/API readback samples and still needs calibrated redaction rules"
+      ]
+    }
+  },
+  "completionDecision": {
+    "localPlanComplete": true,
+    "realCloudApiClosedLoopComplete": true,
+    "frontEndPersonaPartiallyComplete": true,
+    "fullCloudProductionComplete": false,
+    "doNotMarkOverallGoalCompleteUntil": "productionPlusCloud.requiredVerdict is proven by current artifacts"
+  }
+}

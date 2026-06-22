@@ -246,6 +246,158 @@ const SkillEntrySchema = z
   })
   .strict();
 
+const ApiConnectionKindSchema = z.union([
+  z.literal("model"),
+  z.literal("tool_skill"),
+  z.literal("marketplace"),
+  z.literal("dialog"),
+  z.literal("custom"),
+]);
+
+const ApiConnectionConsumerSchema = z.union([
+  z.literal("marketplace"),
+  z.literal("marketplace_dialog"),
+  z.literal("local_dialog"),
+  z.literal("dispatch"),
+  z.literal("main_chat"),
+  z.literal("operations_backend"),
+  z.literal("build_session"),
+  z.literal("buyer_storefront"),
+  z.literal("user_center"),
+  z.literal("developer_center"),
+  z.literal("ai_review"),
+  z.literal("role_execution"),
+  z.literal("tool"),
+  z.literal("skill"),
+  z.literal("voice"),
+  z.literal("image"),
+  z.literal("media_model"),
+  z.literal("model"),
+]);
+
+const ApiConnectionEntrySchema = z
+  .object({
+    id: z.string().trim().min(1),
+    name: z.string().trim().min(1),
+    kind: ApiConnectionKindSchema,
+    provider: z.string().trim().min(1),
+    baseUrl: z.string().trim().min(1).optional(),
+    endpoint: z.string().trim().min(1).optional(),
+    authMode: z
+      .union([
+        z.literal("secret_ref"),
+        z.literal("plaintext"),
+        z.literal("none"),
+        z.literal("oauth"),
+      ])
+      .optional(),
+    secret: SecretInputSchema.optional().register(sensitive),
+    consumers: z.array(ApiConnectionConsumerSchema).optional(),
+    configBindings: z
+      .array(
+        z
+          .object({
+            path: z.string().trim().min(1),
+            owner: z.literal("apiConnections").optional(),
+            materializedAt: z.string().optional(),
+          })
+          .strict(),
+      )
+      .optional(),
+    requestedScope: z.array(z.string().trim().min(1)).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+    enabled: z.boolean().optional(),
+    createdAt: z.string().optional(),
+    updatedAt: z.string().optional(),
+  })
+  .strict();
+
+const ApiConnectionsSchema = z
+  .object({
+    entries: z.record(z.string(), ApiConnectionEntrySchema).optional(),
+  })
+  .strict()
+  .optional();
+
+const ToolSupplyGrantSchema = z
+  .object({
+    id: z.string().trim().min(1),
+    capabilityRef: z.string().trim().min(1),
+    targetKind: z
+      .union([
+        z.literal("tool"),
+        z.literal("skill"),
+        z.literal("api"),
+        z.literal("cloud_capability"),
+      ])
+      .optional(),
+    targetId: z.string().trim().min(1).optional(),
+    status: z.union([z.literal("approved"), z.literal("blocked"), z.literal("pending_review")]),
+    reason: z.string().optional(),
+    updatedAt: z.string().optional(),
+  })
+  .strict();
+
+const ToolSupplyUniqueCapabilityRequestSchema = z
+  .object({
+    id: z.string().trim().min(1),
+    title: z.string().trim().min(1),
+    capabilityRef: z.string().trim().min(1),
+    category: z.string().trim().min(1).optional(),
+    reason: z.string().optional(),
+    status: z.union([z.literal("draft"), z.literal("pending_review")]),
+    createdAt: z.string().optional(),
+    updatedAt: z.string().optional(),
+  })
+  .strict();
+
+const ToolSupplyCategorySchema = z
+  .object({
+    id: z.string().trim().min(1),
+    name: z.string().trim().min(1),
+    source: z.literal("cloud"),
+    status: z.union([z.literal("active"), z.literal("disabled"), z.literal("pending")]),
+    listingCount: z.number().int().nonnegative().optional(),
+    createdAt: z.string().optional(),
+    updatedAt: z.string().optional(),
+  })
+  .strict();
+
+const ToolSupplyBindingSchema = z
+  .object({
+    id: z.string().trim().min(1),
+    sourceItemId: z.string().trim().min(1),
+    sourceKind: z.union([z.literal("tool"), z.literal("skill")]),
+    targetKind: z.union([z.literal("category_capability"), z.literal("role_dispatch")]),
+    targetId: z.string().trim().min(1),
+    targetTitle: z.string().trim().min(1).optional(),
+    status: z.union([z.literal("active"), z.literal("paused")]),
+    syncStatus: z
+      .union([
+        z.literal("local"),
+        z.literal("syncing"),
+        z.literal("synced"),
+        z.literal("sync_failed"),
+      ])
+      .optional(),
+    note: z.string().optional(),
+    createdAt: z.string().optional(),
+    updatedAt: z.string().optional(),
+  })
+  .strict();
+
+const ToolSupplySchema = z
+  .object({
+    categories: z.record(z.string(), ToolSupplyCategorySchema).optional(),
+    grants: z.record(z.string(), ToolSupplyGrantSchema).optional(),
+    uniqueCapabilityRequests: z
+      .record(z.string(), ToolSupplyUniqueCapabilityRequestSchema)
+      .optional(),
+    bindings: z.record(z.string(), ToolSupplyBindingSchema).optional(),
+  })
+  .strict()
+  .optional();
+
 const PluginEntrySchema = z
   .object({
     enabled: z.boolean().optional(),
@@ -682,6 +834,8 @@ export const OpenClawSchema = z
       .strict()
       .optional(),
     secrets: SecretsConfigSchema,
+    apiConnections: ApiConnectionsSchema,
+    toolSupply: ToolSupplySchema,
     auth: z
       .object({
         profiles: z

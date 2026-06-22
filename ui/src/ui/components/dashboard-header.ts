@@ -1,13 +1,13 @@
 import { LitElement, html, nothing } from "lit";
 import { property } from "lit/decorators.js";
-import { pathForTab, titleForTab, type Tab } from "../navigation.js";
+import { displayTitleForTab, pathForTab, type Tab } from "../navigation.js";
 
 export class DashboardHeader extends LitElement {
   override createRenderRoot() {
     return this;
   }
 
-  @property() tab: Tab = "aics";
+  @property() tab: Tab = "chat";
   @property() basePath = "";
   @property() agentLabel = "";
 
@@ -24,12 +24,12 @@ export class DashboardHeader extends LitElement {
     }
     event.preventDefault();
     this.dispatchEvent(
-      new CustomEvent("navigate", { detail: "aics", bubbles: true, composed: true }),
+      new CustomEvent("navigate", { detail: "chat", bubbles: true, composed: true }),
     );
   };
 
   override render() {
-    const label = titleForTab(this.tab);
+    const label = displayTitleForTab(this.tab);
     const agentLabel = this.agentLabel.trim();
 
     return html`
@@ -37,7 +37,7 @@ export class DashboardHeader extends LitElement {
         <div class="dashboard-header__breadcrumb">
           <a
             class="dashboard-header__breadcrumb-link"
-            href=${pathForTab("aics", this.basePath)}
+            href=${pathForTab("chat", this.basePath)}
             @click=${this.handleHomeClick}
           >
             迭界AI

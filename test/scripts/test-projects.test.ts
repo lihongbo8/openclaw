@@ -267,6 +267,23 @@ describe("scripts/test-projects changed-target routing", () => {
     });
   });
 
+  it("routes AICS production-plus persona scripts through their gate regression test", () => {
+    expect(
+      resolveChangedTestTargetPlan([
+        "scripts/aics-production-plus-persona.mjs",
+        "scripts/persona/aics-persona-runner.mjs",
+        "scripts/persona/aics-build-playwright-config.mjs",
+        "scripts/persona/aics-playwright-persona.mjs",
+        "scripts/persona/aics-production-plus-orchestrator.mjs",
+        "scripts/persona/aics-final-manifest.mjs",
+        "scripts/persona/evidence-schema.json",
+      ]),
+    ).toEqual({
+      mode: "targets",
+      targets: ["test/scripts/aics-production-plus-persona.test.ts"],
+    });
+  });
+
   it("routes Z.AI fallback repro script changes through its regression test", () => {
     expect(resolveChangedTestTargetPlan(["scripts/zai-fallback-repro.ts"])).toEqual({
       mode: "targets",

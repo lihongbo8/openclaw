@@ -28,7 +28,7 @@ export type ConfigPreset = {
 export const CONFIG_PRESETS: ConfigPreset[] = [
   {
     id: "personal",
-    label: "Personal Assistant",
+    label: "Daily Assistant",
     description: "Balanced default for daily use.",
     detail: "Good fit for chat, docs, and light edits without a large coding budget.",
     impact: "Injects bootstrap context every turn with a moderate prompt budget.",

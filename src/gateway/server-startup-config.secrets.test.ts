@@ -361,6 +361,55 @@ describe("gateway startup config secret preflight", () => {
     expect(emitStateEvent).not.toHaveBeenCalled();
   });
 
+  it("does not require model provider SecretRefs during gateway startup", async () => {
+    const config = gatewayTokenConfig({
+      models: {
+        providers: {
+          deepseek: {
+            baseUrl: "https://api.deepseek.com",
+            models: [],
+            apiKey: {
+              source: "env",
+              provider: "default",
+              id: "DEEPSEEK_API_KEY",
+            },
+          },
+        },
+      },
+    } as OpenClawConfig);
+    const prepareRuntimeSecretsSnapshot = vi.fn(async ({ config }) => preparedSnapshot(config));
+    const activateRuntimeSecrets = createRuntimeSecretsActivator({
+      logSecrets: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+      },
+      emitStateEvent: vi.fn(),
+      prepareRuntimeSecretsSnapshot,
+      activateRuntimeSecretsSnapshot: vi.fn(),
+    });
+
+    await activateRuntimeSecrets(config, {
+      reason: "startup",
+      activate: false,
+    });
+
+    expect(prepareRuntimeSecretsSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        collectModelProviderSecrets: false,
+        config: expect.objectContaining({
+          models: expect.objectContaining({
+            providers: expect.objectContaining({
+              deepseek: expect.objectContaining({
+                apiKey: expect.objectContaining({ id: "DEEPSEEK_API_KEY" }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    );
+  });
+
   it("uses persisted auth stores only for startup secret preflight", async () => {
     const prepareRuntimeSecretsSnapshot = vi.fn(async ({ config }) => preparedSnapshot(config));
     const activateRuntimeSecrets = createRuntimeSecretsActivator({

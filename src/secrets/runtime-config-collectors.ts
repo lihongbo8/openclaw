@@ -9,6 +9,7 @@ export function collectConfigAssignments(params: {
   config: OpenClawConfig;
   context: ResolverContext;
   loadablePluginOrigins?: ReadonlyMap<string, PluginOrigin>;
+  collectModelProviderSecrets?: boolean;
 }): void {
   const defaults = params.context.sourceConfig.secrets?.defaults;
 
@@ -16,6 +17,7 @@ export function collectConfigAssignments(params: {
     config: params.config,
     defaults,
     context: params.context,
+    collectModelProviderSecrets: params.collectModelProviderSecrets,
   });
 
   collectChannelConfigAssignments({

@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   TAB_GROUPS,
+  SETTINGS_NAV_GROUPS,
   SETTINGS_TABS,
+  displayTitleForTab,
   iconForTab,
   inferBasePathFromPathname,
+  isPrimaryNavTab,
   isSettingsTab,
   normalizeBasePath,
   normalizePath,
@@ -27,30 +30,22 @@ const leadingSlashNormalizerCases = [
 describe("iconForTab", () => {
   it("returns stable icons for every tab", () => {
     expect(Object.fromEntries(ALL_TABS.map((tab) => [tab, iconForTab(tab)]))).toEqual({
-      aics: "brain",
       chat: "messageSquare",
-      overview: "barChart",
-      activity: "activity",
+      businessOverview: "barChart",
+      observation: "eye",
+      attribution: "search",
+      goals: "barChart",
+      company: "activity",
       workboard: "folder",
-      channels: "link",
-      instances: "radio",
-      sessions: "fileText",
-      usage: "barChart",
-      cron: "loader",
-      agents: "folder",
+      aics: "brain",
       skills: "zap",
-      skillWorkshop: "wrench",
-      nodes: "monitor",
+      reviewCenter: "check",
+      apiManagement: "link",
+      usage: "barChart",
+      sessions: "fileText",
       dreams: "moon",
       config: "settings",
-      communications: "send",
       appearance: "spark",
-      automation: "terminal",
-      mcp: "wrench",
-      infrastructure: "globe",
-      aiAgents: "brain",
-      debug: "bug",
-      logs: "scrollText",
     });
   });
 
@@ -64,30 +59,44 @@ describe("iconForTab", () => {
 describe("titleForTab", () => {
   it("returns expected titles for every tab", () => {
     expect(Object.fromEntries(ALL_TABS.map((tab) => [tab, titleForTab(tab)]))).toEqual({
-      aics: "Role Workbench",
       chat: "Main Chat",
-      overview: "Overview",
-      activity: "Activity",
+      businessOverview: "经营概览",
+      observation: "tabs.observation",
+      attribution: "tabs.attribution",
+      goals: "Goal Management",
+      company: "Company Management",
       workboard: "Workboard",
-      channels: "Channels",
-      instances: "Instances",
-      sessions: "Sessions",
-      usage: "Usage Records",
-      cron: "Cron Jobs",
-      agents: "Agents",
+      aics: "Role Workbench",
       skills: "Skills",
-      skillWorkshop: "Skill Workshop",
-      nodes: "Nodes",
+      reviewCenter: "tabs.reviewCenter",
+      apiManagement: "API Management",
+      usage: "Usage Records",
+      sessions: "Sessions",
       dreams: "Dreaming",
       config: "Settings",
-      communications: "Communications",
       appearance: "Appearance",
-      automation: "Automation",
-      mcp: "MCP",
-      infrastructure: "Infrastructure",
-      aiAgents: "AI & Agents",
-      debug: "Debug",
-      logs: "Logs",
+    });
+  });
+
+  it("returns product-facing titles for the primary navigation", () => {
+    expect(
+      Object.fromEntries(TAB_GROUPS[0].tabs.map((tab) => [tab, displayTitleForTab(tab)])),
+    ).toEqual({
+      chat: "迭界AI",
+      businessOverview: "经营概览",
+      observation: "数据分析",
+      attribution: "归因分析",
+      goals: "公司目标",
+      company: "规划方案",
+      workboard: "任务调度",
+      aics: "岗位执行",
+      skills: "工具与 Skill",
+      reviewCenter: "审核中心",
+      apiManagement: "API 管理",
+      usage: "费用与授权",
+      sessions: "对话记录",
+      dreams: "记忆与进化",
+      config: "Settings",
     });
   });
 });
@@ -95,30 +104,22 @@ describe("titleForTab", () => {
 describe("subtitleForTab", () => {
   it("returns expected subtitles for every tab", () => {
     expect(Object.fromEntries(ALL_TABS.map((tab) => [tab, subtitleForTab(tab)]))).toEqual({
-      aics: "Your roles, recent work, and usage records.",
-      chat: "Start work in natural language.",
-      overview: "Status, entry points, health.",
-      activity: "Browser-local tool activity summaries.",
-      workboard: "Agent work queue and session handoff.",
-      channels: "Channels and settings.",
-      instances: "Connected clients and nodes.",
-      sessions: "Active sessions and defaults.",
-      usage: "Conversation, role task, and cost records.",
-      cron: "Wakeups and recurring runs.",
-      agents: "Workspaces, tools, identities.",
-      skills: "Skills and API keys.",
-      skillWorkshop: "Review, refine, and apply proposals before they become live skills.",
-      nodes: "Paired devices and commands.",
-      dreams: "Memory dreaming, consolidation, and reflection.",
-      config: "Edit openclaw.json.",
-      communications: "Channels, messages, and audio settings.",
+      chat: "主对话框作为管理助手：解释状态、准备建议、导航确认点。",
+      businessOverview: "发起经营意图，查看主流程状态与经营观察入口。",
+      observation: "只处理观察数据、数据缺口、异常和初步可信度。",
+      attribution: "基于观察包分析完成判断、差距、原因、置信度和影响程度。",
+      goals: "管理公司目标、目标依据、确认材料和治理检查。",
+      company: "把已确认目标拆成规划方案与岗位工作项。",
+      workboard: "任务调度只做预检、能力匹配和派发，不直接执行岗位。",
+      aics: "岗位执行只运行已授权调度任务，并展示执行结果。",
+      skills: "",
+      reviewCenter: "本地上架前审核岗位包、能力绑定、跑通性、合格性和风险。",
+      apiManagement: "多个模型/API Key、供给对象与调用计量。",
+      usage: "查看岗位授权、执行费用和计量摘要。",
+      sessions: "查看对话记录、运行状态和会话级配置。",
+      dreams: "睡眠时进行记忆巩固。",
+      config: "Context Profile、Appearance、Gateway。",
       appearance: "Theme, UI, and setup wizard settings.",
-      automation: "Commands, hooks, cron, and plugins.",
-      mcp: "MCP servers, auth, tools, and diagnostics.",
-      infrastructure: "Gateway, web, browser, and media settings.",
-      aiAgents: "Agents, models, skills, tools, memory, session.",
-      debug: "Snapshots, events, RPC.",
-      logs: "Live gateway logs.",
     });
   });
 });
@@ -164,7 +165,10 @@ describe("normalizePath", () => {
 describe("pathForTab", () => {
   it("returns correct path without base", () => {
     expect(pathForTab("aics")).toBe("/aics");
+    expect(pathForTab("reviewCenter")).toBe("/review-center");
+    expect(pathForTab("apiManagement")).toBe("/api-management");
     expect(pathForTab("chat")).toBe("/chat");
+    expect(pathForTab("businessOverview")).toBe("/business-overview");
     expect(pathForTab("overview")).toBe("/overview");
   });
 
@@ -177,7 +181,15 @@ describe("pathForTab", () => {
 describe("tabFromPath", () => {
   it("returns tab for valid path", () => {
     expect(tabFromPath("/chat")).toBe("chat");
+    expect(tabFromPath("/business-overview")).toBe("businessOverview");
+    expect(tabFromPath("/goals")).toBe("goals");
+    expect(tabFromPath("/company")).toBe("company");
+    expect(tabFromPath("/projects")).toBe("projects");
     expect(tabFromPath("/aics")).toBe("aics");
+    expect(tabFromPath("/review-center")).toBe("reviewCenter");
+    expect(tabFromPath("/api-management")).toBe("apiManagement");
+    expect(tabFromPath("/admin-console")).toBeNull();
+    expect(tabFromPath("/marketplace")).toBeNull();
     expect(tabFromPath("/overview")).toBe("overview");
     expect(tabFromPath("/activity")).toBe("activity");
     expect(tabFromPath("/sessions")).toBe("sessions");
@@ -185,8 +197,8 @@ describe("tabFromPath", () => {
     expect(tabFromPath("/dreams")).toBe("dreams");
   });
 
-  it("returns AICS for root path", () => {
-    expect(tabFromPath("/")).toBe("aics");
+  it("returns main chat for root path", () => {
+    expect(tabFromPath("/")).toBe("chat");
   });
 
   it("handles base paths", () => {
@@ -211,6 +223,11 @@ describe("inferBasePathFromPathname", () => {
 
   it("returns empty string for direct tab path", () => {
     expect(inferBasePathFromPathname("/aics")).toBe("");
+    expect(inferBasePathFromPathname("/goals")).toBe("");
+    expect(inferBasePathFromPathname("/company")).toBe("");
+    expect(inferBasePathFromPathname("/projects")).toBe("");
+    expect(inferBasePathFromPathname("/api-management")).toBe("");
+    expect(inferBasePathFromPathname("/business-overview")).toBe("");
     expect(inferBasePathFromPathname("/chat")).toBe("");
     expect(inferBasePathFromPathname("/overview")).toBe("");
     expect(inferBasePathFromPathname("/dreaming")).toBe("");
@@ -229,8 +246,26 @@ describe("inferBasePathFromPathname", () => {
 });
 
 describe("TAB_GROUPS", () => {
-  it("contains all expected groups", () => {
-    expect(TAB_GROUPS.map((g) => g.label)).toEqual(["aics", "control", "agent", "settings"]);
+  it("contains only the product-facing primary sidebar group", () => {
+    expect(TAB_GROUPS.map((g) => g.label)).toEqual(["main"]);
+    expect(TAB_GROUPS[0].tabs).toEqual([
+      "chat",
+      "businessOverview",
+      "observation",
+      "attribution",
+      "goals",
+      "company",
+      "workboard",
+      "aics",
+      "skills",
+      "reviewCenter",
+      "apiManagement",
+      "usage",
+      "sessions",
+      "dreams",
+      "config",
+    ]);
+    expect(TAB_GROUPS[0].tabs.every((tab) => isPrimaryNavTab(tab))).toBe(true);
   });
 
   it("all tabs are unique", () => {
@@ -239,21 +274,9 @@ describe("TAB_GROUPS", () => {
     expect(uniqueTabs.size).toBe(allTabs.length);
   });
 
-  it("keeps detailed settings slices routed but out of the root sidebar", () => {
-    const settings = TAB_GROUPS.find((group) => group.label === "settings");
-    expect(settings?.tabs).toEqual(["config"]);
-    expect(SETTINGS_TABS).toEqual([
-      "config",
-      "channels",
-      "communications",
-      "appearance",
-      "automation",
-      "mcp",
-      "infrastructure",
-      "aiAgents",
-      "debug",
-      "logs",
-    ]);
+  it("keeps technical slices routed under settings navigation groups", () => {
+    expect(SETTINGS_NAV_GROUPS.map((group) => group.label)).toEqual(["Settings"]);
+    expect(SETTINGS_TABS).toEqual(["appearance"]);
     expect(SETTINGS_TABS.every((tab) => isSettingsTab(tab))).toBe(true);
   });
 });

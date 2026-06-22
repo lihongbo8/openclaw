@@ -74,10 +74,9 @@ export type SessionsProps = {
   onDeselectPage: (keys: string[]) => void;
   onDeselectAll: () => void;
   onDeleteSelected: () => void;
+  onDeleteSession: (key: string) => void;
+  isProtectedSession?: (key: string) => boolean;
   onNavigateToChat?: (sessionKey: string) => void;
-  workboardSessionKeys?: Set<string>;
-  workboardBusySessionKey?: string | null;
-  onAddToWorkboard?: (session: GatewaySessionRow) => void | Promise<void>;
   onToggleCheckpointDetails: (sessionKey: string) => void;
   onBranchFromCheckpoint: (sessionKey: string, checkpointId: string) => void | Promise<void>;
   onRestoreCheckpoint: (sessionKey: string, checkpointId: string) => void | Promise<void>;
@@ -840,8 +839,7 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
       : null;
   const keyCellTitle = friendlyKeyLabel ?? row.key;
   const canLink = row.kind !== "global";
-  const captured = props.workboardSessionKeys?.has(row.key) === true;
-  const captureBusy = props.workboardBusySessionKey === row.key;
+  const protectedSession = props.isProtectedSession?.(row.key) === true;
   const chatUrl = canLink
     ? `${pathForTab("chat", props.basePath)}?session=${encodeURIComponent(row.key)}`
     : null;
@@ -1050,23 +1048,33 @@ function renderRows(row: GatewaySessionRow, props: SessionsProps) {
         </select>
       </td>
       <td>
-        ${props.onAddToWorkboard && canLink
-          ? html`
-              <button
-                class="icon-btn"
-                title=${captured
-                  ? t("sessionsView.openWorkboardCard")
-                  : t("sessionsView.addToWorkboard")}
-                ?disabled=${props.loading || captureBusy}
-                @click=${(event: MouseEvent) => {
-                  event.stopPropagation();
-                  void props.onAddToWorkboard?.(row);
-                }}
-              >
-                ${captured ? icons.check : icons.plus}
-              </button>
-            `
-          : nothing}
+        <div class="session-row-actions">
+          ${protectedSession
+            ? html`
+                <button
+                  class="icon-btn"
+                  title="主/当前会话受保护，不能强制删除"
+                  aria-label=${`主/当前会话受保护：${row.label ?? row.displayName ?? row.key}`}
+                  disabled
+                >
+                  ${icons.eyeOff}
+                </button>
+              `
+            : html`
+                <button
+                  class="icon-btn danger"
+                  title="删除对话记录"
+                  aria-label=${`删除对话记录：${row.label ?? row.displayName ?? row.key}`}
+                  ?disabled=${props.loading}
+                  @click=${(event: MouseEvent) => {
+                    event.stopPropagation();
+                    props.onDeleteSession(row.key);
+                  }}
+                >
+                  ${icons.trash}
+                </button>
+              `}
+        </div>
       </td>
     </tr>`,
     ...(isExpanded && hasCheckpoints

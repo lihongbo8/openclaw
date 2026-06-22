@@ -23,7 +23,89 @@ export type BuildChatItemsProps = {
   showToolCalls: boolean;
   searchOpen?: boolean;
   searchQuery?: string;
+  sanitizeInternalDisplay?: boolean;
 };
+
+const INTERNAL_DISPLAY_REPLACEMENTS: Array<[RegExp, string]> = [
+  [/\bRoleBuildBrief\b/g, "岗位规格"],
+  [/\bDijie Role Builder\b/gi, "岗位生成工具"],
+  [/\bdijie_role_builder\b/gi, "岗位生成工具"],
+  [/\bconfirm_brief\b/g, "确认业务规格"],
+  [/\bpackage_only\b/g, "公开岗位资料"],
+  [/\bsystemPrompt(?:Override)?\b/g, "岗位说明"],
+  [/\brole_package\/manifest\.json\b/g, "岗位资料清单"],
+  [/\brole_package\/?\b/g, "岗位资料包"],
+  [/\baics\.allowWrites=true\b/g, "岗位生成权限已开启"],
+  [/\baics\.allowWrites\b/g, "岗位生成权限"],
+  [/\bexecution token\b/gi, "执行授权"],
+  [/\bexecutionToken\b/g, "执行授权"],
+  [/\bcloud access token\b/gi, "云端授权"],
+  [/\bcloud bearer\b/gi, "云端授权"],
+  [/\bcloud_customer_token\b/g, "云端授权"],
+  [/\btoken_123\b/g, "授权信息"],
+  [/\broleListingId\b/g, "岗位授权信息"],
+  [/\bentitlementId\b/g, "岗位授权信息"],
+  [/\bdeviceId\b/g, "设备授权信息"],
+  [/\bworkspaceRef\b/g, "工作区信息"],
+  [/\blocalGatewayId\b/g, "本机连接信息"],
+  [/\bdijie\.marketplace\.roles\.list\b/g, "岗位同步"],
+  [/\brole_quality_agent\b/g, "岗位标识"],
+  [/\bGateway\b/g, "本机连接"],
+  [/\bOpenClaw\b/g, "本机系统"],
+  [/\bMercur\b/g, "云端平台"],
+  [/\bMedusa\b/g, "商城平台"],
+  [/\bAPI Bridge\b/g, "平台连接"],
+  [/\btoken\b/gi, "授权"],
+];
+
+function sanitizeInternalDisplayText(text: string): string {
+  let next = text;
+  for (const [pattern, replacement] of INTERNAL_DISPLAY_REPLACEMENTS) {
+    next = next.replace(pattern, replacement);
+  }
+  return next;
+}
+
+function sanitizeMessageForInternalDisplay(message: unknown): unknown {
+  const record = asRecord(message);
+  if (!record) {
+    return message;
+  }
+  let changed = false;
+  const next: Record<string, unknown> = { ...record };
+  const content = record.content;
+  if (typeof content === "string") {
+    const sanitized = sanitizeInternalDisplayText(content);
+    if (sanitized !== content) {
+      next.content = sanitized;
+      changed = true;
+    }
+  } else if (Array.isArray(content)) {
+    const sanitizedContent = content.map((item) => {
+      const itemRecord = asRecord(item);
+      if (!itemRecord || typeof itemRecord.text !== "string") {
+        return item;
+      }
+      const sanitizedText = sanitizeInternalDisplayText(itemRecord.text);
+      if (sanitizedText === itemRecord.text) {
+        return item;
+      }
+      changed = true;
+      return { ...itemRecord, text: sanitizedText };
+    });
+    if (changed) {
+      next.content = sanitizedContent;
+    }
+  }
+  if (typeof record.text === "string") {
+    const sanitized = sanitizeInternalDisplayText(record.text);
+    if (sanitized !== record.text) {
+      next.text = sanitized;
+      changed = true;
+    }
+  }
+  return changed ? next : message;
+}
 
 function appendCanvasBlockToAssistantMessage(
   message: unknown,
@@ -287,9 +369,12 @@ function hasRenderableNormalizedMessage(message: unknown): boolean {
   return normalized.content.length > 0 || Boolean(normalized.replyTarget);
 }
 
-function sanitizeStreamText(text: string): string {
+function sanitizeStreamText(text: string, sanitizeInternalDisplay = false): string {
   const stripped = stripMessageDisplayMetadataText(text);
-  return stripped.trim().length > 0 ? stripped : "";
+  if (stripped.trim().length === 0) {
+    return "";
+  }
+  return sanitizeInternalDisplay ? sanitizeInternalDisplayText(stripped) : stripped;
 }
 
 function trimAccumulatedStreamPrefix(text: string, previousText: string | null): string {
@@ -567,7 +652,7 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
     items.push({
       kind: "message",
       key: messageKey(msg, i),
-      message: msg,
+      message: props.sanitizeInternalDisplay ? sanitizeMessageForInternalDisplay(msg) : msg,
     });
   }
   const queuedSends = Array.isArray(props.queue) ? props.queue : [];
@@ -590,7 +675,7 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
     items.push({
       kind: "message",
       key: `pending-send:${queued.id}`,
-      message,
+      message: props.sanitizeInternalDisplay ? sanitizeMessageForInternalDisplay(message) : message,
     });
   }
   for (const liftedCanvasSource of liftedCanvasSources) {
@@ -619,7 +704,7 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
   let previousAccumulatedStreamText: string | null = null;
   for (let i = 0; i < maxLen; i++) {
     if (i < segments.length) {
-      const text = sanitizeStreamText(segments[i].text);
+      const text = sanitizeStreamText(segments[i].text, props.sanitizeInternalDisplay);
       const visibleText = trimAccumulatedStreamPrefix(text, previousAccumulatedStreamText);
       if (text.length > 0) {
         previousAccumulatedStreamText = text;
@@ -638,14 +723,16 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
       items.push({
         kind: "message",
         key: messageKey(tools[i], i + history.length),
-        message: tools[i],
+        message: props.sanitizeInternalDisplay
+          ? sanitizeMessageForInternalDisplay(tools[i])
+          : tools[i],
       });
     }
   }
 
   if (props.stream !== null) {
     const key = `stream:${props.sessionKey}:${props.streamStartedAt ?? "live"}`;
-    const text = sanitizeStreamText(props.stream);
+    const text = sanitizeStreamText(props.stream, props.sanitizeInternalDisplay);
     const visibleText = trimAccumulatedStreamPrefix(text, previousAccumulatedStreamText);
     if (visibleText.length > 0) {
       if (!stripHeartbeatTokenForDisplay(visibleText).shouldSkip) {

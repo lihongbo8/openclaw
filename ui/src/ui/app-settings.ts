@@ -25,7 +25,7 @@ import {
   type AgentIdentityState,
 } from "./controllers/agent-identity.ts";
 import { loadAgentSkills, type AgentSkillsState } from "./controllers/agent-skills.ts";
-import { loadAgents, type AgentsState } from "./controllers/agents.ts";
+import { loadAgents, loadToolsCatalog, type AgentsState } from "./controllers/agents.ts";
 import { loadChannels, type ChannelsState } from "./controllers/channels.ts";
 import { loadConfig, loadConfigSchema, type ConfigState } from "./controllers/config.ts";
 import {
@@ -58,7 +58,6 @@ import {
 } from "./controllers/skill-workshop.ts";
 import { loadSkills, type SkillsState } from "./controllers/skills.ts";
 import { loadUsage, type UsageState } from "./controllers/usage.ts";
-import { loadWorkboard } from "./controllers/workboard.ts";
 import { resolveCronJobLastRunStatus } from "./cron-status.ts";
 import { syncCustomThemeStyleTag } from "./custom-theme.ts";
 import { isMonitoredAuthProvider } from "./model-auth-helpers.ts";
@@ -118,6 +117,11 @@ type SettingsHost = {
   controlUiOverviewRefreshSeq?: number;
   controlUiCronRefreshSeq?: number;
   sessionsChangedReloadTimer?: number | ReturnType<typeof globalThis.setTimeout> | null;
+  refreshAicsMainFlowReadModel?: () => Promise<void>;
+  refreshApiConnectionsReadModel?: () => Promise<void>;
+  refreshMyRolesReadModel?: () => Promise<void>;
+  refreshToolSupplyControlReadModel?: () => Promise<void>;
+  refreshReviewCenter?: () => Promise<void>;
   dreamingStatusLoading: boolean;
   dreamingStatusError: string | null;
   dreamingStatus: import("./controllers/dreaming.js").DreamingStatus | null;
@@ -444,13 +448,19 @@ export async function refreshActiveTab(host: SettingsHost, opts?: { chatStartup?
           loadConfig(app),
           loadSessions(app),
           loadAgents(app),
-          loadWorkboard({
-            host,
-            client: app.client,
-            force: true,
-            requestUpdate: host.requestUpdate,
-          }),
+          host.refreshAicsMainFlowReadModel?.(),
         ]);
+        break;
+      case "aics":
+        await host.refreshMyRolesReadModel?.();
+        break;
+      case "goals":
+      case "businessOverview":
+      case "observation":
+      case "attribution":
+      case "company":
+      case "projects":
+        await host.refreshAicsMainFlowReadModel?.();
         break;
       case "channels":
         await loadChannelsTab(host);
@@ -461,15 +471,34 @@ export async function refreshActiveTab(host: SettingsHost, opts?: { chatStartup?
       case "usage":
         await loadUsage(app);
         break;
+      case "apiManagement":
+        await Promise.all([
+          host.refreshApiConnectionsReadModel?.(),
+          host.refreshToolSupplyControlReadModel?.(),
+          host.refreshMyRolesReadModel?.(),
+          loadUsage(app),
+        ]);
+        break;
+      case "reviewCenter":
+        await host.refreshReviewCenter?.();
+        break;
       case "sessions":
         await Promise.all([loadConfig(app), loadSessions(app)]);
         break;
       case "cron":
         await loadCron(host);
         break;
-      case "skills":
-        await loadSkills(app);
+      case "skills": {
+        await loadAgents(app);
+        const agentId =
+          host.agentsSelectedId ?? host.agentsList?.defaultId ?? host.agentsList?.agents?.[0]?.id;
+        await Promise.all([
+          loadSkills(app),
+          agentId ? loadToolsCatalog(app, agentId) : undefined,
+          host.refreshToolSupplyControlReadModel?.(),
+        ]);
         break;
+      }
       case "skillWorkshop":
         await loadSkillWorkshopProposals(app, { force: true });
         break;
@@ -633,7 +662,7 @@ export function syncTabWithLocation(host: SettingsHost, replace: boolean) {
   if (typeof window === "undefined") {
     return;
   }
-  const resolved = tabFromPath(window.location.pathname, host.basePath) ?? "aics";
+  const resolved = tabFromPath(window.location.pathname, host.basePath) ?? "chat";
   setTabFromRoute(host, resolved);
   syncUrlWithTab(host, resolved, replace);
 }

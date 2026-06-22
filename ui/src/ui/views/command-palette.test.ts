@@ -133,13 +133,25 @@ describe("command palette", () => {
     await i18n.setLocale("zh-CN");
 
     const configItem = getPaletteItems().find((item) => item.id === "nav-config");
+    const apiManagementItem = getFilteredPaletteItems("API 管理").find(
+      (item) => item.id === "nav-api-management",
+    );
+    const toolsItem = getFilteredPaletteItems("工具与 Skill").find(
+      (item) => item.id === "nav-skills",
+    );
+    const adminConsoleItem = getFilteredPaletteItems("审核中心").find(
+      (item) => item.id === "nav-admin-console",
+    );
     const debugItem = getFilteredPaletteItems("切换调试").find((item) => item.id === "skill-debug");
-    expect(configItem?.label).toBe("设置");
+    expect(configItem?.label).toBe("Settings");
+    expect(apiManagementItem?.action).toBe("nav:apiManagement");
+    expect(adminConsoleItem).toBeUndefined();
+    expect(toolsItem?.action).toBe("nav:skills");
     expect(debugItem?.id).toBe("skill-debug");
   });
 
   it("renders a labelled modal combobox with listbox options", async () => {
-    await renderPalette({ query: "overview", activeIndex: 0 });
+    await renderPalette({ query: "主对话", activeIndex: 0 });
 
     const dialog = container.querySelector<HTMLDialogElement>("dialog.cmd-palette-overlay");
     expect(dialog?.open).toBe(true);
@@ -156,11 +168,11 @@ describe("command palette", () => {
     expect(input?.getAttribute("aria-autocomplete")).toBe("list");
     expect(input?.getAttribute("aria-expanded")).toBe("true");
     expect(input?.getAttribute("aria-controls")).toBe("cmd-palette-listbox");
-    expect(input?.getAttribute("aria-activedescendant")).toBe("cmd-palette-option-nav-overview");
+    expect(input?.getAttribute("aria-activedescendant")).toBe("cmd-palette-option-nav-chat");
     expect(document.activeElement).toBe(input);
 
     expect(listbox?.getAttribute("role")).toBe("listbox");
-    const option = listbox?.querySelector<HTMLElement>("#cmd-palette-option-nav-overview");
+    const option = listbox?.querySelector<HTMLElement>("#cmd-palette-option-nav-chat");
     expect(option?.getAttribute("role")).toBe("option");
     expect(option?.getAttribute("aria-selected")).toBe("true");
   });

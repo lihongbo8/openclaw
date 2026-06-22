@@ -11,6 +11,12 @@ type ModelCatalogCacheEntry = {
 
 const modelCatalogCache = new WeakMap<GatewayBrowserClient, ModelCatalogCacheEntry>();
 
+export function invalidateModelCatalogCache(client: GatewayBrowserClient | null | undefined): void {
+  if (client) {
+    modelCatalogCache.delete(client);
+  }
+}
+
 /**
  * Fetch the model catalog from the gateway.
  *

@@ -86,7 +86,24 @@ describe("lazy protocol validators", () => {
         sessionKey: "global",
         agentId: "work",
         message: "hello",
+        aicsContext: { mode: "developer", stage: "intake" },
         idempotencyKey: "run-global-work",
+      }),
+    ).toBe(true);
+    expect(
+      validateChatSendParams({
+        sessionKey: "global",
+        agentId: "work",
+        message: "run role task",
+        aicsContext: {
+          mode: "openclaw_main",
+          stage: "planning",
+          executionChannel: "local_openclaw",
+          roleListingId: "role_image_review",
+          roleTitle: "商品图检查岗位",
+          workspaceDir: "/tmp/openclaw-workspace",
+        },
+        idempotencyKey: "run-global-work-aics",
       }),
     ).toBe(true);
     expect(

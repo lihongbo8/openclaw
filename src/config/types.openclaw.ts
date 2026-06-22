@@ -3,6 +3,7 @@ import type { TranscriptsConfig } from "../transcripts/config.js";
 import type { AccessGroupsConfig } from "./types.access-groups.js";
 import type { AcpConfig } from "./types.acp.js";
 import type { AgentBinding, AgentsConfig } from "./types.agents.js";
+import type { ApiConnectionsConfig } from "./types.api-connections.js";
 import type { ApprovalsConfig } from "./types.approvals.js";
 import type { AuthConfig } from "./types.auth.js";
 import type { DiagnosticsConfig, LoggingConfig, SessionConfig, WebConfig } from "./types.base.js";
@@ -27,6 +28,7 @@ import type { NodeHostConfig } from "./types.node-host.js";
 import type { PluginsConfig } from "./types.plugins.js";
 import type { SecretsConfig } from "./types.secrets.js";
 import type { SkillsConfig } from "./types.skills.js";
+import type { ToolSupplyConfig } from "./types.tool-supply.js";
 import type { ToolsConfig } from "./types.tools.js";
 import type { ProxyConfig } from "./zod-schema.proxy.js";
 
@@ -120,7 +122,9 @@ export type OpenClawConfig = {
     };
   };
   secrets?: SecretsConfig;
+  apiConnections?: ApiConnectionsConfig;
   skills?: SkillsConfig;
+  toolSupply?: ToolSupplyConfig;
   plugins?: PluginsConfig;
   surfaces?: Record<string, SurfaceConfigEntry>;
   models?: ModelsConfig;

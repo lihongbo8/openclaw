@@ -66,6 +66,8 @@ describe("method scope resolution", () => {
     ["talk.session.submitToolResult", ["operator.write"]],
     ["talk.session.steer", ["operator.write"]],
     ["talk.session.close", ["operator.write"]],
+    ["aics.apiConnections.entry.test", ["operator.write"]],
+    ["aics.apiConnections.modelUsage.record", ["operator.write"]],
     ["update.status", ["operator.admin"]],
     ["config.schema", ["operator.admin"]],
     ["config.patch", ["operator.admin"]],

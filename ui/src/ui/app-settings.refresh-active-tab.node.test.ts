@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   loadAgentIdentityMock: vi.fn(async () => {}),
   loadAgentSkillsMock: vi.fn(async () => {}),
   loadAgentsMock: vi.fn(async () => {}),
+  loadToolsCatalogMock: vi.fn(async () => {}),
   loadChannelsMock: vi.fn<(hostValue: unknown, _probe: boolean) => Promise<void>>(async () => {}),
   loadConfigMock: vi.fn(async () => {}),
   loadConfigSchemaMock: vi.fn(async () => {}),
@@ -54,7 +55,6 @@ const mocks = vi.hoisted(() => ({
   loadSessionsMock: vi.fn(async () => {}),
   loadSkillsMock: vi.fn(async () => {}),
   loadUsageMock: vi.fn(async () => {}),
-  loadWorkboardMock: vi.fn(async () => {}),
   startDebugPollingMock: vi.fn(),
   startLogsPollingMock: vi.fn(),
   startNodesPollingMock: vi.fn(),
@@ -90,6 +90,7 @@ vi.mock("./controllers/agent-skills.ts", () => ({
 }));
 vi.mock("./controllers/agents.ts", () => ({
   loadAgents: mocks.loadAgentsMock,
+  loadToolsCatalog: mocks.loadToolsCatalogMock,
 }));
 vi.mock("./controllers/channels.ts", () => ({
   loadChannels: mocks.loadChannelsMock,
@@ -140,10 +141,6 @@ vi.mock("./controllers/skills.ts", () => ({
 vi.mock("./controllers/usage.ts", () => ({
   loadUsage: mocks.loadUsageMock,
 }));
-vi.mock("./controllers/workboard.ts", () => ({
-  loadWorkboard: mocks.loadWorkboardMock,
-}));
-
 import { loadChannelsTab, refreshActiveTab, setTab } from "./app-settings.ts";
 
 function createHost() {
@@ -170,6 +167,10 @@ function createHost() {
     selectedAgentId: null as string | null,
     settings: {},
     basePath: "",
+    refreshApiConnectionsReadModel: vi.fn(async () => {}),
+    refreshToolSupplyControlReadModel: vi.fn(async () => {}),
+    refreshMyRolesReadModel: vi.fn(async () => {}),
+    refreshAicsMainFlowReadModel: vi.fn(async () => {}),
   };
 }
 
@@ -233,6 +234,29 @@ describe("refreshActiveTab", () => {
     channels: [mocks.loadChannelsMock, false],
     tools: null,
   } as const;
+
+  it("refreshes skills and the local tool catalog for the Tool/Skill Store tab", async () => {
+    const host = createHost();
+    host.tab = "skills";
+
+    await refreshActiveTab(host as never);
+
+    expect(mocks.loadAgentsMock).toHaveBeenCalledWith(host);
+    expect(mocks.loadSkillsMock).toHaveBeenCalledWith(host);
+    expect(mocks.loadToolsCatalogMock).toHaveBeenCalledWith(host, "agent-b");
+  });
+
+  it("refreshes API management connections and usage when opened directly from its route", async () => {
+    const host = createHost();
+    host.tab = "apiManagement";
+
+    await refreshActiveTab(host as never);
+
+    expect(host.refreshApiConnectionsReadModel).toHaveBeenCalledOnce();
+    expect(host.refreshToolSupplyControlReadModel).toHaveBeenCalledOnce();
+    expect(host.refreshMyRolesReadModel).toHaveBeenCalledOnce();
+    expect(mocks.loadUsageMock).toHaveBeenCalledWith(host);
+  });
 
   it("syncs selected agent before refreshing the Dreams tab", async () => {
     const host = createHost();
@@ -332,7 +356,7 @@ describe("refreshActiveTab", () => {
     sessions.resolve();
   });
 
-  it("loads config before rendering session Workboard actions", async () => {
+  it("loads config before rendering sessions", async () => {
     const host = createHost();
     host.tab = "sessions";
 
@@ -342,7 +366,7 @@ describe("refreshActiveTab", () => {
     expect(mocks.loadSessionsMock).toHaveBeenCalledOnce();
   });
 
-  it("refreshes workboard cards with config, sessions, and agents", async () => {
+  it("refreshes task dispatch from AICS main flow instead of legacy Workboard cards", async () => {
     const host = createHost();
     host.tab = "workboard";
 
@@ -351,12 +375,7 @@ describe("refreshActiveTab", () => {
     expect(mocks.loadConfigMock).toHaveBeenCalledWith(host);
     expect(mocks.loadSessionsMock).toHaveBeenCalledWith(host);
     expect(mocks.loadAgentsMock).toHaveBeenCalledWith(host);
-    expect(mocks.loadWorkboardMock).toHaveBeenCalledWith({
-      host,
-      client: host.client,
-      force: true,
-      requestUpdate: host.requestUpdate,
-    });
+    expect(host.refreshAicsMainFlowReadModel).toHaveBeenCalledOnce();
   });
 
   it("starts node polling on Nodes tab entry and clears pending session reloads on tab changes", () => {

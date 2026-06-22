@@ -146,6 +146,7 @@ describe("loadSettings default gateway URL derivation", () => {
       navWidth: 220,
       navGroupsCollapsed: {},
       recentSessionsCollapsed: false,
+      hiddenRecentSessionKeys: [],
       borderRadius: 50,
       textScale: 100,
       sessionsByGateway: {
@@ -277,6 +278,7 @@ describe("loadSettings default gateway URL derivation", () => {
       navWidth: 220,
       navGroupsCollapsed: {},
       recentSessionsCollapsed: false,
+      hiddenRecentSessionKeys: [],
       borderRadius: 50,
       textScale: 100,
       sessionsByGateway: {
@@ -344,6 +346,37 @@ describe("loadSettings default gateway URL derivation", () => {
     >;
     expect(persisted.recentSessionsCollapsed).toBe(false);
     expect(loadSettings().recentSessionsCollapsed).toBe(false);
+  });
+
+  it("persists hidden recent sidebar sessions across save and load", () => {
+    setTestLocation({
+      protocol: "https:",
+      host: "gateway.example:8443",
+      pathname: "/",
+    });
+
+    const gwUrl = expectedGatewayUrl("");
+    saveSettings({
+      gatewayUrl: gwUrl,
+      token: "",
+      sessionKey: "main",
+      lastActiveSessionKey: "main",
+      theme: "claw",
+      themeMode: "system",
+      chatShowThinking: true,
+      chatShowToolCalls: true,
+      chatAutoScroll: "near-bottom",
+      splitRatio: 0.6,
+      navCollapsed: false,
+      navWidth: 220,
+      navGroupsCollapsed: {},
+      recentSessionsCollapsed: false,
+      hiddenRecentSessionKeys: ["agent:main:main", "agent:main:main", ""],
+      borderRadius: 50,
+      textScale: 100,
+    });
+
+    expect(loadSettings().hiddenRecentSessionKeys).toEqual(["agent:main:main"]);
   });
 
   it("normalizes persisted text scale to the nearest supported stop", () => {

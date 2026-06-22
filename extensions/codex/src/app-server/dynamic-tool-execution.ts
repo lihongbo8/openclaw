@@ -17,6 +17,7 @@ import {
 
 export const CODEX_DYNAMIC_TOOL_TIMEOUT_MS = 90_000;
 export const CODEX_DYNAMIC_TOOL_MAX_TIMEOUT_MS = 600_000;
+export const CODEX_DYNAMIC_DIJIE_ROLE_BUILDER_TOOL_TIMEOUT_MS = 300_000;
 const CODEX_DYNAMIC_IMAGE_GENERATION_TOOL_TIMEOUT_MS = 120_000;
 export const CODEX_DYNAMIC_IMAGE_TOOL_TIMEOUT_MS = 60_000;
 export const CODEX_DYNAMIC_MESSAGE_TOOL_TIMEOUT_MS = 120_000;
@@ -363,7 +364,9 @@ function readDynamicToolCallTimeoutMs(value: JsonValue | undefined): number | un
   if (!isJsonObject(value)) {
     return undefined;
   }
-  return readPositiveFiniteTimeoutMs(value.timeoutMs);
+  return (
+    readPositiveFiniteTimeoutMs(value.timeoutMs) ?? readPositiveFiniteTimeoutMs(value.timeout_ms)
+  );
 }
 
 function readConfiguredDynamicToolTimeoutMs(
@@ -390,6 +393,10 @@ function readConfiguredDynamicToolTimeoutMs(
 
   if (toolName === "message") {
     return CODEX_DYNAMIC_MESSAGE_TOOL_TIMEOUT_MS;
+  }
+
+  if (toolName === "dijie_role_builder") {
+    return CODEX_DYNAMIC_DIJIE_ROLE_BUILDER_TOOL_TIMEOUT_MS;
   }
 
   return undefined;

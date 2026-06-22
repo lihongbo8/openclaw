@@ -74,7 +74,7 @@ describe("Control UI mount fallback", () => {
     );
     expect(fallback.hidden).toBe(false);
     expect([...frameWindow.document.body.classList]).toEqual(["openclaw-mount-fallback-active"]);
-    expect(fallback.querySelector("h1")?.textContent?.trim()).toBe("Control UI did not start");
+    expect(fallback.querySelector("h1")?.textContent?.trim()).toBe("Console did not start");
     expect(fallback.querySelector("a")?.textContent?.trim()).toBe("Control UI troubleshooting");
     expect(frameWindow.document.activeElement).toBeInstanceOf(frameWindow.HTMLElement);
     expect([...(frameWindow.document.activeElement as HTMLElement).classList]).toEqual([
@@ -103,12 +103,7 @@ describe("Control UI mount fallback", () => {
     await frameWindow.customElements.whenDefined("openclaw-app");
     await waitForWindowTimeout(frameWindow, 35);
 
-    const fallback = requireElementById(
-      frameWindow,
-      "openclaw-mount-fallback",
-      frameWindow.HTMLElement,
-    );
-    expect(fallback.hidden).toBe(true);
+    expect(frameWindow.document.getElementById("openclaw-mount-fallback")).toBeNull();
     expect([...frameWindow.document.body.classList]).toEqual([]);
   });
 });

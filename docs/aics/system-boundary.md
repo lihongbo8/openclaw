@@ -84,13 +84,13 @@ real bridge slice:
 ```text
 dijie.executionToken.request
 -> UI supplies a transient cloud customer bearer and execution context
--> Gateway calls the 迭界AI岗位商场 execution-token API
+-> Gateway calls the 迭界AI岗位商城 execution-token API
 -> response fills the short-lived execution token in the local role-builder form
 -> if the grant includes executionId, the local audit-read field is filled too
 
 dijie.executionAudit.read
 -> UI supplies a transient cloud customer bearer and executionId
--> Gateway calls GET /dijie/executions/:executionId on the 迭界AI岗位商场
+-> Gateway calls GET /dijie/executions/:executionId on the 迭界AI岗位商城
 -> response returns the safe cloud execution audit projection
 -> cloud access tokens must be bearer-only inputs and must not be echoed in the result
 
@@ -119,6 +119,79 @@ execution authorization, and audit diagnostics while development is in progress,
 but the primary natural-language flow must stay in OpenClaw's existing main
 conversation surface.
 
+## Main System And Scheduler Correction
+
+The product is not a standalone "role workbench" page. The whole user-facing
+surface should become the 迭界AI main system / main conversation workbench:
+main conversation first, scheduler as the control center, roles as execution
+workers.
+
+Correct product structure:
+
+```text
+main conversation
+-> scheduler / control center
+-> role-layer execution
+-> RoleFeedbackPacket
+-> scheduler summarizes, evaluates, stores, and updates state
+-> UI renders tasks, results, cost, memory candidates, and next actions
+```
+
+Role-layer execution must not write the database, memory, task state, billing,
+or evolution records directly. A role returns a `RoleFeedbackPacket` only. The
+scheduler owns evaluation, persistence, memory candidates, evolution candidates,
+state transitions, and user-visible summaries.
+
+Final primary navigation should expose user-understandable capabilities:
+
+```text
+主对话
+我的岗位
+任务记录
+记忆与进化
+费用与授权
+岗位商城
+工具
+对话记录
+设置
+```
+
+Legacy OpenClaw technical surfaces such as control, agents, skills, nodes,
+dreams, activity, sessions, cron, debug, and logs should not stay as top-level
+end-user navigation. They move under `设置 -> 高级诊断 / 开发者工具`.
+
+The current build order may prioritize the product UI shell first so the user
+can judge navigation, layout, and module boundaries. That UI must still avoid
+fake static entry points and should mark unconnected areas as pending real
+scheduler/backbone data. The backend architecture slice must then define:
+
+```text
+RoleFeedbackPacket
+SchedulerState
+RoleCapabilityProfile
+MemoryCandidate
+EvolutionCandidate
+database storage and safe projections
+```
+
+The UI must render real scheduler and role state only. Static fake entry points
+or a separate role-workbench product page are out of scope.
+
+Evaluation and evolution are scheduler responsibilities. The planned framework
+roles are:
+
+```text
+agentevals -> evaluate tool traces, step quality, task completion
+DeepEval -> role capability test sets and regression
+DSPy -> later optimization of rubrics, few-shot examples, and judge prompts
+Mem0 -> recall layer only; database remains authoritative storage
+```
+
+The evolution targets are the scheduler's ability to judge role capability,
+capability rubrics, failure-mode libraries, test examples, dispatch strategy,
+role-improvement suggestions, and confirmed memory recall. Roles must not
+self-evolve or silently persist their own memory.
+
 ## Development Operating Model
 
 Future development on this architecture must use a three-agent model in both
@@ -133,7 +206,7 @@ planning agent A: OpenClaw fork / 迭界AI main system plan
 -> local app, Control UI, Gateway, device/session/workspace runtime
 -> risks around local execution, model/runtime identity, UI failure states
 
-planning agent B: Mercur/Medusa fork / 迭界AI岗位商场 plan
+planning agent B: Mercur/Medusa fork / 迭界AI岗位商城 plan
 -> account, orders, entitlement, one-time authorization, audit read/write
 -> risks around commerce truth, auth, review, listing lifecycle
 
@@ -150,7 +223,7 @@ sub-agent A: OpenClaw fork / 迭界AI main system
 -> local execution, OpenClaw-native runEmbeddedAgent, RoleResult/AuditSummary
 -> UI failure states and local validation
 
-sub-agent B: Mercur/Medusa fork / 迭界AI岗位商场
+sub-agent B: Mercur/Medusa fork / 迭界AI岗位商城
 -> account, orders, entitlement, one-time authorization
 -> execution token signing, audit upload, audit read model
 -> developer center, review, listing lifecycle
@@ -225,7 +298,7 @@ The 迭界AI main system does not own:
 ## Marketplace Layer
 
 The role marketplace uses Mercur/Medusa as the open-source base, branded as
-迭界AI岗位商场.
+迭界AI岗位商城.
 
 Mercur/Medusa provides the commerce and marketplace foundation:
 
@@ -237,7 +310,7 @@ Mercur/Medusa provides the commerce and marketplace foundation:
 - admin surface
 - storefront surface
 
-迭界AI岗位商场 owns business truth:
+迭界AI岗位商城 owns business truth:
 
 - developer account
 - buyer account
@@ -281,6 +354,13 @@ Rules:
   then starts OpenClaw main-system local execution in an isolated role-package
   workspace.
 - Gateway starts the local OpenClaw runtime work and streams execution events.
+- Role packages and cloud listings are stateless capability templates. They must not
+  contain user files, local role-instance runtime stores, role-instance working
+  memory, memory candidate source text, or private session history.
+- Before a role task starts, the local scheduler may assemble a local role runtime
+  context from the current workspace, role-instance runtime store, and
+  role-instance working memory. That context is injected into the local runtime;
+  it is not written into the role package or cloud listing metadata.
 - The current local AICS implementation can call OpenClaw-native
   `api.runtime.agent.runEmbeddedAgent` for confirmed role-builder execution.
   This is the preferred product direction because it uses the OpenClaw-derived
@@ -313,6 +393,10 @@ Rules:
   success when the cloud audit sink rejects or cannot persist the summary.
 - The marketplace never writes OpenClaw runtime tables directly.
 - OpenClaw never writes marketplace orders, entitlement, or review state directly.
+- Cloud audit/readback only receives safe summaries and sanitized artifact
+  metadata. Local private materials, role-instance runtime stores, working memory,
+  and raw memory candidates stay local unless a later explicit confirmation flow
+  promotes a safe summary.
 
 Minimum bridge context:
 
@@ -428,19 +512,25 @@ developer opens 迭界AI main system / developer center
 -> main system turns the confirmed conversation into a RoleBuildBrief
 -> isolated role-package workspace is created
 -> main system starts OpenClaw main-system local execution with only
-   RoleBuildContext
--> role_package/ is generated as a complete program package for the job role,
-   not only a text description or listing stub
+   RoleBuildContext through the package-only role-builder path
+-> role_package/ is generated as the job role's business brain: human job
+   process, business logic, experience, judgment rules, failure modes,
+   acceptance examples, and abstract local capability needs
 -> local validator requires role_package/manifest.json, listing.md, README.md,
-   one wrapper/adapter/example file, and one validation/smoke material
--> local RoleResult and AuditSummary are built from command result, changed files,
-   artifact metadata, tool usage, and validation status
--> optional or required cloud audit upload posts the AuditSummary to /dijie/audit
+   one business knowledge/workflow/experience material,
+   one wrapper/adapter/example file, one validation/smoke material, and
+   manifest.requiredCapabilities
+-> role_package/ must not ship browser/file/command/API/MCP implementation
+   tools or tool schemas; requiredCapabilities are interpreted through the
+   OpenClaw tools.catalog / tools.effective / tools.invoke protocol at
+   execution time
 -> validation/smoke status is visible in the local result
 -> developer downloads the generated role package
 -> developer uploads the role package to developer center for listing metadata,
    pricing, token pricing, review, and publishing
 -> marketplace review / publish / version lifecycle continues in cloud backend
+-> after buyer purchase/authorization, execution-token, RoleResult,
+   AuditSummary, audit upload, and billing readback happen in the execution flow
 ```
 
 The front-end contract is conversation-first. The main system may expose
@@ -519,7 +609,7 @@ The legacy Python ai_gongsi_kekong_xitong web app is not the product host. It ca
 temporarily as a business logic source while its useful logic is migrated into:
 
 1. OpenClaw fork for the 迭界AI main system / local app product body.
-2. Mercur/Medusa fork for 迭界AI岗位商场.
+2. Mercur/Medusa fork for 迭界AI岗位商城.
 3. 迭界AI Gateway Bridge API for execution linkage.
 
 Completion is judged by human use through the two-system product flow, not by

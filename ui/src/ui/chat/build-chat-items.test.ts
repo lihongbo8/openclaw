@@ -199,6 +199,41 @@ describe("buildChatItems", () => {
     ]);
   });
 
+  it("sanitizes internal AICS terms from displayed messages and streams", () => {
+    const items = buildChatItems(
+      createProps({
+        sanitizeInternalDisplay: true,
+        messages: [
+          {
+            role: "assistant",
+            content:
+              "RoleBuildBrief 已确认，调用 dijie_role_builder package_only 写 role_package/manifest.json，不需要 execution token，也不展示 systemPrompt。",
+            timestamp: 1,
+          },
+        ],
+        stream: "confirm_brief=true via Gateway",
+        streamStartedAt: 2,
+      }),
+    );
+    const groups = items.filter((item) => item.kind === "group");
+    const message = messageRecord(groups[0]);
+    const stream = items.find((item) => item.kind === "stream");
+    const rendered = JSON.stringify([message.content, stream]);
+
+    expect(rendered).toContain("岗位规格");
+    expect(rendered).toContain("岗位生成工具");
+    expect(rendered).toContain("岗位资料清单");
+    expect(rendered).toContain("执行授权");
+    expect(rendered).not.toContain("RoleBuildBrief");
+    expect(rendered).not.toContain("dijie_role_builder");
+    expect(rendered).not.toContain("package_only");
+    expect(rendered).not.toContain("role_package");
+    expect(rendered).not.toContain("execution token");
+    expect(rendered).not.toContain("confirm_brief");
+    expect(rendered).not.toContain("systemPrompt");
+    expect(rendered).not.toContain("Gateway");
+  });
+
   it("deduplicates accumulated stream snapshots around tool cards", () => {
     const items = buildChatItems(
       createProps({

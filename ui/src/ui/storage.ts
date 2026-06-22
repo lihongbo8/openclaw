@@ -93,6 +93,7 @@ export type UiSettings = {
   navWidth: number; // Sidebar width when expanded (240–400px)
   navGroupsCollapsed: Record<string, boolean>; // Which nav groups are collapsed
   recentSessionsCollapsed?: boolean; // Collapse recent sessions list in sidebar
+  hiddenRecentSessionKeys?: string[]; // Locally hidden protected/current sidebar sessions
   borderRadius: number; // Corner roundness (0–100, default 50)
   textScale?: TextScaleStop; // Browser-local text scale percentage
   customTheme?: ImportedCustomTheme;
@@ -154,6 +155,23 @@ function normalizeGatewayTokenScope(gatewayUrl: string): string {
 
 function tokenSessionKeyForGateway(gatewayUrl: string): string {
   return `${TOKEN_SESSION_KEY_PREFIX}${normalizeGatewayTokenScope(gatewayUrl)}`;
+}
+
+function normalizeHiddenRecentSessionKeys(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const normalized = new Set<string>();
+  for (const item of value) {
+    const key = normalizeOptionalString(item);
+    if (key) {
+      normalized.add(key);
+    }
+    if (normalized.size >= 50) {
+      break;
+    }
+  }
+  return [...normalized];
 }
 
 function resolveScopedSessionSelection(
@@ -236,6 +254,7 @@ export function loadSettings(): UiSettings {
     navWidth: 220,
     navGroupsCollapsed: {},
     recentSessionsCollapsed: false,
+    hiddenRecentSessionKeys: [],
     borderRadius: 50,
     textScale: 100,
   };
@@ -296,6 +315,7 @@ export function loadSettings(): UiSettings {
         typeof parsed.recentSessionsCollapsed === "boolean"
           ? parsed.recentSessionsCollapsed
           : defaults.recentSessionsCollapsed,
+      hiddenRecentSessionKeys: normalizeHiddenRecentSessionKeys(parsed.hiddenRecentSessionKeys),
       borderRadius:
         typeof parsed.borderRadius === "number" &&
         parsed.borderRadius >= 0 &&
@@ -422,6 +442,7 @@ function persistSettings(next: UiSettings) {
     navWidth: next.navWidth,
     navGroupsCollapsed: next.navGroupsCollapsed,
     recentSessionsCollapsed: next.recentSessionsCollapsed ?? false,
+    hiddenRecentSessionKeys: normalizeHiddenRecentSessionKeys(next.hiddenRecentSessionKeys),
     borderRadius: next.borderRadius,
     textScale: normalizeTextScale(next.textScale),
     ...(next.customTheme ? { customTheme: next.customTheme } : {}),

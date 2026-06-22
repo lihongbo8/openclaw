@@ -309,6 +309,7 @@ export function createRuntimeSecretsActivator(params: {
                       return await secretsRuntime.prepareSecretsRuntimeSnapshot({
                         config: sourceConfig,
                         env: fastPath.refreshContext.env,
+                        collectModelProviderSecrets: false,
                         agentDirs: resolveRefreshAgentDirs(sourceConfig, fastPath.refreshContext),
                         includeAuthStoreRefs:
                           includeAuthStoreRefs ?? fastPath.refreshContext.includeAuthStoreRefs,
@@ -332,6 +333,7 @@ export function createRuntimeSecretsActivator(params: {
                         (await secretsRuntime.prepareSecretsRuntimeSnapshot({
                           config: sourceConfig,
                           env: fastPath.refreshContext.env,
+                          collectModelProviderSecrets: false,
                           agentDirs: resolveRefreshAgentDirs(sourceConfig, fastPath.refreshContext),
                           includeAuthStoreRefs:
                             includeAuthStoreRefs ?? fastPath.refreshContext.includeAuthStoreRefs,
@@ -375,6 +377,7 @@ export function createRuntimeSecretsActivator(params: {
           () =>
             prepareRuntimeSecretsSnapshot({
               config: pruneSkippedStartupSecretSurfaces(config),
+              collectModelProviderSecrets: false,
               ...(startupManifestRegistry ? { manifestRegistry: startupManifestRegistry } : {}),
               ...(params.pluginMetadataSnapshot
                 ? { pluginMetadataSnapshot: params.pluginMetadataSnapshot }

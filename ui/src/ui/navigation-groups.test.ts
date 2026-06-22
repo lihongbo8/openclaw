@@ -1,44 +1,41 @@
 import { describe, expect, it } from "vitest";
 import {
+  SETTINGS_NAV_GROUPS,
   SETTINGS_TABS,
   TAB_GROUPS,
   isSettingsTab,
-  isTabInGroup,
   tabFromPath,
 } from "./navigation.ts";
 
 describe("TAB_GROUPS", () => {
-  it("collapses detailed settings slices into one sidebar entry", () => {
-    const settings = TAB_GROUPS.find((group) => group.label === "settings");
-    expect(settings?.tabs).toEqual(["config"]);
+  it("exposes only the final product entries in the primary sidebar", () => {
+    expect(TAB_GROUPS).toEqual([
+      {
+        label: "main",
+        tabs: [
+          "chat",
+          "businessOverview",
+          "observation",
+          "attribution",
+          "goals",
+          "company",
+          "workboard",
+          "aics",
+          "skills",
+          "apiManagement",
+          "usage",
+          "sessions",
+          "dreams",
+          "config",
+        ],
+      },
+    ]);
     expect(SETTINGS_TABS.every((tab) => isSettingsTab(tab))).toBe(true);
   });
 
-  it("keeps business workbench routes out of the primary control sidebar", () => {
-    const aics = TAB_GROUPS.find((group) => group.label === "aics");
-    const control = TAB_GROUPS.find((group) => group.label === "control");
-    expect(aics?.tabs).toEqual(["aics", "workboard", "chat"]);
-    expect(control?.tabs).toEqual([
-      "overview",
-      "activity",
-      "instances",
-      "sessions",
-      "usage",
-      "cron",
-    ]);
-    expect(SETTINGS_TABS).toContain("channels");
-  });
-
-  it("keeps the settings group active for nested settings routes", () => {
-    const settings = TAB_GROUPS.find((group) => group.label === "settings");
-    if (!settings) {
-      throw new Error("Expected settings group");
-    }
-
-    expect(isTabInGroup(settings, "appearance")).toBe(true);
-    expect(isTabInGroup(settings, "channels")).toBe(true);
-    expect(isTabInGroup(settings, "debug")).toBe(true);
-    expect(isTabInGroup(settings, "chat")).toBe(false);
+  it("moves legacy technical routes into settings groups", () => {
+    expect(SETTINGS_NAV_GROUPS).toEqual([{ label: "Settings", tabs: ["appearance"] }]);
+    expect(SETTINGS_TABS).toEqual(["appearance"]);
   });
 
   it("routes every published settings slice", () => {
@@ -49,5 +46,10 @@ describe("TAB_GROUPS", () => {
     expect(tabFromPath("/ai-agents")).toBe("aiAgents");
     expect(tabFromPath("/config")).toBe("config");
     expect(tabFromPath("/channels")).toBe("channels");
+    expect(tabFromPath("/overview")).toBe("overview");
+    expect(tabFromPath("/activity")).toBe("activity");
+    expect(tabFromPath("/cron")).toBe("cron");
+    expect(tabFromPath("/debug")).toBe("debug");
+    expect(tabFromPath("/logs")).toBe("logs");
   });
 });

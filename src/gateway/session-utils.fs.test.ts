@@ -1522,6 +1522,41 @@ describe("readLatestSessionUsageFromTranscript", () => {
     });
   });
 
+  test("includes transcript message id in latest recent usage snapshots", async () => {
+    const sessionId = "usage-message-id";
+    writeTranscript(tmpDir, sessionId, [
+      { type: "session", version: 1, id: sessionId },
+      {
+        message: {
+          role: "assistant",
+          provider: "deepseek",
+          model: "deepseek-v4-flash",
+          usage: {
+            input: 640,
+            output: 160,
+          },
+          __openclaw: { id: "msg_usage_1" },
+        },
+      },
+    ]);
+
+    await expect(
+      readLatestRecentSessionUsageFromTranscriptAsync(
+        sessionId,
+        storePath,
+        undefined,
+        undefined,
+        64 * 1024,
+      ),
+    ).resolves.toMatchObject({
+      messageId: "msg_usage_1",
+      modelProvider: "deepseek",
+      model: "deepseek-v4-flash",
+      inputTokens: 640,
+      outputTokens: 160,
+    });
+  });
+
   test("aggregates assistant usage across the full transcript and keeps the latest context snapshot", () => {
     const sessionId = "usage-aggregate";
     writeTranscript(tmpDir, sessionId, [
